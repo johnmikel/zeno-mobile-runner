@@ -4,7 +4,7 @@
 
 **Product Thesis:** ZMR should feel like Playwright for mobile agents: fast typed control, rich observations, deterministic traces, and reliable isolation. It should beat shell-driven mobile automation by moving orchestration, waits, retries, traces, and protocol handling into a small Zig core while delegating platform-specific state and interaction to focused native adapters.
 
-**Current State:** `0.1.0-dev.3` local dev preview. Android pilot flows exist. iOS simulator lifecycle, snapshot, and selector actions are supported through `simctl` plus the XCTest shim. Coverage gate is above 90%. Demo traces can be generated without an emulator.
+**Current State:** `0.1.0` local dev preview. Android pilot flows exist. iOS simulator lifecycle, snapshot, and selector actions are supported through `simctl` plus the XCTest shim. Coverage gate is above 90%. Demo traces can be generated without an emulator.
 
 ---
 
@@ -235,7 +235,7 @@ Acceptance:
 
 ## Suggested Release Milestones
 
-### `v0.1.0-dev.3`: Public Dev Preview
+### `v0.1.0`: Public Dev Preview
 
 Scope:
 - Current Android runner.

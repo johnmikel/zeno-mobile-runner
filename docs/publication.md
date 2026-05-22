@@ -34,7 +34,7 @@ artifacts. `.gitignore` excludes `traces/`, `dist/`, `zig-out/`, Zig caches,
 3. Confirm CI runs `./scripts/release-gate.sh`.
 4. Configure branch protection for `main`.
 5. Add `NPM_TOKEN` only when npm publish should be automated.
-6. For the current dev-preview package, create and push tag `v0.1.0-dev.3`.
+6. For the current dev-preview package, create and push tag `v0.1.0`.
 
 The release workflow builds release archives, generates checksums, verifies
 packaged binaries, builds the npm tarball with prebuilt binaries, uploads GitHub

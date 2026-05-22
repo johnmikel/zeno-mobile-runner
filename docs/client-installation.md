@@ -14,7 +14,7 @@ in that language.
 Today, install the GitHub release tarball:
 
 ```bash
-npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0-dev.3/zig-mobile-runner-0.1.0-dev.3.tgz
+npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0/zig-mobile-runner-0.1.0.tgz
 npx zmr version
 ```
 

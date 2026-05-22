@@ -151,7 +151,7 @@ Run the pilot gates before publishing reliability or performance claims.
 2. Run the Android and iOS pilot scenarios if emulator/simulator app builds are available.
 3. If publishing signed macOS archives, run `./scripts/sign-macos-release.sh --identity "<Developer ID Application identity>"` after `./scripts/build-release.sh`.
 4. If publishing notarized macOS archives, run `./scripts/notarize-macos-release.sh --keychain-profile "<notarytool profile>"`, then rerun `./scripts/verify-release-artifacts.sh`.
-5. Create the tag `v0.1.0-dev.3` for the current package version. Bump
+5. Create the tag `v0.1.0` for the current package version. Bump
    `src/version.zig` and `package.json` before using a different tag.
 6. Push the tag; `.github/workflows/release.yml` builds archives, smokes the host-compatible packaged binary, builds `dist/zig-mobile-runner-*.tgz`, publishes GitHub artifact attestation, and uploads checksums, SBOM, third-party notices, `RELEASE_MANIFEST.json`, the npm tarball, and the generated Homebrew formula.
 7. If `NPM_TOKEN` is configured, the release workflow publishes the npm tarball with `npm publish dist/zig-mobile-runner-*.tgz --provenance --access public`. Without that secret, the workflow skips npm publish but still uploads the tarball for manual inspection.

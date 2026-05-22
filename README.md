@@ -43,7 +43,7 @@ wizard command.
 Today, install the release tarball from GitHub:
 
 ```bash
-npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0-dev.3/zig-mobile-runner-0.1.0-dev.3.tgz
+npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0/zig-mobile-runner-0.1.0.tgz
 npx zmr-wizard --app-id com.example.mobiletest --package-json
 npx zmr doctor --strict --json --config .zmr/config.json
 ```
@@ -204,7 +204,7 @@ and [docs/ai-agents.md](docs/ai-agents.md).
 | iOS physical device | Supported, evidence-gated | `devicectl` lifecycle plus app-local XCTest/XCUIAutomation shim; run the physical pilot before claiming device reliability |
 | Cloud device farms | Not yet | Planned after local matrix certification |
 
-Current release: `0.1.0-dev.3` developer preview. Protocol version:
+Current release: `0.1.0` developer preview. Protocol version:
 `2026-04-28`. Latest local coverage run: `94.40%` line coverage.
 
 ## Documentation

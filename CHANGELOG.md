@@ -4,6 +4,8 @@ All notable changes to Zig Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.1.0 (2026-05-22)
+
 ### Added
 
 - `zmr doctor` for local environment diagnostics across Zig, ADB, Android devices, `xcrun`, and iOS simulators.

@@ -33,18 +33,11 @@ while IFS= read -r path; do
   done
 done < <(find . \( "${exclude_dirs[@]}" \) -prune -o -type f -print)
 
-for term in "${deny_terms[@]}"; do
-  if rg -n -i "$term" . \
-    --glob '!/.git/**' \
-    --glob '!.zig-cache/**' \
-    --glob '!zig-cache/**' \
-    --glob '!zig-out/**' \
-    --glob '!dist/**' \
-    --glob '!traces/**' \
-    --glob '!prebuilds/**' \
-    --glob '!node_modules/**' \
-    --glob '!scripts/__pycache__/**'; then
-    echo "denied private term in file contents" >&2
-    exit 1
-  fi
-done
+while IFS= read -r path; do
+  for term in "${deny_terms[@]}"; do
+    if LC_ALL=C grep -nI -i -E "$term" "$path" >/dev/null 2>&1; then
+      echo "denied private term in file contents: $path" >&2
+      exit 1
+    fi
+  done
+done < <(find . \( "${exclude_dirs[@]}" \) -prune -o -type f -print)

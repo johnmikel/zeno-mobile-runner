@@ -3,7 +3,7 @@
 This audit maps the release objective to concrete evidence. Treat it as the
 source of truth before tagging a public release or making competitive claims.
 
-Current status: **ready for `0.1.0-dev.3` developer preview**. Not production-stable.
+Current status: **ready for `0.1.0` developer preview**. Not production-stable.
 
 Latest release-candidate evidence:
 
@@ -84,7 +84,7 @@ runs and at least 20 baseline runs.
 
 Use this wording for the current release:
 
-> ZMR `0.1.0-dev.3` is a public developer preview for local, agent-native
+> ZMR `0.1.0` is a public developer preview for local, agent-native
 > mobile automation. It is not production-stable yet. Production and competitive
 > claims require the release-readiness evidence gates.
 

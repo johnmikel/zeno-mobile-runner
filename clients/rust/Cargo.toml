@@ -1,6 +1,6 @@
 [package]
 name = "zmr-client"
-version = "0.1.0-dev.3"
+version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Rust JSON-RPC client for Zig Mobile Runner."

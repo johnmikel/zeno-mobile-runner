@@ -56,7 +56,7 @@ require_file .github/ISSUE_TEMPLATE/config.yml
 require_grep '^# Zig Mobile Runner$' README.md
 require_grep 'Agent-native mobile UI automation' README.md
 require_grep 'registry package is pending publish' README.md
-require_grep 'npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0-dev.3' README.md
+require_grep 'npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0' README.md
 require_grep '## Scenario Example' README.md
 require_grep 'assertHealthy' README.md
 require_grep 'JSON is strict' README.md

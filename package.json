@@ -1,6 +1,6 @@
 {
   "name": "zig-mobile-runner",
-  "version": "0.1.0-dev.3",
+  "version": "0.1.0",
   "description": "Agent-native mobile app test runner powered by Zig.",
   "main": "npm/index.mjs",
   "repository": {
@@ -79,6 +79,8 @@
     "!scripts/verify-release-artifacts.sh",
     "!scripts/__pycache__/",
     "!scripts/**/*.pyc",
+    "!scripts/_codex_write_test.txt",
+    "!scripts/python_redirect_test.txt",
     "build.zig",
     "build.zig.zon",
     "README.md",

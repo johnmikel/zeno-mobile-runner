@@ -9,21 +9,22 @@ deny_terms=(
   "(^|[^[:alpha:]])ren""tly([^[:alpha:]]|$)"
   "uk[.]co[.]ren""tly"
   "ren""tlytest"
+  "cod""ex"
+  "app""ium"
+  "mae""stro"
+  "det""ox"
+  "browser""stack"
+  "sauce""labs"
+  "sauce"" labs"
+  "firebase"" test ""lab"
+  "kobi""ton"
+  "perfect""o"
+  "testri""gor"
+  "kata""lon"
+  "lambda""test"
 )
 
-exclude_dirs=(
-  -path ./.git -o
-  -path ./.zig-cache -o
-  -path ./zig-cache -o
-  -path ./zig-out -o
-  -path ./dist -o
-  -path ./traces -o
-  -path ./prebuilds -o
-  -path ./node_modules -o
-  -path './scripts/__pycache__'
-)
-
-while IFS= read -r path; do
+while IFS= read -r -d '' path; do
   lower="$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')"
   for term in "${deny_terms[@]}"; do
     if [[ "$lower" =~ $term ]]; then
@@ -31,13 +32,11 @@ while IFS= read -r path; do
       exit 1
     fi
   done
-done < <(find . \( "${exclude_dirs[@]}" \) -prune -o -type f -print)
 
-while IFS= read -r path; do
   for term in "${deny_terms[@]}"; do
     if LC_ALL=C grep -nI -i -E "$term" "$path" >/dev/null 2>&1; then
       echo "denied private term in file contents: $path" >&2
       exit 1
     fi
   done
-done < <(find . \( "${exclude_dirs[@]}" \) -prune -o -type f -print)
+done < <(git ls-files -z)

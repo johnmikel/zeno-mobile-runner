@@ -124,8 +124,7 @@ require_grep 'pip install' docs/client-installation.md
 require_grep 'go get' docs/client-installation.md
 require_grep 'zmr-client' docs/client-installation.md
 require_grep 'Market Positioning' docs/market-positioning.md
-require_grep 'Detox' docs/market-positioning.md
-require_grep 'Maestro' docs/market-positioning.md
+require_grep 'existing market rewards' docs/market-positioning.md
 require_grep 'GitHub README plus release assets' docs/market-positioning.md
 
 require_grep 'Architecture Decisions' docs/adr/README.md

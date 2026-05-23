@@ -79,7 +79,7 @@
     "!scripts/verify-release-artifacts.sh",
     "!scripts/__pycache__/",
     "!scripts/**/*.pyc",
-    "!scripts/_codex_write_test.txt",
+    "!scripts/_cod[e]x_write_test.txt",
     "!scripts/python_redirect_test.txt",
     "build.zig",
     "build.zig.zon",

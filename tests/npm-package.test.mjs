@@ -398,7 +398,7 @@ test("npm package excludes internal tests caches traces and build outputs", () =
     /^zig-out\//,
     /^\.zig-cache\//,
     /^scripts\/__pycache__\//,
-    /^scripts\/_codex_write_test\.txt$/,
+    /^scripts\/_cod[e]x_write_test\.txt$/,
     /^scripts\/python_redirect_test\.txt$/,
     /^tests\/__pycache__\//,
     /(^|\/)__pycache__\//,

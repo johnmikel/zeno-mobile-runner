@@ -6,22 +6,11 @@ drop-in replacement for every existing runner on day one.
 
 ## What The Market Rewards
 
-Detox positions itself as a React Native E2E framework with gray-box
-synchronization, JavaScript tests, and CI workflows. Its docs emphasize that
-gray-box access helps reduce flakiness by observing app internals, and its
-README shows tests written with `element(by.id(...))` and Jest-style
-assertions.
-
-Maestro positions itself around simple YAML flows, quick setup, visual tooling,
-cloud, and broad platform support. Its public docs call Maestro a YAML-based
-mobile and web UI automation framework. The `maestro-runner` project positions
-itself as a single-binary alternative that runs existing YAML flows and claims
-Android, iOS, web, cloud, reports, JavaScript scripting, and parallel execution.
-
-Lightpanda is a fast Zig browser runtime with CDP and MCP surfaces. It is a
-useful architectural reference for a small native automation engine, but it is
-web-first. ZMR should not clone browser automation. Its opportunity is a
-mobile-native equivalent: device lifecycle, app install/launch/clear state,
+The existing market rewards frameworks that feel easy to start, expose stable
+selectors and waits, produce useful reports, and run well in CI. Some tools lean
+on app internals, some use simple flow files, and some emphasize hosted device
+coverage. ZMR should avoid copying those surfaces directly. Its opportunity is a
+mobile-native control plane: device lifecycle, app install/launch/clear state,
 accessibility trees, selector actions, logs, screenshots, trace bundles, and
 physical-device workflows.
 
@@ -79,10 +68,3 @@ Do not create a marketing-only site before the npm package and repeated device
 evidence are in place. The strongest market fit is a clean first-run path that
 actually works.
 
-## Sources
-
-- Detox GitHub repository: https://github.com/wix/Detox
-- Detox getting started docs: https://wix.github.io/Detox/docs/introduction/getting-started/
-- Maestro docs: https://docs.maestro.dev/
-- maestro-runner GitHub repository: https://github.com/devicelab-dev/maestro-runner
-- Lightpanda browser repository: https://github.com/lightpanda-io/browser

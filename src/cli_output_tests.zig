@@ -99,7 +99,7 @@ test "import json shell quotes next command with spaces in path" {
         .step_count = 2,
     };
 
-    try cli_output.writeImportJson(json.writer(allocator), "maestro", "/tmp/mobile app/source flow.yaml", result);
+    try cli_output.writeImportJson(json.writer(allocator), "flow-yaml", "/tmp/mobile app/source flow.yaml", result);
 
     try std.testing.expect(std.mem.indexOf(u8, json.items, "\"out\":\"/tmp/mobile app/imported flow.json\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.items, "\"next\":\"zmr validate '/tmp/mobile app/imported flow.json'\"") != null);

@@ -3,6 +3,7 @@ const android_emulator = @import("android_emulator.zig");
 
 test "android emulator preflight resets boots from snapshot and waits ready" {
     const allocator = std.testing.allocator;
+    try std.fs.cwd().makePath("zig-cache");
     const log_path = "zig-cache/test-android-emulator-preflight.log";
     std.fs.cwd().deleteFile(log_path) catch {};
     defer std.fs.cwd().deleteFile(log_path) catch {};
@@ -26,6 +27,7 @@ test "android emulator preflight resets boots from snapshot and waits ready" {
 
 test "android emulator preflight creates missing avd before boot" {
     const allocator = std.testing.allocator;
+    try std.fs.cwd().makePath("zig-cache");
     const log_path = "zig-cache/test-android-emulator-create.log";
     std.fs.cwd().deleteFile(log_path) catch {};
     defer std.fs.cwd().deleteFile(log_path) catch {};

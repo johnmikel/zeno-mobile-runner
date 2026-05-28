@@ -1,6 +1,6 @@
 # Features
 
-Zig Mobile Runner is a local, agent-native mobile test runner for Android,
+Zeno Mobile Runner is a local, agent-native mobile test runner for Android,
 iOS simulators, and physical iOS devices. It is designed for external agents and normal test files: ZMR
 controls devices, exposes typed observations, executes actions, waits for UI
 state, and writes deterministic traces. It does not embed an LLM.
@@ -20,7 +20,7 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 ## App Integration
 
-- npm-first installation with `zig-mobile-runner` as a dev dependency.
+- npm-first installation with `zeno-mobile-runner` as a dev dependency.
 - `npx zmr-wizard` scaffolds `.zmr/config.json`, Android and iOS smoke
   scenarios, optional app package scripts, and `traces/` gitignore rules.
 - `zmr init --app` provides the same app-local bootstrap for source and archive
@@ -89,18 +89,17 @@ state, and writes deterministic traces. It does not embed an LLM.
 - Release archive builder with checksums, SPDX SBOM, third-party notices,
   generated Homebrew formula, and `RELEASE_MANIFEST.json`.
 - npm package tarball generation with bundled prebuilt binaries.
-- `zmr-release-readiness` checks release-candidate evidence for dev-preview,
-  production, or market-claim readiness before maintainers publish or make
-  competitive claims.
+- `zmr-release-readiness` checks repeated app/device evidence for teams that
+  want a machine-readable readiness summary.
 - Tagged release workflow with artifact attestation and optional npm
   provenance publishing.
 - Security, contribution, trace privacy, troubleshooting, protocol versioning,
-  app integration, benchmarking, and publication docs.
+  app integration, benchmarking, and npm packaging docs.
 - Reusable agent skill under `skills/zmr-mobile-testing/`.
 
 ## Current Limitations
 
-- Current release status is `0.1.0`, a public developer preview rather than
+- Current release status is `0.1.2`, a public developer preview rather than
   a production-stable `1.0.0`.
 - Physical iOS log capture is still simulator-first. Physical iOS screenshots
   are available when the XCTest/XCUIAutomation shim is configured.

@@ -1,9 +1,9 @@
 [package]
 name = "zmr-client"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 license = "MIT"
-description = "Rust JSON-RPC client for Zig Mobile Runner."
+description = "Rust JSON-RPC client for Zeno Mobile Runner."
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

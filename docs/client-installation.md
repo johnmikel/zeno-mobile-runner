@@ -5,31 +5,23 @@ ZMR has two layers:
 1. The `zmr` binary controls devices, runs scenarios, serves JSON-RPC, and writes traces.
 2. Language clients are optional wrappers around `zmr serve --transport stdio`.
 
-For fastest adoption, install the binary once with npm, a release tarball, or
-Homebrew. Then use a language client only when you want tests or agents written
-in that language.
+For fastest adoption, install the binary once with npm or Homebrew. Then use a
+language client only when you want tests or agents written in that language.
 
 ## Binary First
 
-Today, install the GitHub release tarball:
+Install from npm inside the app repo:
 
 ```bash
-npm install --save-dev https://github.com/johnmikel/zig-mobile-runner/releases/download/v0.1.0/zig-mobile-runner-0.1.0.tgz
-npx zmr version
-```
-
-After the npm registry package is published:
-
-```bash
-npm install --save-dev zig-mobile-runner
+npm install --save-dev zeno-mobile-runner
 npx zmr-wizard --app-id com.example.mobiletest --package-json
+npx zmr version
 ```
 
 Homebrew is the best install path for non-JavaScript teams because it gives any
 language the same `zmr` executable:
 
 ```bash
-# Today, after downloading or building a release archive:
 brew install --build-from-source ./dist/homebrew/zmr.rb
 
 # Intended tap install after the tap is published:
@@ -40,11 +32,11 @@ brew install zmr
 ## TypeScript
 
 ```bash
-npm install --save-dev zig-mobile-runner
+npm install --save-dev zeno-mobile-runner
 ```
 
 ```js
-import { createZmrClient } from "zig-mobile-runner/clients/typescript/index.mjs";
+import { createZmrClient } from "zeno-mobile-runner/clients/typescript/index.mjs";
 
 const zmr = createZmrClient({
   command: "zmr",
@@ -55,7 +47,7 @@ const zmr = createZmrClient({
 ## Python
 
 ```bash
-python3 -m pip install "git+https://github.com/johnmikel/zig-mobile-runner.git#subdirectory=clients/python"
+python3 -m pip install "git+https://github.com/johnmikel/zeno-mobile-runner.git#subdirectory=clients/python"
 ```
 
 ```python
@@ -69,7 +61,7 @@ with ZmrClient("zmr", ["serve", "--transport", "stdio", "--config", ".zmr/config
 ## Go
 
 ```bash
-go get github.com/johnmikel/zig-mobile-runner/clients/go@main
+go get github.com/johnmikel/zeno-mobile-runner/clients/go@main
 ```
 
 ```go
@@ -82,12 +74,12 @@ Until the Rust client is published as its own crate, add the repository as a
 vendor checkout or submodule and depend on the client package by path:
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
 ```
 
 ```toml
 [dependencies]
-zmr-client = { path = "vendor/zig-mobile-runner/clients/rust" }
+zmr-client = { path = "vendor/zeno-mobile-runner/clients/rust" }
 ```
 
 ```rust
@@ -101,11 +93,11 @@ registry entry, add the repository as a vendor checkout or submodule and use a
 local SwiftPM package path:
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
 ```
 
 ```swift
-.package(path: "vendor/zig-mobile-runner/clients/swift")
+.package(path: "vendor/zeno-mobile-runner/clients/swift")
 ```
 
 The Swift client is for macOS agent/test tools. It is not embedded in the iOS
@@ -116,8 +108,8 @@ app under test.
 Use the Kotlin client as source or build a local jar:
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
-gradle -p vendor/zig-mobile-runner/clients/kotlin build
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
+gradle -p vendor/zeno-mobile-runner/clients/kotlin build
 ```
 
 ```kotlin

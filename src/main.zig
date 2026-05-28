@@ -103,7 +103,7 @@ fn exitCodeForError(err: anyerror) u8 {
 fn usage() !void {
     const stdout = std.fs.File.stdout().deprecatedWriter();
     try stdout.writeAll(
-        \\zmr - Zig Mobile Runner
+        \\zmr - Zeno Mobile Runner
         \\
         \\Commands:
         \\  zmr version [--json]
@@ -128,8 +128,4 @@ fn usage() !void {
         \\assertNotVisible, assertNoneVisible, assertHealthy, snapshot, sleep. Any step may use "optional": true.
         \\
     );
-}
-
-test {
-    _ = @import("test_harness.zig");
 }

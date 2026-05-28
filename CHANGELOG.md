@@ -1,8 +1,31 @@
 # Changelog
 
-All notable changes to Zig Mobile Runner are tracked here.
+All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
+
+## 0.1.2 (2026-05-28)
+
+### Fixed
+
+- Fixed the npm postinstall build path so packages installed without prebuilt
+  binaries build a runnable `zmr` executable from source.
+- Moved the internal Zig test harness out of the executable entrypoint so the
+  published npm package can omit test-only source files safely.
+
+## 0.1.1 (2026-05-28)
+
+### Changed
+
+- Reworked the public README around npm installation, React Native, Expo,
+  Flutter, native Android/iOS, and AI-agent mobile testing.
+- Demoted language clients in the public positioning so TypeScript and Python
+  are presented as common starting points, while Go, Rust, Swift, and Kotlin
+  remain reference integrations.
+- Removed release process, readiness, and positioning notes from the public
+  documentation tree.
+- Added a framework guide for React Native selectors, Expo dev-client setup, and
+  Flutter platform-level semantics support.
 
 ## 0.1.0 (2026-05-22)
 
@@ -17,10 +40,7 @@ All notable changes to Zig Mobile Runner are tracked here.
 - Top-level CLI failures now print stable `error[code]` messages instead of
   Zig stack traces.
 - JSON-RPC execution errors now include `publicCode` when a stable code is available.
-- Product roadmap in `docs/roadmap.md`.
 - Demo documentation in `docs/demo.md`.
-- Release evidence checklist in `docs/release-evidence.md` mapping product
-  claims to concrete commands and required artifacts.
 - Machine-readable protocol compatibility metadata in `runner.capabilities`.
 - Go and Rust reference JSON-RPC clients with fake-session examples and CI
   coverage.
@@ -39,7 +59,7 @@ All notable changes to Zig Mobile Runner are tracked here.
 - Feature catalog in `FEATURES.md`.
 - Architecture decision records under `docs/adr/`.
 - AI agent integration guide in `docs/ai-agents.md`.
-- Simplified market-facing README plus dedicated DSL, client, and positioning docs.
+- Simplified public README plus dedicated scenario authoring and client docs.
 - Client installation guide for npm, Homebrew, TypeScript, Python, Go, Rust,
   Swift, and Kotlin.
 - SwiftPM and Kotlin/JVM reference clients for host-side native mobile team
@@ -49,28 +69,20 @@ All notable changes to Zig Mobile Runner are tracked here.
   client demos.
 - Kotlin/JVM client calls now reject JSON-RPC error responses instead of
   returning error payloads as successful raw strings.
-- `scripts/release-candidate.sh` now generates release-candidate evidence in
-  local, hardware, or combined modes from a source checkout.
-- Hardware release-candidate evidence rows now include structured thresholds,
-  app root, app id, app artifact, and device identifiers for readiness checks.
 - The npm package keeps `zmr-release-readiness` for app-local evidence checks
-  but does not expose maintainer-only release-candidate tooling as an app
-  install command.
+  but keeps source-only helper scripts out of the app install command surface.
 - `zmr-release-readiness` / `scripts/release-readiness.sh` now converts
-  release-candidate `evidence.jsonl` into explicit dev-preview, production,
-  or market-claim readiness decisions with missing evidence listed for agents
-  and maintainers.
+  app-local `evidence.jsonl` into explicit readiness summaries with missing
+  evidence listed for agents.
 - `schemas/release-readiness-output.schema.json` and `zmr schemas --json`
-  metadata for agent-readable release evidence gate output.
+  metadata for agent-readable evidence output.
 - `zmr-release-readiness --json` now includes `nextSteps` commands for missing
-  evidence so agents can continue blocked release gates without scraping text.
+  evidence so agents can continue blocked checks without scraping text.
 - `zmr-release-readiness --json` now includes per-requirement status rows so
-  agents can see which evidence satisfied a release claim and which evidence
-  was missing, failed, planned, or insufficient.
-- Market-claim readiness now rejects benchmark evidence that does not prove the
-  documented pass-rate, zero-failure, mean-speedup, and p95-speedup thresholds.
-- `zmr-compare-benchmarks` now supports `--evidence-out` so competitive
-  benchmark comparisons can append market-claim readiness evidence directly.
+  agents can see which evidence was satisfied, missing, failed, planned, or
+  insufficient.
+- `zmr-compare-benchmarks` now supports `--evidence-out` so benchmark
+  comparisons can append structured evidence directly.
 - `zmr-assert-ios-physical-ready` now accepts `--xcrun`, and
   `zmr-pilot-gate` forwards custom `--xcrun` paths into the physical iOS
   readiness preflight as well as the iOS pilot run.
@@ -79,15 +91,15 @@ All notable changes to Zig Mobile Runner are tracked here.
 - `zmr-pilot-gate` now records structured app-root and iOS app-artifact
   evidence, and iOS pilots require `--ios-app-root` so production-readiness
   evidence names the tested app source and build.
-- Local release-candidate evidence now runs the generated public iOS simulator
-  demo five times by default, with `--local-ios-demo-runs <n>` for explicit
-  release-candidate tuning.
-- Local release-candidate evidence can now run the generated public Android
+- Local readiness evidence now runs the generated public iOS simulator demo
+  five times by default, with `--local-ios-demo-runs <n>` for explicit run-count
+  tuning.
+- Local readiness evidence can now run the generated public Android
   emulator demo with `--local-android-avd <name>`, `--local-android-device`,
   and `--local-android-demo-runs <n>`.
-- `scripts/assert-ios-physical-ready.sh` now makes release-candidate hardware
-  mode fail unless the requested physical iOS device is present and ready, with
-  retries for transient CoreDevice list failures.
+- `scripts/assert-ios-physical-ready.sh` now makes hardware readiness mode fail
+  unless the requested physical iOS device is present and ready, with retries
+  for transient CoreDevice list failures.
 - `zmr doctor` now keeps physical iOS checks actionable on multi-device
   machines by reporting disconnected/unavailable device counts even when one
   physical device is ready.
@@ -306,9 +318,9 @@ All notable changes to Zig Mobile Runner are tracked here.
 - Native selector wait timeouts now capture one final snapshot when possible,
   giving iOS XCTest-shim failures the same visible text and candidate
   diagnostics as snapshot-based waits.
-- Added `scripts/sign-macos-release.sh` for credentialed maintainers to sign
+- Added `scripts/sign-macos-release.sh` for credentialed release users to sign
   macOS release archives and refresh checksums before upload.
-- Added `scripts/notarize-macos-release.sh` for credentialed maintainers to
+- Added `scripts/notarize-macos-release.sh` for credentialed release users to
   submit signed macOS archives to Apple notarytool, persist receipts, and
   refresh release metadata before upload.
 - iOS simulator `clearState` is now idempotent when the app is already uninstalled and documented as best-effort uninstall by bundle id.
@@ -426,8 +438,8 @@ All notable changes to Zig Mobile Runner are tracked here.
   runs can exercise physical iOS devices through the same `zmr run` flag used
   by pilot gates.
 - Added `zmr-compare-benchmarks` / `scripts/compare-benchmarks.py` for generic
-  candidate-vs-baseline benchmark comparison reports without naming private app
-  projects or third-party tools in public fixtures.
+  candidate-vs-baseline benchmark reports without naming app projects or
+  third-party tools in public fixtures.
 - Added `zmr-demo-ios` and `zmr-create-ios-demo-app` flows for a generic
   simulator app with the XCTest shim installed, selector-grade smoke scenario,
   and redacted trace output.
@@ -461,15 +473,16 @@ All notable changes to Zig Mobile Runner are tracked here.
   build outputs while keeping runtime source, prebuilds, docs, examples, shims,
   schemas, viewer assets, release scripts, and language clients available.
 - Shipped TypeScript and Rust client metadata now matches the runner
-  `0.1.0-dev.1` prerelease, with package tests guarding future drift.
+  prerelease, with package tests guarding future drift.
 
 ### Known Limitations
 
 - Physical iOS log capture is not complete yet.
 - Broad cloud-device-farm certification is not included in this dev-preview
   release.
-- Real app benchmark claims should be made from private app-local
-  `zmr-compare-benchmarks` reports, not from generic public fixtures.
+- Real app performance summaries should come from equivalent app-local
+  candidate and baseline `zmr-compare-benchmarks` reports, not from generic
+  public fixtures.
 
 ## 0.1.0-dev.1
 

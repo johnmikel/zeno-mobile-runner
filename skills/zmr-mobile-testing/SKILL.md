@@ -1,6 +1,6 @@
 ---
 name: zmr-mobile-testing
-description: Use when testing mobile apps with Zig Mobile Runner, integrating app-local .zmr setup, driving Android or iOS simulator scenarios, using JSON-RPC or MCP agent sessions, exporting traces, or comparing mobile runner benchmarks.
+description: Use when testing mobile apps with Zeno Mobile Runner, integrating app-local .zmr setup, driving Android or iOS simulator scenarios, using JSON-RPC or MCP agent sessions, exporting traces, or comparing mobile runner benchmarks.
 ---
 
 # ZMR Mobile Testing

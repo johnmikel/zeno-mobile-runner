@@ -5,7 +5,7 @@ ZMR is intentionally a separate runner. A mobile app repo does not need to vendo
 Most app teams should install ZMR as a dev dependency:
 
 ```bash
-npm install --save-dev zig-mobile-runner
+npm install --save-dev zeno-mobile-runner
 npx zmr-wizard --app-id com.example.mobiletest --package-json
 ```
 
@@ -13,6 +13,20 @@ That keeps scenarios and app scripts in the app repo while the runner remains ve
 For Expo development builds, add `--expo-dev-client-scheme <scheme>` to scaffold
 Android and iOS open-link smoke scenarios that load Metro before selector
 assertions run.
+
+## React Native, Expo, And Flutter
+
+ZMR works best when the app exposes stable, user-meaningful selectors:
+
+- React Native apps should use `testID`, `accessibilityLabel`, stable visible
+  text, and deep links for direct navigation.
+- Expo development builds can use `--expo-dev-client-scheme <scheme>` so ZMR
+  opens the dev client before running selector assertions.
+- Flutter apps should expose important controls through `Semantics` labels,
+  stable text, and deep links. ZMR drives Flutter apps at the Android/iOS app
+  level; it does not inspect Flutter widget trees.
+
+See [frameworks.md](frameworks.md) for framework-specific examples.
 
 ## What The App Provides
 
@@ -108,7 +122,7 @@ Keep app-owned scenarios and ZMR defaults in `.zmr/` when they are app-specific.
 ## Android App Pilot Command
 
 ```bash
-/path/to/zig-mobile-runner/scripts/run-android-pilot.sh \
+/path/to/zeno-mobile-runner/scripts/run-android-pilot.sh \
   --app-root /path/to/mobile-app \
   --app-id com.example.mobiletest \
   --device emulator-5554
@@ -117,7 +131,7 @@ Keep app-owned scenarios and ZMR defaults in `.zmr/` when they are app-specific.
 Use a saved emulator snapshot for repeatability:
 
 ```bash
-/path/to/zig-mobile-runner/scripts/run-android-pilot.sh \
+/path/to/zeno-mobile-runner/scripts/run-android-pilot.sh \
   --app-root /path/to/mobile-app \
   --app-id com.example.mobiletest \
   --device emulator-5554 \
@@ -141,7 +155,7 @@ screenshots: keep them local or share only when the app state is safe.
 The Android wrapper expects the default APK path under the app root. Override it when needed:
 
 ```bash
-/path/to/zig-mobile-runner/scripts/run-android-pilot.sh \
+/path/to/zeno-mobile-runner/scripts/run-android-pilot.sh \
   --app-root /path/to/mobile-app \
   --apk /path/to/app-debug.apk \
   --device emulator-5554
@@ -162,7 +176,7 @@ manual inspection or customization:
 ```bash
 npx zmr-create-android-demo-app --out /tmp/zmr-android-demo
 adb install -r /tmp/zmr-android-demo/build/app-debug.apk
-/path/to/zig-mobile-runner/zig-out/bin/zmr run /tmp/zmr-android-demo/.zmr/android-smoke.json \
+/path/to/zeno-mobile-runner/zig-out/bin/zmr run /tmp/zmr-android-demo/.zmr/android-smoke.json \
   --device emulator-5554 \
   --app-id com.example.mobiletest \
   --trace-dir /tmp/zmr-android-demo/traces/android-demo
@@ -192,7 +206,7 @@ xcodebuild -project ios/ZMRDemo.xcodeproj -scheme ZMRDemo -destination 'generic/
 Then boot a simulator and run:
 
 ```bash
-/path/to/zig-mobile-runner/scripts/run-ios-pilot.sh \
+/path/to/zeno-mobile-runner/scripts/run-ios-pilot.sh \
   --app-root /tmp/zmr-ios-demo \
   --app-path /tmp/zmr-ios-demo/DerivedData/Build/Products/Debug-iphonesimulator/ZMRDemo.app \
   --app-id com.example.mobiletest \
@@ -203,7 +217,7 @@ Then boot a simulator and run:
 Build the app for an iOS simulator, boot a simulator, then run:
 
 ```bash
-/path/to/zig-mobile-runner/scripts/run-ios-pilot.sh \
+/path/to/zeno-mobile-runner/scripts/run-ios-pilot.sh \
   --app-root /path/to/mobile-app \
   --app-path /path/to/mobile-app/build/Debug-iphonesimulator/Sample.app \
   --app-id com.example.mobiletest \
@@ -234,7 +248,7 @@ Use `--ios-device-type physical` with a concrete device identifier from
 `zmr devices` for physical pilot runs:
 
 ```bash
-/path/to/zig-mobile-runner/scripts/run-ios-pilot.sh \
+/path/to/zeno-mobile-runner/scripts/run-ios-pilot.sh \
   --app-root /path/to/mobile-app \
   --app-path /path/to/mobile-app/build/Release-iphoneos/Sample.ipa \
   --ios-device-type physical \

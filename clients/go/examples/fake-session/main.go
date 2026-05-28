@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/johnmikel/zig-mobile-runner/clients/go/zmr"
+	"github.com/johnmikel/zeno-mobile-runner/clients/go/zmr"
 )
 
 func main() {

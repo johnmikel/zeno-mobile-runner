@@ -48,7 +48,7 @@ required = [
     "if command -v gradle >/dev/null 2>&1; then gradle -p clients/kotlin test; else echo 'skip kotlin test: gradle not found'; fi",
     "bash tests/public-safety-test.sh",
     "node --test tests/viewer-parser.test.mjs",
-    "zig test src/main.zig -target aarch64-macos.15.0",
+    "zig test src/test_harness.zig -target aarch64-macos.15.0",
     "bash tests/version-json-test.sh",
     "bash tests/schemas-json-test.sh",
     "bash tests/devices-json-test.sh",

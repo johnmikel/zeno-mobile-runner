@@ -107,7 +107,7 @@ run "if command -v swift >/dev/null 2>&1; then swift test --package-path clients
 run "if command -v gradle >/dev/null 2>&1; then gradle -p clients/kotlin test; else echo 'skip kotlin test: gradle not found'; fi"
 run "bash tests/public-safety-test.sh"
 run "node --test tests/viewer-parser.test.mjs"
-run "zig test src/main.zig -target $HOST_ZIG_TARGET"
+run "zig test src/test_harness.zig -target $HOST_ZIG_TARGET"
 run "zig build-exe src/main.zig -target $HOST_ZIG_TARGET -O Debug -femit-bin=zig-out/bin/zmr"
 run "bash tests/version-json-test.sh"
 run "bash tests/schemas-json-test.sh"

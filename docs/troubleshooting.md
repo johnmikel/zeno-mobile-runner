@@ -79,7 +79,7 @@ device checks, so agents and scripts can branch without parsing the human
 If `zmr` is not found from an app repo, check the npm wrapper resolution order:
 
 ```bash
-node -e 'import("zig-mobile-runner").then(m => console.log(m.resolveBinary()))'
+node -e 'import("zeno-mobile-runner").then(m => console.log(m.resolveBinary()))'
 npx zmr version
 ```
 
@@ -94,7 +94,7 @@ For source checkouts on this macOS host, use the explicit macOS 15 target shown
 in the README:
 
 ```bash
-zig test src/main.zig -target aarch64-macos.15.0
+zig test src/test_harness.zig -target aarch64-macos.15.0
 zig build-exe src/main.zig -target aarch64-macos.15.0 -O Debug -femit-bin=zig-out/bin/zmr
 ```
 

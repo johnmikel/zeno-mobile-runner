@@ -122,29 +122,27 @@ zmr-benchmark-command --tool baseline --platform android --device emulator-5554 
 zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline baseline --min-candidate-pass-rate 100 --max-candidate-failures 0 --min-mean-speedup 1.25 --min-p95-speedup 1.25 --out traces/bench-comparison/comparison.md --evidence-out traces/bench-comparison/evidence.jsonl
 ```
 
-Only publish claims when the candidate and baseline exercise equivalent app
-paths under the same device state. Market-claim evidence must show the same
-benchmark context: `platform`, `device`, `appId`, `scenario`, and `appBuild`.
-It must also include at least 20 candidate rows and at least 20 baseline rows.
+Only share benchmark summaries when the candidate and baseline exercise
+equivalent app paths under the same device state. Useful benchmark context
+includes `platform`, `device`, `appId`, `scenario`, and `appBuild`, plus enough
+candidate and baseline rows for your team to trust the result.
 
-## Release Claims
+## Evidence Summaries
 
-Before saying a release, production rollout, or market comparison is ready,
-evaluate the collected evidence:
+Teams that collect repeated app/device pilot rows can evaluate them with:
 
 ```bash
 zmr-release-readiness --json \
-  --evidence traces/release-candidate/<run>/evidence.jsonl \
-  --target dev-preview
+  --evidence traces/zmr-pilots/evidence.jsonl \
+  --target production
 ```
 
 Use `satisfied` for proven requirements and `blocked`, `missing`,
 `insufficient`, `failed`, and `planned` for remaining work. Use
 `recommendedWording` for the human-facing status and keep
-`claimLimitations` intact; never upgrade a dev-preview result into a
-production-stable or competitive claim. When blocked, run
-`nextSteps[].commands` in order and use `nextSteps[].covers` to map each
-command back to the blocked requirements it resolves.
+`claimLimitations` intact. When blocked, run `nextSteps[].commands` in order
+and use `nextSteps[].covers` to map each command back to the blocked
+requirements it resolves.
 
 ## Safety Rules
 

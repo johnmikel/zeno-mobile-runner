@@ -53,7 +53,7 @@ function parseArgs(argv) {
 
   if (!args.version) throw new Error("missing --version or ZMR_VERSION");
   if (!args.baseUrl) {
-    args.baseUrl = `https://github.com/zig-mobile-runner/zig-mobile-runner/releases/download/v${args.version}`;
+    args.baseUrl = `https://github.com/johnmikel/zeno-mobile-runner/releases/download/v${args.version}`;
   }
   args.baseUrl = args.baseUrl.replace(/\/+$/, "");
   return args;
@@ -98,7 +98,7 @@ function generateFormula({ version, baseUrl, checksums }) {
   });
 
   return `class Zmr < Formula
-  desc "Agent-native mobile app test runner powered by Zig"
+  desc "Agent-native mobile app test runner for React Native, Expo, Flutter, Android, and iOS"
   homepage "https://zmr.dev"
   license "MIT"
   version "${version}"

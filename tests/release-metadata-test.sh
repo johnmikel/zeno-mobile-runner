@@ -19,7 +19,7 @@ const sbom = JSON.parse(fs.readFileSync(path, "utf8"));
 if (sbom.spdxVersion !== "SPDX-2.3") throw new Error("unexpected SPDX version");
 if (!Array.isArray(sbom.packages)) throw new Error("packages missing");
 const names = new Set(sbom.packages.map((pkg) => pkg.name));
-for (const required of ["zig-mobile-runner", "Zig Standard Library", "Node.js Standard Library"]) {
+for (const required of ["zeno-mobile-runner", "Zig Standard Library", "Node.js Standard Library"]) {
   if (!names.has(required)) throw new Error(`missing package ${required}`);
 }
 NODE

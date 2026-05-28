@@ -1,16 +1,16 @@
 {
-  "name": "zig-mobile-runner",
-  "version": "0.1.0",
-  "description": "Agent-native mobile app test runner powered by Zig.",
+  "name": "zeno-mobile-runner",
+  "version": "0.1.2",
+  "description": "Agent-native mobile app test runner for React Native, Expo, Flutter, and native Android/iOS.",
   "main": "npm/index.mjs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/johnmikel/zig-mobile-runner.git"
+    "url": "git+https://github.com/johnmikel/zeno-mobile-runner.git"
   },
   "bugs": {
-    "url": "https://github.com/johnmikel/zig-mobile-runner/issues"
+    "url": "https://github.com/johnmikel/zeno-mobile-runner/issues"
   },
-  "homepage": "https://github.com/johnmikel/zig-mobile-runner#readme",
+  "homepage": "https://github.com/johnmikel/zeno-mobile-runner#readme",
   "bin": {
     "zmr": "npm/zmr.mjs",
     "zmr-init": "npm/init-app.mjs",
@@ -99,13 +99,17 @@
   },
   "keywords": [
     "mobile-testing",
+    "mobile-automation",
     "android",
     "ios",
+    "react-native",
+    "flutter",
+    "expo",
     "adb",
     "simctl",
     "ai-agents",
-    "test-runner",
-    "zig"
+    "ai-testing",
+    "test-runner"
   ],
   "license": "MIT",
   "engines": {

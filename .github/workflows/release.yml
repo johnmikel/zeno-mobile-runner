@@ -58,7 +58,7 @@ jobs:
         with:
           subject-path: |
             dist/*.tar.gz
-            dist/zig-mobile-runner-*.tgz
+            dist/zeno-mobile-runner-*.tgz
             dist/SBOM.spdx.json
             dist/THIRD_PARTY_NOTICES.md
             dist/RELEASE_MANIFEST.json
@@ -69,7 +69,7 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
-            dist/zig-mobile-runner-*.tgz
+            dist/zeno-mobile-runner-*.tgz
             dist/SBOM.spdx.json
             dist/THIRD_PARTY_NOTICES.md
             dist/RELEASE_MANIFEST.json
@@ -83,4 +83,4 @@ jobs:
             echo "NPM_TOKEN not set; skipping npm publish"
             exit 0
           fi
-          npm publish dist/zig-mobile-runner-*.tgz --provenance --access public
+          npm publish dist/zeno-mobile-runner-*.tgz --provenance --access public

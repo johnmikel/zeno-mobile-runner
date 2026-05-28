@@ -43,9 +43,9 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 if [[ "$ZIG_TARGET" == "native" ]]; then
-  zig test "$ROOT/src/main.zig" --test-no-exec -femit-bin="$BIN"
+  zig test "$ROOT/src/test_harness.zig" --test-no-exec -femit-bin="$BIN"
 else
-  zig test "$ROOT/src/main.zig" "${target_args[@]}" --test-no-exec -femit-bin="$BIN"
+  zig test "$ROOT/src/test_harness.zig" "${target_args[@]}" --test-no-exec -femit-bin="$BIN"
 fi
 
 if should_skip_kcov_on_hosted_macos; then

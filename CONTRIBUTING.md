@@ -1,6 +1,6 @@
 # Contributing
 
-ZMR is a Zig-first mobile test runner for external agents and local test files.
+ZMR is a Zig-based mobile test runner for external agents and local test files.
 Keep changes small, typed, traceable, and covered by tests.
 
 ## Local Checks

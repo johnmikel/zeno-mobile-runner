@@ -161,10 +161,7 @@ final class ZMRShimUITestCase: XCTestCase {
             }
             return ok()
         case "hideKeyboard":
-            if app.keyboards.firstMatch.exists {
-                app.keyboards.buttons["Return"].tap()
-            }
-            return ok()
+            return hideKeyboard(app: app)
         case "swipe":
             guard let x1 = command.x1, let y1 = command.y1, let x2 = command.x2, let y2 = command.y2 else {
                 return error("invalid.swipe", "swipe requires x1, y1, x2, and y2")
@@ -232,6 +229,52 @@ final class ZMRShimUITestCase: XCTestCase {
             return ["status": "ok", "accepted": true, "label": lastAcceptedLabel, "count": acceptedCount]
         }
         return ["status": "ok", "accepted": false, "count": 0]
+    }
+
+    private func hideKeyboard(app: XCUIApplication) -> [String: Any] {
+        guard app.keyboards.firstMatch.exists else {
+            return ok()
+        }
+
+        let keyboard = app.keyboards.firstMatch
+        let dismissKeyNames = [
+            "Done",
+            "done",
+            "Return",
+            "return",
+            "Go",
+            "go",
+            "Next",
+            "next",
+            "Search",
+            "search",
+            "Send",
+            "send"
+        ]
+
+        for keyName in dismissKeyNames {
+            if tapKeyboardElement(keyboard.buttons[keyName]) {
+                return ok()
+            }
+            if tapKeyboardElement(keyboard.keys[keyName]) {
+                return ok()
+            }
+        }
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
+        if app.keyboards.firstMatch.waitForNonExistence(timeout: 1) {
+            return ok()
+        }
+
+        return error("keyboard.dismiss_failed", "keyboard did not expose a known dismiss key")
+    }
+
+    private func tapKeyboardElement(_ element: XCUIElement) -> Bool {
+        guard element.exists, element.isHittable else {
+            return false
+        }
+        element.tap()
+        return true
     }
 
     private func tap(selector: String, app: XCUIApplication) -> [String: Any] {

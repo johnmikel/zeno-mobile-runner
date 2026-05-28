@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 VERSION="${ZMR_VERSION:-$(awk -F'"' '/runner_version/ { print $2; exit }' "$ROOT/src/version.zig")}"
-RELEASE_BASE_URL="${ZMR_RELEASE_BASE_URL:-https://github.com/zig-mobile-runner/zig-mobile-runner/releases/download/v$VERSION}"
+RELEASE_BASE_URL="${ZMR_RELEASE_BASE_URL:-https://github.com/johnmikel/zeno-mobile-runner/releases/download/v$VERSION}"
 IDENTITY=""
 DRY_RUN=0
 

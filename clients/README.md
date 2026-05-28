@@ -8,15 +8,20 @@ zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-age
 ```
 
 They are intended for AI agents, CI harnesses, and app teams that want typed
-or idiomatic calls without reimplementing JSON-RPC framing.
+or idiomatic calls without reimplementing JSON-RPC framing. TypeScript and
+Python are the most direct starting points for app and agent automation. Go,
+Rust, Swift, and Kotlin stay available as reference integrations for teams that
+want to embed host-side orchestration in those ecosystems.
 Each client includes `devices()` for `device.list`, including the portable
 `ready` boolean, and a semantic snapshot helper for `observe.semanticSnapshot`
 so agents can work from normalized roles, selectors, bounds, and recommended
 actions instead of raw platform hierarchy classes.
-The TypeScript, Python, Go, and Rust clients expose the same core control
+The TypeScript and Python clients expose the broadest app-facing control
 surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
-trace event polling, and trace export.
+trace event polling, and trace export. The Go, Rust, Swift, and Kotlin clients
+show the same protocol shape in other host languages and are useful starting
+points for custom integration work.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.
@@ -47,7 +52,7 @@ const zmr = createZmrClient({
 Runtime: `clients/python/zmr_client.py`
 
 ```bash
-python3 -m pip install "git+https://github.com/johnmikel/zig-mobile-runner.git#subdirectory=clients/python"
+python3 -m pip install "git+https://github.com/johnmikel/zeno-mobile-runner.git#subdirectory=clients/python"
 ```
 
 ```bash
@@ -66,7 +71,7 @@ with ZmrClient("zmr", ["serve", "--transport", "stdio", "--config", ".zmr/config
 Runtime: `clients/go/zmr/client.go`
 
 ```bash
-go get github.com/johnmikel/zig-mobile-runner/clients/go@main
+go get github.com/johnmikel/zeno-mobile-runner/clients/go@main
 ```
 
 ```bash
@@ -88,12 +93,12 @@ Cargo packages library code from `src/lib.rs` by convention. Because this repo
 is not yet published as a Rust crate, consume the client from a local checkout:
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
 ```
 
 ```toml
 [dependencies]
-zmr-client = { path = "vendor/zig-mobile-runner/clients/rust" }
+zmr-client = { path = "vendor/zeno-mobile-runner/clients/rust" }
 ```
 
 ```bash
@@ -116,11 +121,11 @@ Use the Swift client from a local SwiftPM package path until it is published as
 a standalone Swift package:
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
 ```
 
 ```swift
-.package(path: "vendor/zig-mobile-runner/clients/swift")
+.package(path: "vendor/zeno-mobile-runner/clients/swift")
 ```
 
 Swift is useful for macOS host-side automation next to iOS app code. It is not
@@ -131,8 +136,8 @@ an SDK embedded in the app under test.
 Runtime: `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt`
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
-gradle -p vendor/zig-mobile-runner/clients/kotlin build
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
+gradle -p vendor/zeno-mobile-runner/clients/kotlin build
 ```
 
 Kotlin is useful for Android teams that want host-side orchestration in Kotlin.

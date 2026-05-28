@@ -211,12 +211,10 @@ reliable enough or not faster than the baseline by the required margin. Only
 compare runs collected on the same host, device state, app build, and scenario.
 `--evidence-out` requires `--min-candidate-pass-rate`,
 `--max-candidate-failures`, `--min-mean-speedup`, and `--min-p95-speedup`, so
-market-claim evidence records explicit reliability and speedup thresholds. When
-`--evidence-out` is set, a successful comparison also requires at least 20 candidate rows,
-at least 20 baseline rows, and matching `platform`, `device`,
-`appId`, `scenario`, and `appBuild` metadata across candidate and baseline
-rows, then appends a `competitive benchmark comparison` row that
-`zmr-release-readiness --target market-claim` can consume directly.
+the evidence records explicit reliability and speedup thresholds. When
+`--evidence-out` is set, a successful comparison also requires at least 20
+candidate rows, at least 20 baseline rows, and matching `platform`, `device`,
+`appId`, `scenario`, and `appBuild` metadata across candidate and baseline rows.
 
 ## Device Matrix
 

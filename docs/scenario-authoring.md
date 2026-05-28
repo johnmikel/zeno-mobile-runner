@@ -1,7 +1,8 @@
 # Scenario Authoring
 
-ZMR scenarios are plain JSON so agents can generate and mutate them without a
-second DSL. Keep scenarios explicit, short, and biased toward stable selectors.
+ZMR scenarios are JSON so agents can generate and mutate them without a second
+DSL. JSON is strict, schema-validatable, and easy for agents and code generators
+to emit. Keep scenarios explicit, short, and biased toward stable selectors.
 
 ## Selector Strategy
 
@@ -14,9 +15,8 @@ Prefer selectors in this order:
    vary.
 
 Avoid selecting by text that includes user data, timestamps, counts, prices, or
-network-provided content. If a selector is hard to make stable, add an app-owned
-test id or accessibility identifier instead of widening the selector until it
-matches unrelated nodes.
+network-provided content. Prefer app-owned resource ids or accessibility identifiers
+over widening a selector until it matches unrelated nodes.
 
 ## Waits And Assertions
 

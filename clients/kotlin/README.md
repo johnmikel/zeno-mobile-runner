@@ -6,8 +6,8 @@ Small JVM client for Kotlin agents and test harnesses that drive
 For now, build it from a local checkout and consume the generated jar:
 
 ```bash
-git submodule add https://github.com/johnmikel/zig-mobile-runner.git vendor/zig-mobile-runner
-gradle -p vendor/zig-mobile-runner/clients/kotlin build
+git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
+gradle -p vendor/zeno-mobile-runner/clients/kotlin build
 ```
 
 Run the package test from the repository root:
@@ -27,7 +27,7 @@ gradle -p clients/kotlin runFakeSession \
 ```
 
 ```kotlin
-implementation(files("path/to/zig-mobile-runner/clients/kotlin/build/libs/zmr-client-0.1.0.jar"))
+implementation(files("path/to/zeno-mobile-runner/clients/kotlin/build/libs/zmr-client-0.1.2.jar"))
 ```
 
 The Kotlin client is host-side. It is useful for Android teams that want test

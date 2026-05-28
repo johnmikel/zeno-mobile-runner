@@ -11,7 +11,7 @@ rl.on("line", (line) => {
   if (method === "runner.capabilities") {
     result = {
       name: "zmr",
-      version: "0.1.0",
+      version: "0.1.2",
       protocolVersion: "2026-04-28",
       protocol: {
         version: "2026-04-28",

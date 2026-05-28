@@ -3,7 +3,7 @@
 ZMR can be installed in a mobile app codebase as a dev dependency:
 
 ```bash
-npm install --save-dev zig-mobile-runner
+npm install --save-dev zeno-mobile-runner
 ```
 
 The package exposes:
@@ -18,15 +18,13 @@ The package exposes:
   baseline benchmark rows.
 - `zmr-device-matrix`: local multi-device Android/iOS matrix runner with
   simulator and physical iOS row support plus pass-rate gates.
-- `zmr-pilot-gate`: external release pilot gate that delegates to the Android
-  and iOS app pilot wrappers on machines with real targets.
+- `zmr-pilot-gate`: app-local pilot runner that delegates to the Android and
+  iOS pilot wrappers on machines with real targets.
 - `zmr-assert-ios-physical-ready`: verifies that a requested physical iOS
   device is connected, trusted, and ready before physical-device pilots; pass
-  `--xcrun <path>` when using a custom Xcode toolchain and
-  `--evidence-out traces/zmr-pilots/evidence.jsonl` to append a
-  release-readiness row.
-- `zmr-release-readiness`: checks one or more release/pilot evidence files for
-  dev-preview, production, or market-claim readiness, lists missing, insufficient, failed, and planned blockers, and emits safe claim wording.
+  `--xcrun <path>` when using a custom Xcode toolchain.
+- `zmr-release-readiness`: optional evidence checker for teams that collect
+  repeated app/device pilot rows and want a machine-readable readiness summary.
 - `zmr-install-android-shim`: writes the app-local Android instrumentation
   shim command and source file.
 - `zmr-install-ios-shim`: writes the app-local iOS XCTest shim command and
@@ -39,13 +37,13 @@ The package exposes:
   through a real emulator/device.
 - `zmr-demo-ios`: creates, builds, and runs the generated iOS simulator demo
   through the real iOS pilot wrapper.
-- `import { runZmr, spawnZmr, resolveBinary } from "zig-mobile-runner"` for Node scripts.
+- `import { runZmr, spawnZmr, resolveBinary } from "zeno-mobile-runner"` for Node scripts.
 - packaged docs, schemas, examples, reference clients, and the reusable
   `skills/zmr-mobile-testing` agent skill.
 
-Maintainer release-candidate checks live in the source checkout, not the app-install npm package. Use `./scripts/release-candidate.sh` from the ZMR
-repository when preparing a ZMR release; use `zmr-release-readiness` from an
-app repo to evaluate evidence produced by app-local pilot gates.
+Most app teams can start with `zmr-wizard`, generated smoke scenarios, and
+redacted traces. Use the pilot and readiness helpers when you want repeated
+local evidence for your own app and devices.
 
 ## App Setup
 
@@ -72,8 +70,7 @@ doctor/validate commands, schema discovery, direct `zmr run` smoke commands,
 JSON-RPC and MCP startup commands, selector guidance, the exact
 `zmr explain traces/zmr-agent --json` failure-triage command, the exact
 `zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact`
-redacted trace export command, and a
-`zmr-release-readiness` claim guard for release summaries.
+redacted trace export command.
 `zmr-init` and wizard runs without `--package-json` write direct commands in `.zmr/AGENTS.md` so agents can execute the generated guidance immediately.
 `zmr-init` accepts the same platform, shim, and Expo dev-client scaffold flags as the wizard, plus `--package-json` for non-interactive app templates that do not need dependency checks.
 `zmr-init` prints direct `Next steps` commands before the package-script snippet so humans and agents can run the generated smoke, reliability, matrix, pilot, JSON-RPC, MCP, failure-triage, and redacted-export commands without editing `package.json`.
@@ -347,7 +344,7 @@ That command builds release binaries, copies them into `prebuilds/`, and runs `n
 ## Node API
 
 ```js
-import { runZmr } from "zig-mobile-runner";
+import { runZmr } from "zeno-mobile-runner";
 
 await runZmr([
   "run",

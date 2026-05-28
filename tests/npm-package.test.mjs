@@ -332,11 +332,12 @@ test("setup helper module exposes CLI bootstrap utilities", async () => {
 test("package exposes zmr bin and public files for npm publishing", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
-  assert.equal(pkg.name, "zig-mobile-runner");
+  assert.equal(pkg.name, "zeno-mobile-runner");
+  assert.equal(pkg.description, "Agent-native mobile app test runner for React Native, Expo, Flutter, and native Android/iOS.");
   assert.equal(pkg.repository.type, "git");
-  assert.match(pkg.repository.url, /^git\+https:\/\/github\.com\/johnmikel\/zig-mobile-runner\.git$/);
-  assert.match(pkg.homepage, /^https:\/\/github\.com\/johnmikel\/zig-mobile-runner#readme$/);
-  assert.match(pkg.bugs.url, /^https:\/\/github\.com\/johnmikel\/zig-mobile-runner\/issues$/);
+  assert.match(pkg.repository.url, /^git\+https:\/\/github\.com\/johnmikel\/zeno-mobile-runner\.git$/);
+  assert.match(pkg.homepage, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner#readme$/);
+  assert.match(pkg.bugs.url, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner\/issues$/);
   assert.equal(pkg.bin.zmr, "npm/zmr.mjs");
   assert.equal(pkg.bin["zmr-benchmark"], "scripts/benchmark.sh");
   assert.equal(pkg.bin["zmr-benchmark-command"], "scripts/benchmark-command.sh");
@@ -353,6 +354,12 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.equal(pkg.bin["zmr-demo-ios"], "scripts/demo-ios-real.sh");
   assert.equal(Object.hasOwn(pkg.bin, "zmr-release-candidate"), false);
   assert.equal(pkg.main, "npm/index.mjs");
+  assert.ok(pkg.keywords.includes("react-native"));
+  assert.ok(pkg.keywords.includes("flutter"));
+  assert.ok(pkg.keywords.includes("expo"));
+  assert.ok(pkg.keywords.includes("mobile-automation"));
+  assert.ok(pkg.keywords.includes("ai-testing"));
+  assert.equal(pkg.keywords.includes("zig"), false);
   assert.ok(pkg.files.includes("npm/"));
   assert.ok(pkg.files.includes("clients/README.md"));
   assert.ok(pkg.files.includes("clients/typescript/"));
@@ -407,6 +414,15 @@ test("npm package excludes internal tests caches traces and build outputs", () =
     /^clients\/go\/.*_test\.go$/,
     /^clients\/kotlin\/src\/test\//,
     /^clients\/swift\/Tests\//,
+    /^docs\/publication\.md$/,
+    /^docs\/release-audit\.md$/,
+    /^docs\/release-candidate\.md$/,
+    /^docs\/release-evidence\.md$/,
+    /^docs\/release-notes-template\.md$/,
+    /^docs\/market-positioning\.md$/,
+    /^docs\/roadmap\.md$/,
+    /^docs\/shipping\.md$/,
+    /^docs\/dsl\.md$/,
   ];
 
   for (const filePath of paths) {
@@ -416,6 +432,8 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   }
 
   assert.ok(paths.includes("src/main.zig"));
+  assert.ok(paths.includes("docs/frameworks.md"));
+  assert.ok(paths.includes("docs/scenario-authoring.md"));
   assert.ok(paths.includes("clients/go/zmr/client.go"));
   assert.ok(paths.includes("clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt"));
   assert.ok(paths.includes("clients/swift/Sources/ZMRClient/ZMRClient.swift"));
@@ -438,10 +456,10 @@ test("shipped language-client package metadata matches the runner prerelease", (
 
   assert.equal(typescriptPkg.version, pkg.version);
   assert.match(rustManifest, new RegExp(`^version = "${pkg.version}"$`, "m"));
-  assert.match(pythonManifest, /^version = "0\.1\.0\.dev1"$/m);
+  assert.match(pythonManifest, new RegExp(`^version = "${pkg.version.replaceAll(".", "\\.")}\\.dev1"$`, "m"));
   assert.match(kotlinBuild, new RegExp(`^version = "${pkg.version}"$`, "m"));
-  // Guard against docs drifting to an ambiguous "0.1.0-dev" without the numeric suffix.
-  assert.doesNotMatch(features, /0\.1\.0-dev(?!\.\d)/);
+  // Guard against docs drifting to an ambiguous "0.1.2-dev" without the numeric suffix.
+  assert.doesNotMatch(features, /0\.1\.1-dev(?!\.\d)/);
   assert.match(features, new RegExp(pkg.version.replaceAll(".", "\\.")));
 });
 
@@ -465,6 +483,41 @@ test("node API resolves environment binary and runs zmr", async () => {
   } finally {
     if (previous == null) delete process.env.ZMR_BIN;
     else process.env.ZMR_BIN = previous;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("packed npm package postinstall builds a runnable zmr binary", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zmr-packed-postinstall-test-"));
+  const npmEnv = { ...process.env, npm_config_cache: path.join(tmp, ".npm-cache") };
+  try {
+    const pack = spawnSync("npm", ["pack", "--pack-destination", tmp], {
+      cwd: root,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(pack.status, 0, pack.stderr);
+    const tarball = fs.readdirSync(tmp).find((name) => name.endsWith(".tgz"));
+    assert.ok(tarball, "npm pack should create a tarball");
+
+    const appDir = path.join(tmp, "app");
+    fs.mkdirSync(appDir);
+    fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify({ private: true }, null, 2));
+    const install = spawnSync("npm", ["install", path.join(tmp, tarball)], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(install.status, 0, install.stderr + install.stdout);
+
+    const version = spawnSync("npx", ["zmr", "version", "--json"], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(version.status, 0, version.stderr + version.stdout);
+    assert.equal(JSON.parse(version.stdout).version, "0.1.2");
+  } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
@@ -568,7 +621,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.ok(fs.existsSync(path.join(appDir, ".zmr", "config.json")));
     assert.ok(fs.existsSync(path.join(appDir, ".zmr", "android-smoke.json")));
 
-    const validate = spawnSync("npx", ["zmr", "validate", "node_modules/zig-mobile-runner/examples/demo-fake.json"], {
+    const validate = spawnSync("npx", ["zmr", "validate", "node_modules/zeno-mobile-runner/examples/demo-fake.json"], {
       cwd: appDir,
       env: { ...npmEnv, ZMR_BIN: fakeBin },
       encoding: "utf8",
@@ -591,7 +644,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     const benchmark = spawnSync("npx", [
       "zmr-benchmark",
       "--zmr",
-      "node_modules/zig-mobile-runner/examples/demo-fake.json",
+      "node_modules/zeno-mobile-runner/examples/demo-fake.json",
       "--device",
       "fake-android-1",
       "--runs",
@@ -619,7 +672,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
           name: "fake-android",
           platform: "android",
           serial: "fake-android-1",
-          scenario: "node_modules/zig-mobile-runner/examples/demo-fake.json",
+          scenario: "node_modules/zeno-mobile-runner/examples/demo-fake.json",
         },
       ],
     }, null, 2));
@@ -722,7 +775,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
       assert.ok(fs.existsSync(path.join(iosDemoDir, ".zmr", "ios-shim-smoke.json")));
     }
 
-    const packageDir = fs.realpathSync(path.join(appDir, "node_modules", "zig-mobile-runner"));
+    const packageDir = fs.realpathSync(path.join(appDir, "node_modules", "zeno-mobile-runner"));
     const androidDemo = spawnSync("npx", [
       "zmr-demo-android",
       "--out",

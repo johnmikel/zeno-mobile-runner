@@ -65,7 +65,7 @@ const packages = [
   spdxPackage({
     name: packageJson.name,
     version: packageJson.version,
-    supplier: "Organization: Zig Mobile Runner contributors",
+    supplier: "Organization: Zeno Mobile Runner contributors",
     downloadLocation: "NOASSERTION",
     license: declaredLicense,
     copyrightText: "NOASSERTION",
@@ -98,7 +98,7 @@ const packages = [
 ];
 
 const relationships = packages.slice(1).map((pkg) => ({
-  spdxElementId: "SPDXRef-Package-zig-mobile-runner",
+  spdxElementId: "SPDXRef-Package-zeno-mobile-runner",
   relationshipType: "DEPENDS_ON",
   relatedSpdxElement: pkg.SPDXID,
 }));

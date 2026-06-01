@@ -92,6 +92,7 @@
   ],
   "scripts": {
     "postinstall": "node npm/postinstall.mjs",
+    "prepublishOnly": "node npm/verify-publish.mjs",
     "build:zmr": "node npm/build-zmr.mjs",
     "pack:npm": "bash scripts/build-npm-package.sh",
     "zmr:demo": "node npm/zmr.mjs validate examples/demo-fake.json",

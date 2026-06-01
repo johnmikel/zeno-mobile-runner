@@ -378,6 +378,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.ok(pkg.files.includes("skills/"));
   assert.ok(pkg.files.includes("shims/"));
   assert.ok(pkg.files.includes("FEATURES.md"));
+  assert.equal(pkg.scripts.prepublishOnly, "node npm/verify-publish.mjs");
   assert.equal(pkg.scripts["zmr:demo"], "node npm/zmr.mjs validate examples/demo-fake.json");
 });
 
@@ -433,6 +434,8 @@ test("npm package excludes internal tests caches traces and build outputs", () =
 
   assert.ok(paths.includes("src/main.zig"));
   assert.ok(paths.includes("docs/frameworks.md"));
+  assert.ok(paths.includes("docs/expo-smoke.md"));
+  assert.ok(paths.includes("docs/agent-discovery.md"));
   assert.ok(paths.includes("docs/scenario-authoring.md"));
   assert.ok(paths.includes("clients/go/zmr/client.go"));
   assert.ok(paths.includes("clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt"));

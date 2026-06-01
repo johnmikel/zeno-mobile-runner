@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const out = path.join(root, "zig-out", "bin", process.platform === "win32" ? "zmr.exe" : "zmr");
+const out = process.env.ZMR_BUILD_OUT || path.join(root, "zig-out", "bin", process.platform === "win32" ? "zmr.exe" : "zmr");
 fs.mkdirSync(path.dirname(out), { recursive: true });
 
 const args = ["build-exe", "src/main.zig", "-O", "ReleaseSafe", `-femit-bin=${out}`];

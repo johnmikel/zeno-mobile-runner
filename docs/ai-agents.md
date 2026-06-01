@@ -68,6 +68,17 @@ The MCP server exposes mobile-specific tools:
 Prefer `semantic_snapshot` for action planning. It avoids forcing an agent to
 infer intent from platform-specific Android/UI Automator or XCTest class names.
 
+## Agent-Led Discovery
+
+Agents can use ZMR to discover flows and draft scenarios by looping over
+`observe.semanticSnapshot`, one typed action, trace events, and scenario
+validation. See [Agent Discovery](agent-discovery.md) for the recommended
+reviewable loop.
+
+ZMR does not ship a built-in autonomous crawler or test writer in this developer
+preview. Keep autonomous planning outside the runner, then commit only reviewed
+scenario JSON.
+
 ## Scenario File Workflow
 
 For repeatable tests, generate or edit `.zmr/*.json` scenarios:

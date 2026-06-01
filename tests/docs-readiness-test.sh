@@ -52,6 +52,8 @@ require_file docs/clients.md
 require_file docs/client-installation.md
 require_file docs/scenario-authoring.md
 require_file docs/frameworks.md
+require_file docs/expo-smoke.md
+require_file docs/agent-discovery.md
 require_file docs/adr/README.md
 require_file schemas/README.md
 require_file clients/python/pyproject.toml
@@ -97,6 +99,9 @@ require_grep 'physical iOS devices use `devicectl`' README.md
 require_grep 'iOS physical device' README.md
 require_grep 'Current release: `0.1.2` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
+require_grep 'docs/expo-smoke.md' README.md
+require_grep 'docs/agent-discovery.md' README.md
+require_grep 'built-in autonomous crawler is not shipped' README.md
 require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
@@ -132,6 +137,13 @@ require_grep 'Flutter apps at the platform level' docs/frameworks.md
 require_grep 'not inspect Flutter widget trees' docs/frameworks.md
 require_grep 'accessibilityLabel' docs/frameworks.md
 require_grep 'Semantics' docs/frameworks.md
+require_grep 'Expo Smoke Test' docs/expo-smoke.md
+require_grep 'zeno-mobile-runner@0.1.2' docs/expo-smoke.md
+require_grep 'zmr report traces/zmr-ios --out traces/zmr-ios/report.html' docs/expo-smoke.md
+require_grep 'Agent Discovery' docs/agent-discovery.md
+require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
+require_grep 'zmr explore --goal' docs/agent-discovery.md
+require_grep 'human review before committing generated tests' docs/agent-discovery.md
 
 require_grep 'ZMR scenarios are JSON' docs/scenario-authoring.md
 require_grep 'resource ids or accessibility identifiers' docs/scenario-authoring.md
@@ -146,6 +158,8 @@ require_grep 'runner.capabilities' docs/ai-agents.md
 require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md
+require_grep 'Agent-Led Discovery' docs/ai-agents.md
+require_grep 'agent-discovery.md' docs/ai-agents.md
 require_grep 'zmr-mobile-testing' skills/zmr-mobile-testing/SKILL.md
 
 require_grep 'zmr init --app' docs/install.md

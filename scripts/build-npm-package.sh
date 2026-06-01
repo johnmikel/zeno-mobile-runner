@@ -26,6 +26,7 @@ copy_prebuild "x86_64-macos.15.0" "darwin" "x64"
 copy_prebuild "aarch64-linux-gnu" "linux" "arm64"
 copy_prebuild "x86_64-linux-gnu" "linux" "x64"
 
+node "$ROOT/npm/verify-publish.mjs"
 npm pack --pack-destination "$ROOT/dist"
 
 node "$ROOT/scripts/generate-release-manifest.mjs" \

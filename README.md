@@ -121,6 +121,11 @@ zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 The MCP server exposes mobile-specific tools such as `semantic_snapshot`, `tap`,
 `type`, `wait_visible`, `trace_events`, and `trace_export`.
 
+For agent-led discovery and test authoring, see
+[docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
+through MCP and JSON-RPC today; a built-in autonomous crawler is not shipped in
+this preview.
+
 ## Optional Protocol Clients
 
 Clients are thin wrappers around `zmr serve --transport stdio`. They do not
@@ -161,8 +166,10 @@ Current release: `0.1.2` developer preview. Protocol version:
 - [FEATURES.md](FEATURES.md): complete feature list and limitations
 - [docs/install.md](docs/install.md): source, npm, Homebrew, and app setup
 - [docs/frameworks.md](docs/frameworks.md): React Native, Expo, Flutter, and native app guidance
+- [docs/expo-smoke.md](docs/expo-smoke.md): reproducible Expo and iOS smoke test
 - [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
+- [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery and scenario authoring loop
 - [docs/protocol.md](docs/protocol.md): JSON-RPC methods and schemas
 - [docs/ai-agents.md](docs/ai-agents.md): JSON-RPC and MCP agent workflows
 - [docs/clients.md](docs/clients.md): language client guide

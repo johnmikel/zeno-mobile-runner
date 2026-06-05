@@ -8,6 +8,7 @@ actions, waits, assertions, and trace export; the agent decides the next step.
 Start inside the app checkout:
 
 ```bash
+zmr inspect --json --dir .
 zmr doctor --json --config .zmr/config.json
 zmr validate --json .zmr/android-smoke.json
 zmr validate --json .zmr/ios-smoke.json
@@ -17,6 +18,10 @@ zmr schemas --json
 Use `zmr doctor --strict --json` in CI or setup flows that should fail on any
 warning. Prefer JSON output for automation because it includes stable error
 codes, field paths, and remediation hints.
+
+Use `zmr inspect --json --dir .` first when an agent enters a repo. It is a
+read-only handoff with config status, generated agent instruction status,
+platform smoke scenario paths, safe next commands, and explicit claim limits.
 
 ## Live JSON-RPC Session
 

@@ -39,6 +39,7 @@ test("init command creates app-local scenario and npm script snippets", () => {
     assert.equal(matrix.devices[1].iosDeviceType, "simulator");
     assert.match(agentInstructions, /# ZMR Agent Instructions/);
     assert.match(agentInstructions, /App id: `com\.example\.demo`/);
+    assert.match(agentInstructions, /zmr inspect --json --dir \./);
     assert.match(agentInstructions, /zmr doctor --strict --json --config \.zmr\/config\.json/);
     assert.match(agentInstructions, /zmr schemas --json/);
     assert.match(agentInstructions, /zmr run \.zmr\/android-smoke\.json --device emulator-5554 --trace-dir traces\/zmr-android/);

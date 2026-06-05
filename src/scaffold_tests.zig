@@ -110,6 +110,7 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     defer allocator.free(agent);
     try std.testing.expect(std.mem.indexOf(u8, agent, "# ZMR Agent Instructions") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "App id: `com.example.mobiletest`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr inspect --json --dir .") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr doctor --strict --json --config .zmr/config.json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr schemas --json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json") != null);

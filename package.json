@@ -1,6 +1,6 @@
 {
   "name": "zeno-mobile-runner",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Agent-native mobile app test runner for React Native, Expo, Flutter, and native Android/iOS.",
   "main": "npm/index.mjs",
   "repository": {

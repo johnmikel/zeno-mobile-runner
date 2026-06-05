@@ -47,6 +47,7 @@ export function nextStepCommands(config, { android = true, ios = true, packageSc
 export function agentInstructions(appId, { android = true, ios = true, packageScripts = false, scripts = {} } = {}) {
   const command = (name, fallback) => scripts[name] ?? fallback;
   const appCommand = (scriptName, directCommand) => packageScripts ? `npm run ${scriptName}` : directCommand;
+  const inspectCommand = "zmr inspect --json --dir .";
   const doctorCommand = appCommand("zmr:doctor", command("doctor", "zmr doctor --strict --json --config .zmr/config.json"));
   const schemasCommand = appCommand("zmr:schemas", command("schemas", "zmr schemas --json"));
   const validateDirectCommand = command("validate", validateCommand({ android, ios }));
@@ -56,6 +57,7 @@ export function agentInstructions(appId, { android = true, ios = true, packageSc
   const explainCommand = appCommand("zmr:explain", command("explain", "zmr explain traces/zmr-agent --json"));
   const exportCommand = appCommand("zmr:export", command("exportTrace", "zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact"));
   const setupChecks = [
+    inspectCommand,
     doctorCommand,
     schemasCommand,
     validateAppCommand,
@@ -119,6 +121,7 @@ export function agentInstructions(appId, { android = true, ios = true, packageSc
   const appSectionTitle = packageScripts ? "App Scripts" : "App Commands";
   const appSectionCommands = nextStepCommands({ scripts: nextStepScripts }, { android, ios, packageScripts })
     .map((step) => step.command);
+  appSectionCommands.unshift(inspectCommand);
   const releaseClaims = android && ios
     ? `\`\`\`bash
 ${readinessCommandText}

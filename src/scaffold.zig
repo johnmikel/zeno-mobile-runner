@@ -318,6 +318,7 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\## Setup Checks
         \\
         \\```bash
+        \\zmr inspect --json --dir .
         \\zmr doctor --strict --json --config .zmr/config.json
         \\zmr schemas --json
         \\zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json
@@ -380,6 +381,7 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\## App Commands
         \\
         \\```bash
+        \\zmr inspect --json --dir .
         \\zmr doctor --strict --json --config .zmr/config.json
         \\zmr schemas --json
         \\zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json

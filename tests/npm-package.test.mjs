@@ -462,7 +462,7 @@ test("shipped language-client package metadata matches the runner prerelease", (
   assert.match(rustManifest, new RegExp(`^version = "${pkg.version}"$`, "m"));
   assert.match(pythonManifest, new RegExp(`^version = "${pkg.version.replaceAll(".", "\\.")}\\.dev1"$`, "m"));
   assert.match(kotlinBuild, new RegExp(`^version = "${pkg.version}"$`, "m"));
-  // Guard against docs drifting to an ambiguous "0.1.3-dev" without the numeric suffix.
+  // Guard against docs drifting to an ambiguous "0.1.4-dev" without the numeric suffix.
   assert.doesNotMatch(features, /0\.1\.1-dev(?!\.\d)/);
   assert.match(features, new RegExp(pkg.version.replaceAll(".", "\\.")));
 });
@@ -520,7 +520,7 @@ test("packed npm package postinstall builds a runnable zmr binary", () => {
       encoding: "utf8",
     });
     assert.equal(version.status, 0, version.stderr + version.stdout);
-    assert.equal(JSON.parse(version.stdout).version, "0.1.3");
+    assert.equal(JSON.parse(version.stdout).version, "0.1.4");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -529,6 +529,7 @@ test("packed npm package postinstall builds a runnable zmr binary", () => {
 test("agent instruction fallback commands respect selected platforms", () => {
   const iosOnly = agentInstructions("com.example.demo", { android: false, ios: true });
   assert.match(iosOnly, /## App Commands/);
+  assert.match(iosOnly, /zmr inspect --json --dir \./);
   assert.match(iosOnly, /zmr run \.zmr\/ios-smoke\.json --platform ios --device booted --trace-dir traces\/zmr-ios/);
   assert.match(iosOnly, /zmr-pilot-gate --ios --ios-app-root \. --ios-app-path \.\/build\/Debug-iphonesimulator\/Sample\.app --ios-app-id com\.example\.demo --ios-device booted/);
   assert.doesNotMatch(iosOnly, /--android/);
@@ -566,6 +567,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.doesNotMatch(tarList.stdout, /package\/scripts\/sign-macos-release\.sh/);
     assert.doesNotMatch(tarList.stdout, /package\/scripts\/notarize-macos-release\.sh/);
     assert.match(tarList.stdout, /package\/schemas\/release-manifest\.schema\.json/);
+    assert.match(tarList.stdout, /package\/schemas\/inspect-output\.schema\.json/);
     assert.match(tarList.stdout, /package\/clients\/README\.md/);
     assert.match(tarList.stdout, /package\/skills\/zmr-mobile-testing\/SKILL\.md/);
     assert.doesNotMatch(tarList.stdout, /__pycache__|\.pyc/);

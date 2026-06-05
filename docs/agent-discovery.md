@@ -13,6 +13,7 @@ deterministic mobile control plane.
 1. Validate local setup:
 
    ```bash
+   zmr inspect --json --dir .
    zmr doctor --json --config .zmr/config.json
    zmr validate --json .zmr/ios-smoke.json
    ```

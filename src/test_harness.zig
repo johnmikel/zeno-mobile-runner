@@ -17,6 +17,8 @@ const cli_import = @import("cli_import.zig");
 const cli_import_tests = @import("cli_import_tests.zig");
 const cli_info = @import("cli_info.zig");
 const cli_info_tests = @import("cli_info_tests.zig");
+const cli_inspect = @import("cli_inspect.zig");
+const cli_inspect_tests = @import("cli_inspect_tests.zig");
 const cli_init = @import("cli_init.zig");
 const cli_init_tests = @import("cli_init_tests.zig");
 const cli_output = @import("cli_output.zig");
@@ -138,6 +140,8 @@ test {
     _ = cli_import_tests;
     _ = cli_info;
     _ = cli_info_tests;
+    _ = cli_inspect;
+    _ = cli_inspect_tests;
     _ = cli_init;
     _ = cli_init_tests;
     _ = cli_output;

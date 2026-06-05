@@ -5,8 +5,8 @@ package installs, the wizard scaffolds a scenario, ZMR can launch an iOS app,
 and the runner can produce screenshots, traces, HTML reports, and redacted trace
 bundles.
 
-The flow below was verified locally with `zeno-mobile-runner@0.1.3` on an iOS
-simulator.
+Run the flow below on a local iOS simulator before treating a specific app build
+as validated.
 
 ```bash
 npx create-expo-app@latest /tmp/zmr-expo-smoke --template blank --yes

@@ -93,6 +93,7 @@ Useful commands:
 zmr version --json
 zmr schemas --json
 zmr devices --json
+zmr inspect --json
 zmr init --app --json --dir . --app-id com.example.mobiletest
 zmr validate --json .zmr/login-smoke.json
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke
@@ -107,6 +108,14 @@ wait guidance.
 ## Agent Workflow
 
 Agents can use the CLI, JSON-RPC, or MCP surface. Start JSON-RPC over stdio:
+
+```bash
+zmr inspect --json --dir .
+```
+
+`zmr inspect --json` gives agents a read-only handoff for the app checkout:
+config status, generated agent instructions, configured platform scenarios, and
+recommended next commands. It does not launch devices or write tests.
 
 ```bash
 zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
@@ -158,7 +167,7 @@ and [docs/client-installation.md](docs/client-installation.md).
 | iOS physical device | Supported, validate locally | `devicectl` lifecycle plus app-local XCTest/XCUIAutomation shim; run pilots on your own app/device before relying on it in CI |
 | Cloud device farms | Not included | ZMR is focused on local and self-managed device targets in this preview |
 
-Current release: `0.1.3` developer preview. Protocol version:
+Current release: `0.1.4` developer preview. Protocol version:
 `2026-04-28`.
 
 ## Documentation

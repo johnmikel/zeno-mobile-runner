@@ -4,6 +4,17 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.1.4 (2026-06-05)
+
+### Added
+
+- Added `zmr inspect --json` as a read-only app and agent handoff command. It
+  reports app-local config status, `.zmr/AGENTS.md` presence, configured
+  Android/iOS smoke scenarios, safe next commands, and explicit claim limits
+  without launching devices or writing tests.
+- Added `schemas/inspect-output.schema.json` and included it in `zmr schemas
+  --json` for generated clients and agent tooling.
+
 ### Changed
 
 - Tagged release workflow now uses npm trusted publishing instead of a

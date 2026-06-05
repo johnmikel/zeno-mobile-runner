@@ -2,7 +2,7 @@
 
 ZMR exposes newline-delimited JSON-RPC 2.0 over stdio or localhost TCP in v1. Each request is one JSON object followed by `\n`. Each response is one JSON object followed by `\n`.
 
-Current runner version: `0.1.3`.
+Current runner version: `0.1.4`.
 
 Current protocol version: `2026-04-28`.
 
@@ -24,6 +24,7 @@ Public schemas:
 - `schemas/capabilities-output.schema.json`
 - `schemas/explain-output.schema.json`
 - `schemas/run-output.schema.json`
+- `schemas/inspect-output.schema.json`
 - `schemas/release-manifest.schema.json`
 - `schemas/release-readiness-output.schema.json`
 - `schemas/schemas-output.schema.json`
@@ -35,6 +36,16 @@ methods.
 `zmr schemas --json` returns the same public schema index in machine-readable
 form for setup scripts, generated clients, and editor integrations. The
 response is covered by `schemas/schemas-output.schema.json`.
+
+`zmr inspect --json` returns a read-only app handoff for humans and agents. It
+reports the app root, config and `.zmr/AGENTS.md` presence, configured Android
+and iOS smoke scenarios, safe next commands, claim limits, and current runner
+and protocol versions. The response is covered by
+`schemas/inspect-output.schema.json`:
+
+```json
+{"ok":true,"status":"ready","schemaVersion":1,"runnerVersion":"0.1.4","protocolVersion":"2026-04-28","dir":".","configPath":".zmr/config.json","configExists":true,"agentInstructionsPath":".zmr/AGENTS.md","agentInstructionsExists":true,"platforms":[{"name":"android","enabled":true,"defaultDevice":"emulator-5554","smokeScenario":".zmr/android-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-android"},{"name":"ios","enabled":true,"defaultDevice":"booted","smokeScenario":".zmr/ios-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-ios"}],"recommendedCommands":["zmr doctor --strict --json --config .zmr/config.json","zmr schemas --json","zmr validate --json .zmr/android-smoke.json","zmr validate --json .zmr/ios-smoke.json","zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent","zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent"],"claimsPolicy":["verify runs with trace evidence before making readiness claims","do not claim Flutter widget-tree inspection"],"limitations":["inspect is read-only and does not launch devices","autonomous crawling is not shipped; generate or edit scenarios for human review"]}
+```
 
 `zmr-release-readiness --json` checks one or more repeated app/device evidence
 files and emits a machine-readable readiness summary. The output is covered by
@@ -133,7 +144,7 @@ installers, setup scripts, and generated clients. The response is covered by
 `schemas/version-output.schema.json`:
 
 ```json
-{"name":"zmr","version":"0.1.3","protocolVersion":"2026-04-28","minimumCompatibleProtocolVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"}
+{"name":"zmr","version":"0.1.4","protocolVersion":"2026-04-28","minimumCompatibleProtocolVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"}
 ```
 
 ## Capabilities Output Contract
@@ -145,7 +156,7 @@ and method inventory for JSON-RPC clients. The result object is covered by
 iOS simulator, or physical iOS workflows are available.
 
 ```json
-{"name":"zmr","version":"0.1.3","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","observe.snapshot","observe.semanticSnapshot"]}
+{"name":"zmr","version":"0.1.4","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","observe.snapshot","observe.semanticSnapshot"]}
 ```
 
 ## Doctor Output Contract
@@ -347,7 +358,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.3","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","trace.events","trace.export"]}}
+{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.4","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","trace.events","trace.export"]}}
 ```
 
 ### `trace.events`

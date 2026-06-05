@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/inspect-output.schema.json",
+  "title": "ZMR Inspect Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "status",
+    "schemaVersion",
+    "runnerVersion",
+    "protocolVersion",
+    "dir",
+    "configPath",
+    "configExists",
+    "agentInstructionsPath",
+    "agentInstructionsExists",
+    "platforms",
+    "recommendedCommands",
+    "claimsPolicy",
+    "limitations"
+  ],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "status": { "enum": ["ready", "needs-setup"] },
+    "schemaVersion": { "const": 1 },
+    "runnerVersion": { "type": "string", "minLength": 1 },
+    "protocolVersion": { "type": "string", "minLength": 1 },
+    "dir": { "type": "string", "minLength": 1 },
+    "configPath": { "type": "string", "minLength": 1 },
+    "configExists": { "type": "boolean" },
+    "agentInstructionsPath": { "type": "string", "minLength": 1 },
+    "agentInstructionsExists": { "type": "boolean" },
+    "platforms": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/platform" }
+    },
+    "recommendedCommands": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claimsPolicy": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "enabled",
+        "defaultDevice",
+        "smokeScenario",
+        "smokeScenarioExists",
+        "traceDir"
+      ],
+      "properties": {
+        "name": { "enum": ["android", "ios"] },
+        "enabled": { "type": "boolean" },
+        "defaultDevice": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "smokeScenario": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "smokeScenarioExists": { "type": "boolean" },
+        "traceDir": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

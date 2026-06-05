@@ -51,6 +51,7 @@ required = [
     "zig test src/test_harness.zig -target aarch64-macos.15.0",
     "bash tests/version-json-test.sh",
     "bash tests/schemas-json-test.sh",
+    "bash tests/inspect-json-test.sh",
     "bash tests/devices-json-test.sh",
     "bash tests/cli-error-test.sh",
     "bash tests/validate-json-test.sh",

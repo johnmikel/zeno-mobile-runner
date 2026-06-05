@@ -4,6 +4,7 @@ const cli_doctor = @import("cli_doctor.zig");
 const cli_info = @import("cli_info.zig");
 const cli_init = @import("cli_init.zig");
 const cli_import = @import("cli_import.zig");
+const cli_inspect = @import("cli_inspect.zig");
 const cli_run = @import("cli_run.zig");
 const cli_serve = @import("cli_serve.zig");
 const cli_trace = @import("cli_trace.zig");
@@ -46,6 +47,8 @@ fn mainInner() !void {
         try cli_init.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "import")) {
         try cli_import.run(allocator, &args);
+    } else if (std.mem.eql(u8, command_name, "inspect")) {
+        try cli_inspect.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "run")) {
         try cli_run.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "report")) {
@@ -114,6 +117,7 @@ fn usage() !void {
         \\  zmr init [scenario.json] [--app-id <id>] [--force] [--json]
         \\  zmr init --app [--dir <app-root>] [--app-id <id>] [--force] [--json]
         \\  zmr import flow-yaml <flow.yaml> --out <scenario.json> [--name <name>] [--app-id <id>] [--force] [--json]
+        \\  zmr inspect [--json] [--dir <app-root>] [--config <path>]
         \\  zmr run [scenario.json] [--json] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--android-avd <name>] [--create-avd-if-missing] [--avd-system-image <pkg>] [--avd-device <profile>] [--restore-snapshot <name>] [--reset-emulator] [--wait-emulator] [--screen-record] [--no-screen-record] [--adb <path>] [--emulator <path>] [--avdmanager <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
         \\  zmr report <trace-or-benchmark-dir> --out <report.html>
         \\  zmr explain <trace-dir> [--json]

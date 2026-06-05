@@ -53,6 +53,7 @@ require_file docs/client-installation.md
 require_file docs/scenario-authoring.md
 require_file docs/frameworks.md
 require_file docs/expo-smoke.md
+require_file docs/production-readiness.md
 require_file docs/agent-discovery.md
 require_file docs/adr/README.md
 require_file schemas/README.md
@@ -100,6 +101,7 @@ require_grep 'iOS physical device' README.md
 require_grep 'Current release: `0.1.3` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
+require_grep 'docs/production-readiness.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
 require_grep 'built-in autonomous crawler is not shipped' README.md
 require_grep 'docs/scenario-authoring.md' README.md
@@ -140,6 +142,12 @@ require_grep 'Semantics' docs/frameworks.md
 require_grep 'Expo Smoke Test' docs/expo-smoke.md
 require_grep 'zeno-mobile-runner@0.1.3' docs/expo-smoke.md
 require_grep 'zmr report traces/zmr-ios --out traces/zmr-ios/report.html' docs/expo-smoke.md
+require_grep 'Production Readiness' docs/production-readiness.md
+require_grep 'Product Gates Before 1.0' docs/production-readiness.md
+require_grep 'Release supply chain' docs/production-readiness.md
+require_grep 'trusted publisher must be configured' docs/production-readiness.md
+require_grep 'Agentic Standard' docs/production-readiness.md
+require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
 require_grep 'zmr explore --goal' docs/agent-discovery.md

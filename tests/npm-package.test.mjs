@@ -435,6 +435,7 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   assert.ok(paths.includes("src/main.zig"));
   assert.ok(paths.includes("docs/frameworks.md"));
   assert.ok(paths.includes("docs/expo-smoke.md"));
+  assert.ok(paths.includes("docs/production-readiness.md"));
   assert.ok(paths.includes("docs/agent-discovery.md"));
   assert.ok(paths.includes("docs/scenario-authoring.md"));
   assert.ok(paths.includes("clients/go/zmr/client.go"));

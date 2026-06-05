@@ -8,6 +8,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 - Tagged release workflow now uses npm trusted publishing instead of a
   long-lived `NPM_TOKEN` secret.
+- Added a public production-readiness checklist that ties release, framework,
+  reliability, trace privacy, and agent workflow claims to concrete evidence.
 
 ## 0.1.3 (2026-06-03)
 

@@ -167,6 +167,7 @@ Current release: `0.1.3` developer preview. Protocol version:
 - [docs/install.md](docs/install.md): source, npm, Homebrew, and app setup
 - [docs/frameworks.md](docs/frameworks.md): React Native, Expo, Flutter, and native app guidance
 - [docs/expo-smoke.md](docs/expo-smoke.md): reproducible Expo and iOS smoke test
+- [docs/production-readiness.md](docs/production-readiness.md): release, reliability, framework, and agent-readiness gates
 - [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
 - [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery and scenario authoring loop

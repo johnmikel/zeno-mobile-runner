@@ -355,6 +355,10 @@ from the tag, attests the generated release artifacts, uploads the GitHub
 release assets, verifies exactly one local npm tarball exists under `./dist/`,
 and then publishes that tarball with public access.
 
+Trusted publishing requires a current npm runtime. The tag workflow uses Node
+24 so the npm CLI can exchange the GitHub Actions OIDC identity for publish
+authorization.
+
 ## Node API
 
 ```js

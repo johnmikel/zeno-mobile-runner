@@ -27,7 +27,7 @@ gradle -p clients/kotlin runFakeSession \
 ```
 
 ```kotlin
-implementation(files("path/to/zeno-mobile-runner/clients/kotlin/build/libs/zmr-client-0.1.5.jar"))
+implementation(files("path/to/zeno-mobile-runner/clients/kotlin/build/libs/zmr-client-0.1.6.jar"))
 ```
 
 The Kotlin client is host-side. It is useful for Android teams that want test

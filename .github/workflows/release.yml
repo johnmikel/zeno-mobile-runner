@@ -42,8 +42,9 @@ jobs:
           "$PWD/zig-${zig_arch}-macos-${ZIG_VERSION}/zig" version
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
       - name: Local release gate
         run: |
           ZMR_VERSION="${GITHUB_REF_NAME#v}" \

@@ -4,7 +4,7 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
-## 0.1.4 (2026-06-05)
+## 0.1.5 (2026-06-05)
 
 ### Added
 
@@ -19,6 +19,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 - Tagged release workflow now uses npm trusted publishing instead of a
   long-lived `NPM_TOKEN` secret.
+- Fixed the tagged release publish step so npm receives the generated local
+  tarball instead of interpreting the path as a GitHub package spec.
 - Added a public production-readiness checklist that ties release, framework,
   reliability, trace privacy, and agent workflow claims to concrete evidence.
 

@@ -352,8 +352,8 @@ on the tag workflow:
 
 The release workflow already requests `id-token: write`, builds the npm tarball
 from the tag, attests the generated release artifacts, uploads the GitHub
-release assets, and then publishes `dist/zeno-mobile-runner-*.tgz` with public
-access.
+release assets, verifies exactly one local npm tarball exists under `./dist/`,
+and then publishes that tarball with public access.
 
 ## Node API
 

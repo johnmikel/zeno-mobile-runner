@@ -76,4 +76,8 @@ jobs:
             dist/homebrew/zmr.rb
             dist/SHA256SUMS
       - name: Publish npm package
-        run: npm publish dist/zeno-mobile-runner-*.tgz --access public
+        run: |
+          npm_package=(./dist/zeno-mobile-runner-*.tgz)
+          test "${#npm_package[@]}" -eq 1
+          test -f "${npm_package[0]}"
+          npm publish "${npm_package[0]}" --access public

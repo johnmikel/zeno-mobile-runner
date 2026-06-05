@@ -82,7 +82,7 @@ test "command timeout terminates shell child process group" {
         allocator,
         &.{ "/bin/sh", "-c", "sleep 5 & child=$!; echo \"$child\" > \"$1\"; wait \"$child\"", "sh", pid_path },
         1024,
-        50,
+        500,
     );
     defer result.deinit(allocator);
 

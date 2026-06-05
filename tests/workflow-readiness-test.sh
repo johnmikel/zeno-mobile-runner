@@ -45,5 +45,8 @@ grep -q 'actions/setup-node@v6' "$RELEASE"
 grep -q 'npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"' "$RELEASE"
 grep -q 'npm run pack:npm' "$RELEASE"
 grep -q 'dist/zeno-mobile-runner-\*.tgz' "$RELEASE"
-grep -q 'NODE_AUTH_TOKEN' "$RELEASE"
-grep -q 'npm publish dist/zeno-mobile-runner-\*.tgz --provenance --access public' "$RELEASE"
+grep -q 'npm publish dist/zeno-mobile-runner-\*.tgz --access public' "$RELEASE"
+if grep -q 'NODE_AUTH_TOKEN\|NPM_TOKEN' "$RELEASE"; then
+  echo "release workflow should use npm trusted publishing, not token secrets" >&2
+  exit 1
+fi

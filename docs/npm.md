@@ -341,6 +341,20 @@ npm run pack:npm
 
 That command builds release binaries, copies them into `prebuilds/`, and runs `npm pack`.
 
+Tagged GitHub releases publish through npm trusted publishing, not a long-lived
+`NPM_TOKEN` secret. Configure the npm package trusted publisher before relying
+on the tag workflow:
+
+- Package: `zeno-mobile-runner`
+- Provider: GitHub Actions
+- Repository: `johnmikel/zeno-mobile-runner`
+- Workflow file: `release.yml`
+
+The release workflow already requests `id-token: write`, builds the npm tarball
+from the tag, attests the generated release artifacts, uploads the GitHub
+release assets, and then publishes `dist/zeno-mobile-runner-*.tgz` with public
+access.
+
 ## Node API
 
 ```js

@@ -4,6 +4,11 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Changed
+
+- Tagged release workflow now uses npm trusted publishing instead of a
+  long-lived `NPM_TOKEN` secret.
+
 ## 0.1.3 (2026-06-03)
 
 ### Fixed
@@ -329,8 +334,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Tagged release workflow now publishes GitHub artifact attestation for release
   archives and metadata.
 - Tagged release workflow now builds the npm tarball, attests it, uploads it
-  with the release assets, and publishes with npm provenance when `NPM_TOKEN`
-  is configured.
+  with the release assets, and can publish with npm provenance from supported
+  CI.
 - Release manifests and checksum verification now include generated npm
   tarballs when present.
 - Native selector wait timeouts now capture one final snapshot when possible,

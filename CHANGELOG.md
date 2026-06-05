@@ -4,6 +4,24 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.1.3 (2026-06-03)
+
+### Fixed
+
+- Hardened the iOS XCTest shim for clean Expo/RN prebuilds by giving cold
+  `build-for-testing` runs a 90-minute default timeout with explicit progress
+  logging.
+- Made iOS simulator `app.stop` idempotent when `simctl terminate` reports the
+  app is already stopped.
+- Improved selector actions so native `selector.not_found` and
+  `selector.not_hittable` responses return a typed unavailable result instead
+  of failing the command parser.
+- Reused a resolved booted simulator UDID across `build-for-testing` and
+  `test-without-building`, and cleared stale shim PID/server/destination state
+  when reinstalling the app-local shim.
+- Avoided stale XCTest snapshot elements and replaced broad selector scans with
+  native predicate-based fallback queries.
+
 ## 0.1.2 (2026-05-28)
 
 ### Fixed

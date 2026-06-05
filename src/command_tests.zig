@@ -69,3 +69,39 @@ test "command run with timeout terminates stuck child" {
     try std.testing.expect(result.timed_out);
     try std.testing.expectError(error.CommandTimedOut, result.ensureSuccess());
 }
+
+test "command timeout terminates shell child process group" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const pid_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/child.pid", .{tmp.sub_path});
+    defer allocator.free(pid_path);
+
+    var result = try runWithTimeout(
+        allocator,
+        &.{ "/bin/sh", "-c", "sleep 5 & child=$!; echo \"$child\" > \"$1\"; wait \"$child\"", "sh", pid_path },
+        1024,
+        50,
+    );
+    defer result.deinit(allocator);
+
+    try std.testing.expect(result.timed_out);
+    try std.testing.expectError(error.CommandTimedOut, result.ensureSuccess());
+
+    const pid_bytes = try tmp.dir.readFileAlloc(allocator, "child.pid", 128);
+    defer allocator.free(pid_bytes);
+    const pid = std.mem.trim(u8, pid_bytes, " \n\r\t");
+
+    var probe = try run(allocator, &.{ "/bin/sh", "-c", "kill -0 \"$1\" 2>/dev/null", "sh", pid }, 1024);
+    defer probe.deinit(allocator);
+    const alive = switch (probe.term) {
+        .Exited => |code| code == 0,
+        else => false,
+    };
+    if (alive) {
+        var cleanup = try run(allocator, &.{ "/bin/sh", "-c", "kill -TERM \"$1\" 2>/dev/null || true", "sh", pid }, 1024);
+        defer cleanup.deinit(allocator);
+    }
+    try std.testing.expect(!alive);
+}

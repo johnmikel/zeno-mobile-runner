@@ -9,7 +9,9 @@ const trace = @import("trace.zig");
 const types = @import("types.zig");
 
 const default_max_output = 32 * 1024 * 1024;
-const shim_timeout_ms = 600_000;
+// Clean iOS prebuilds can force the XCTest shim script through a full native
+// dependency build before it can answer the first selector query.
+const shim_timeout_ms = 5_400_000;
 const shim_best_effort_timeout_ms = 10_000;
 const shim_command_attempts = 2;
 const shim_bootstrap_retry_delay_ms = 500;
@@ -107,6 +109,7 @@ pub const IosDevice = struct {
         if (self.target_kind == .physical) return try self.stopPhysicalBestEffort();
         const result = try self.runSimctl(&.{ "terminate", self.target(), self.app_id }, default_max_output);
         defer result.deinit(self.allocator);
+        if (ios_lifecycle.isAppNotRunning(result)) return;
         try result.ensureSuccess();
     }
 
@@ -307,8 +310,12 @@ pub const IosDevice = struct {
 
         var command_with_selector = shim_command;
         command_with_selector.selector = shim_selector;
-        try self.runShimAction(command_with_selector);
-        return true;
+        const response = try self.runShim(command_with_selector);
+        defer self.allocator.free(response);
+        return switch (try ios_shim.parseSelectorActionResponse(response)) {
+            .ok => true,
+            .selector_unavailable => false,
+        };
     }
 
     fn runShim(self: *IosDevice, shim_command: ios_shim.Command) ![]u8 {
@@ -394,6 +401,6 @@ pub fn parsePhysicalDevicesJson(allocator: std.mem.Allocator, content: []const u
 }
 
 test "ios xctest shim timeout allows cold xcodebuild startup" {
-    try std.testing.expect(shim_timeout_ms >= 300_000);
+    try std.testing.expect(shim_timeout_ms >= 5_400_000);
     try std.testing.expect(shim_best_effort_timeout_ms <= 15_000);
 }

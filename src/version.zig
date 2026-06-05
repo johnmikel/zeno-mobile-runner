@@ -1,4 +1,4 @@
-pub const runner_version = "0.1.2";
+pub const runner_version = "0.1.3";
 pub const protocol_version = "2026-04-28";
 pub const protocol_min_compatible_version = "2026-04-28";
 pub const protocol_stability = "dev-preview";

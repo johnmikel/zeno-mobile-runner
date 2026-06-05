@@ -167,6 +167,10 @@ mkdir -p "$APP_ROOT"
 APP_ROOT="$(cd "$APP_ROOT" && pwd)"
 mkdir -p "$APP_ROOT/.zmr" "$APP_ROOT/.zmr/shims/ios"
 rm -f "$APP_ROOT/.zmr/ios-shim-state/build-for-testing.ready"
+rm -f "$APP_ROOT/.zmr/ios-shim-state/destination.id"
+rm -f "$APP_ROOT/.zmr/ios-shim-state/xcodebuild.pid"
+rm -f "$APP_ROOT/.zmr/ios-shim-state/xcodebuild.log"
+rm -rf "$APP_ROOT/.zmr/ios-shim-state/server"
 cp "$ROOT/shims/ios/ZMRShim.swift" "$APP_ROOT/.zmr/shims/ios/ZMRShim.swift"
 cp "$ROOT/shims/ios/ZMRShimUITestCase.swift" "$APP_ROOT/.zmr/ZMRShimUITestCase.swift"
 cp "$ROOT/scripts/ensure-ios-shim-target.rb" "$APP_ROOT/.zmr/ensure-ios-shim-target.rb"
@@ -216,6 +220,7 @@ STATE_DIR="$APP_ROOT/.zmr/ios-shim-state"
 SERVER_DIR="\$STATE_DIR/server"
 PID_FILE="\$STATE_DIR/xcodebuild.pid"
 READY_FILE="\$SERVER_DIR/ready"
+DESTINATION_ID_FILE="\$STATE_DIR/destination.id"
 BUILD_READY_FILE="\$STATE_DIR/build-for-testing.ready"
 LOG_FILE="\$STATE_DIR/xcodebuild.log"
 STDIN_FILE="\$(mktemp)"
@@ -241,6 +246,52 @@ tail_log() {
   fi
 }
 
+tail_log_path() {
+  local log_file="\$1"
+  if [[ -f "\$log_file" ]]; then
+    tail -120 "\$log_file" >&2
+  fi
+}
+
+run_xcodebuild_with_timeout() {
+  local label="\$1"
+  local timeout_seconds="\$2"
+  local log_file="\$3"
+  shift 3
+
+  local pid started_at next_progress progress_seconds elapsed
+  progress_seconds="\${ZMR_IOS_SHIM_PROGRESS_SECONDS:-30}"
+  "\$@" >"\$log_file" 2>&1 &
+  pid="\$!"
+  started_at="\$SECONDS"
+  next_progress=\$((started_at + progress_seconds))
+
+  while kill -0 "\$pid" 2>/dev/null; do
+    elapsed=\$((SECONDS - started_at))
+    if (( elapsed >= timeout_seconds )); then
+      echo "timed out waiting for \$label after \${timeout_seconds}s" >&2
+      kill -TERM "\$pid" 2>/dev/null || true
+      sleep 2
+      if kill -0 "\$pid" 2>/dev/null; then
+        kill -KILL "\$pid" 2>/dev/null || true
+      fi
+      wait "\$pid" 2>/dev/null || true
+      tail_log_path "\$log_file"
+      exit 1
+    fi
+    if (( SECONDS >= next_progress )); then
+      echo "still waiting for \$label after \${elapsed}s; log: \$log_file" >&2
+      next_progress=\$((SECONDS + progress_seconds))
+    fi
+    sleep 1
+  done
+
+  if ! wait "\$pid"; then
+    tail_log_path "\$log_file"
+    exit 1
+  fi
+}
+
 resolve_destination() {
   local destination_id="$DEVICE"
   if [[ "\$destination_id" == "booted" ]]; then
@@ -248,7 +299,20 @@ resolve_destination() {
       echo "physical iOS shim requires an explicit --device id" >&2
       exit 2
     fi
+    if [[ -f "\$DESTINATION_ID_FILE" ]]; then
+      destination_id="\$(cat "\$DESTINATION_ID_FILE" 2>/dev/null || true)"
+      if [[ -n "\$destination_id" ]] && xcrun simctl list devices available | grep -F "\$destination_id" >/dev/null 2>&1; then
+        # Reuse the first resolved booted simulator so build-for-testing and
+        # test-without-building target the same simulator even if it shuts down
+        # while Xcode is compiling the shim target.
+        printf '%s' "\$destination_id"
+        return 0
+      fi
+    fi
     destination_id="\$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-][0-9A-Fa-f-]*\)) (Booted).*/\1/p' | head -n 1)"
+    if [[ -n "\$destination_id" ]]; then
+      printf '%s' "\$destination_id" > "\$DESTINATION_ID_FILE"
+    fi
   fi
   if [[ -z "\$destination_id" ]]; then
     echo "no booted iOS simulator found" >&2
@@ -272,9 +336,13 @@ is_server_running() {
   if [[ ! -f "\$PID_FILE" ]]; then
     return 1
   fi
-  local pid
+  local pid command
   pid="\$(cat "\$PID_FILE" 2>/dev/null || true)"
-  [[ -n "\$pid" ]] && kill -0 "\$pid" 2>/dev/null
+  if [[ -z "\$pid" ]] || ! kill -0 "\$pid" 2>/dev/null; then
+    return 1
+  fi
+  command="\$(ps -p "\$pid" -o command= 2>/dev/null || true)"
+  [[ "\$command" == *xcodebuild* && "\$command" == *ZMRShimUITests* ]]
 }
 
 run_oneshot() {
@@ -332,18 +400,15 @@ build_for_testing() {
   destination_id="\$(destination_spec)"
   build_log="\$STATE_DIR/xcodebuild.build.log"
 
-  if ! xcodebuild build-for-testing \\
-    "\${XCODEBUILD_ARGS[@]}" \\
-    -scheme "$SCHEME" \\
-    -configuration "$CONFIGURATION" \\
-    -destination "\$destination_id" \\
-    ZMR_SHIM_MODE="server" \\
-    ZMR_SHIM_SERVER_DIR="\$SERVER_DIR" \\
-    ZMR_APP_BUNDLE_ID="$BUNDLE_ID" \\
-    >"\$build_log" 2>&1; then
-    tail -120 "\$build_log" >&2
-    exit 1
-  fi
+  run_xcodebuild_with_timeout "iOS shim build-for-testing" "\${ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS:-5400}" "\$build_log" \\
+    xcodebuild build-for-testing \\
+      "\${XCODEBUILD_ARGS[@]}" \\
+      -scheme "$SCHEME" \\
+      -configuration "$CONFIGURATION" \\
+      -destination "\$destination_id" \\
+      ZMR_SHIM_MODE="server" \\
+      ZMR_SHIM_SERVER_DIR="\$SERVER_DIR" \\
+      ZMR_APP_BUNDLE_ID="$BUNDLE_ID"
 
   touch "\$BUILD_READY_FILE"
 }

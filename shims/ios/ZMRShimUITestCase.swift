@@ -128,7 +128,7 @@ final class ZMRShimUITestCase: XCTestCase {
             guard isFastQueryable(parts: parts) else {
                 return error("selector.unsupported", "unsupported query selector: \(selector)")
             }
-            let element = resolveFastElement(selector: selector, app: app, preferredTypes: [])
+            let element = resolveElement(selector: selector, app: app, preferredTypes: [])
             return [
                 "status": "ok",
                 "exists": element?.exists ?? false,
@@ -328,19 +328,49 @@ final class ZMRShimUITestCase: XCTestCase {
             return fast
         }
 
-        let matchedElements = app.descendants(matching: .any).allElementsBoundByIndex.filter { element in
-            matches(selector: selector, element: element)
+        return resolveBroadElement(selector: selector, app: app)
+    }
+
+    private func resolveBroadElement(selector: String, app: XCUIApplication) -> XCUIElement? {
+        guard let parts = selectorParts(selector) else {
+            return nil
         }
-        if let preferred = matchedElements.first(where: { preferredTypes.contains($0.elementType) && $0.isHittable }) {
-            return preferred
+
+        let query: XCUIElementQuery?
+        switch parts.field {
+        case "text", "label":
+            let predicate = parts.contains
+                ? NSPredicate(format: "label CONTAINS[c] %@", parts.value)
+                : NSPredicate(format: "label == %@", parts.value)
+            query = app.descendants(matching: .any).matching(predicate)
+        case "identifier", "resourceId":
+            let predicate = parts.contains
+                ? NSPredicate(format: "identifier CONTAINS[c] %@", parts.value)
+                : NSPredicate(format: "identifier == %@", parts.value)
+            query = app.descendants(matching: .any).matching(predicate)
+        case "value":
+            let predicate = parts.contains
+                ? NSPredicate(format: "value CONTAINS[c] %@", parts.value)
+                : NSPredicate(format: "value == %@", parts.value)
+            query = app.descendants(matching: .any).matching(predicate)
+        case "id":
+            if parts.value.hasPrefix("id:") {
+                let identifier = String(parts.value.dropFirst("id:".count))
+                query = app.descendants(matching: .any).matching(identifier: identifier)
+            } else if parts.value.hasPrefix("label:") {
+                let label = String(parts.value.dropFirst("label:".count))
+                query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+            } else {
+                query = nil
+            }
+        default:
+            query = nil
         }
-        if let preferred = matchedElements.first(where: { preferredTypes.contains($0.elementType) }) {
-            return preferred
+
+        guard let element = query?.firstMatch, element.exists else {
+            return nil
         }
-        if let hittable = matchedElements.first(where: { $0.isHittable }) {
-            return hittable
-        }
-        return matchedElements.first
+        return element
     }
 
     private func resolveFastElement(selector: String, app: XCUIApplication, preferredTypes: [XCUIElement.ElementType]) -> XCUIElement? {

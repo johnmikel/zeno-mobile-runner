@@ -109,6 +109,48 @@ pub fn parseOkResponse(content: []const u8) !void {
     if (!std.mem.eql(u8, status, "ok")) return error.IosShimResponseNotOk;
 }
 
+pub const SelectorActionResponse = enum {
+    ok,
+    selector_unavailable,
+};
+
+pub fn parseSelectorActionResponse(content: []const u8) !SelectorActionResponse {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), content, .{});
+    if (parsed.value != .object) return error.IosShimResponseMustBeObject;
+    const status = fieldString(parsed.value.object, "status") orelse return error.IosShimMissingStatus;
+    if (std.mem.eql(u8, status, "ok")) return .ok;
+
+    const code = fieldString(parsed.value.object, "code") orelse return error.IosShimResponseNotOk;
+    if (std.mem.eql(u8, code, "selector.not_found") or
+        std.mem.eql(u8, code, "selector.not_hittable"))
+    {
+        return .selector_unavailable;
+    }
+
+    return error.IosShimResponseNotOk;
+}
+
+test "selector action response maps native selector misses to unavailable" {
+    try std.testing.expectEqual(SelectorActionResponse.ok, try parseSelectorActionResponse("{\"status\":\"ok\"}"));
+    try std.testing.expectEqual(
+        SelectorActionResponse.selector_unavailable,
+        try parseSelectorActionResponse("{\"status\":\"error\",\"code\":\"selector.not_found\",\"message\":\"missing\"}"),
+    );
+    try std.testing.expectEqual(
+        SelectorActionResponse.selector_unavailable,
+        try parseSelectorActionResponse("{\"status\":\"error\",\"code\":\"selector.not_hittable\",\"message\":\"covered\"}"),
+    );
+}
+
+test "selector action response keeps unsupported selectors as hard errors" {
+    try std.testing.expectError(
+        error.IosShimResponseNotOk,
+        parseSelectorActionResponse("{\"status\":\"error\",\"code\":\"selector.unsupported\",\"message\":\"bad\"}"),
+    );
+}
+
 pub fn parseQueryResponse(content: []const u8) !bool {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

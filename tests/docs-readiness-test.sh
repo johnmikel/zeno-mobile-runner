@@ -97,7 +97,7 @@ require_grep 'TypeScript and Python are the most common starting points' README.
 require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' README.md
 require_grep 'physical iOS devices use `devicectl`' README.md
 require_grep 'iOS physical device' README.md
-require_grep 'Current release: `0.1.2` developer preview' README.md
+require_grep 'Current release: `0.1.3` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
@@ -124,11 +124,11 @@ require_not_grep 'Zig Mobile Runner' README.md
 require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
-require_grep 'Current release status is `0.1.2`' FEATURES.md
+require_grep 'Current release status is `0.1.3`' FEATURES.md
 require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
-require_grep '0.1.2' CHANGELOG.md
+require_grep '0.1.3' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
 require_grep 'Expo' docs/frameworks.md
@@ -138,7 +138,7 @@ require_grep 'not inspect Flutter widget trees' docs/frameworks.md
 require_grep 'accessibilityLabel' docs/frameworks.md
 require_grep 'Semantics' docs/frameworks.md
 require_grep 'Expo Smoke Test' docs/expo-smoke.md
-require_grep 'zeno-mobile-runner@0.1.2' docs/expo-smoke.md
+require_grep 'zeno-mobile-runner@0.1.3' docs/expo-smoke.md
 require_grep 'zmr report traces/zmr-ios --out traces/zmr-ios/report.html' docs/expo-smoke.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md

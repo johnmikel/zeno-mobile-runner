@@ -5,7 +5,7 @@ package installs, the wizard scaffolds a scenario, ZMR can launch an iOS app,
 and the runner can produce screenshots, traces, HTML reports, and redacted trace
 bundles.
 
-The flow below was verified locally with `zeno-mobile-runner@0.1.2` on an iOS
+The flow below was verified locally with `zeno-mobile-runner@0.1.3` on an iOS
 simulator.
 
 ```bash

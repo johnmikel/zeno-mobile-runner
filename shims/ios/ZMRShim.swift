@@ -58,6 +58,9 @@ enum ZMRShim {
                 guard nodes.count < 256 else {
                     return nodes
                 }
+                guard element.exists else {
+                    continue
+                }
                 nodes.append(node(index: nodes.count, type: type, element: element))
             }
         }

@@ -70,3 +70,39 @@ pub fn isMissingInstalledApp(result: command.ExecResult) bool {
     }
     return std.mem.indexOf(u8, result.stderr, "No installed application with bundle identifier") != null;
 }
+
+pub fn isAppNotRunning(result: command.ExecResult) bool {
+    switch (result.term) {
+        .Exited => |code| if (code == 0) return false,
+        else => return false,
+    }
+    return std.mem.indexOf(u8, result.stderr, "found nothing to terminate") != null;
+}
+
+test "simctl terminate missing running app is best-effort" {
+    const allocator = std.testing.allocator;
+    const stdout = try allocator.dupe(u8, "");
+    defer allocator.free(stdout);
+    const stderr = try allocator.dupe(u8, "The request to terminate \"com.example.mobiletest\" failed. found nothing to terminate");
+    defer allocator.free(stderr);
+
+    try std.testing.expect(isAppNotRunning(.{
+        .stdout = stdout,
+        .stderr = stderr,
+        .term = .{ .Exited = 3 },
+    }));
+}
+
+test "simctl terminate success is not classified as already stopped" {
+    const allocator = std.testing.allocator;
+    const stdout = try allocator.dupe(u8, "");
+    defer allocator.free(stdout);
+    const stderr = try allocator.dupe(u8, "");
+    defer allocator.free(stderr);
+
+    try std.testing.expect(!isAppNotRunning(.{
+        .stdout = stdout,
+        .stderr = stderr,
+        .term = .{ .Exited = 0 },
+    }));
+}

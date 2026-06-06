@@ -94,6 +94,9 @@ test "tap retries through transient empty snapshots" {
 
 test "runner uses native selector actions when a device exposes them" {
     const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-native-selector-actions";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
 
     const NativeSelectorDevice = struct {
         allocator: std.mem.Allocator,
@@ -136,7 +139,7 @@ test "runner uses native selector actions when a device exposes them" {
 
         pub fn typeTextBySelector(self: *@This(), wanted: selector.Selector, text: []const u8) !bool {
             try std.testing.expectEqualStrings("Email", wanted.text.?);
-            try std.testing.expectEqualStrings("agent@example.com", text);
+            try std.testing.expectEqualStrings("agent name", text);
             self.native_types += 1;
             return true;
         }
@@ -194,12 +197,14 @@ test "runner uses native selector actions when a device exposes them" {
     };
 
     var device = NativeSelectorDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
     const script_json =
         \\{
         \\  "name": "native selector flow",
         \\  "steps": [
         \\    {"action": "tap", "selector": {"text": "Continue"}},
-        \\    {"action": "typeText", "selector": {"text": "Email"}, "text": "agent@example.com"},
+        \\    {"action": "typeText", "selector": {"text": "Email"}, "text": "agent name"},
         \\    {"action": "eraseText", "selector": {"text": "Email"}, "maxChars": 5}
         \\  ]
         \\}
@@ -207,7 +212,7 @@ test "runner uses native selector actions when a device exposes them" {
     const script = try scenario.parseSlice(allocator, script_json);
     defer script.deinit(allocator);
 
-    try runScenario(allocator, &device, script, null, .{ .settle_ms = 0, .poll_ms = 0 });
+    try runScenario(allocator, &device, script, &tw, .{ .settle_ms = 0, .poll_ms = 0 });
 
     try std.testing.expectEqual(@as(usize, 1), device.native_taps);
     try std.testing.expectEqual(@as(usize, 1), device.native_types);
@@ -216,6 +221,14 @@ test "runner uses native selector actions when a device exposes them" {
     try std.testing.expectEqual(@as(usize, 0), device.fallback_types);
     try std.testing.expectEqual(@as(usize, 0), device.fallback_erases);
     try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.type\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"selector\":{\"text\":\"Email\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"text\":\"agent name\"") != null);
 }
 
 test "runner uses native selector queries for waits when a device exposes them" {
@@ -358,7 +371,7 @@ test "runner executes agent flow primitives and records trace events" {
         \\    {"action": "launch"},
         \\    {"action": "snapshot"},
         \\    {"action": "tap", "selector": {"text": "Tap Target"}},
-        \\    {"action": "typeText", "selector": {"text": "Email Field"}, "text": "agent@example.com"},
+        \\    {"action": "typeText", "selector": {"text": "Email Field"}, "text": "agent name"},
         \\    {"action": "eraseText", "selector": {"text": "Email Field"}, "maxChars": 4},
         \\    {"action": "hideKeyboard"},
         \\    {"action": "swipe", "x1": 10, "y1": 20, "x2": 30, "y2": 40, "durationMs": 50},
@@ -395,7 +408,7 @@ test "runner executes agent flow primitives and records trace events" {
     try std.testing.expect(fake.cleared);
     try std.testing.expectEqual(@as(usize, 3), fake.taps);
     try std.testing.expectEqual(@as(usize, 2), fake.typed_text.items.len);
-    try std.testing.expectEqualStrings("agent@example.com", fake.typed_text.items[0]);
+    try std.testing.expectEqualStrings("agent name", fake.typed_text.items[0]);
     try std.testing.expectEqualStrings("conditional", fake.typed_text.items[1]);
     try std.testing.expectEqual(@as(usize, 3), fake.erases);
     try std.testing.expectEqual(@as(u32, 1), fake.last_erase_chars);
@@ -413,6 +426,9 @@ test "runner executes agent flow primitives and records trace events" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"scenario.start\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.tap\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.type\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"selector\":{\"text\":\"Email Field\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"text\":\"agent name\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.optional\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.whenVisible.skipped\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.scrollUntilVisible\"") != null);

@@ -61,6 +61,16 @@ pub fn typeTextSelector(
     if (try runner_native.tryTypeTextSelector(device, wanted, text, writer, options.settle_ms)) return;
     try tapSelector(device, wanted, writer, options);
     try device.typeText(text);
+    if (writer) |tw| {
+        var payload = std.ArrayList(u8).empty;
+        defer payload.deinit(tw.allocator);
+        try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"selector\":");
+        try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
+        try payload.writer(tw.allocator).writeAll(",\"text\":");
+        try trace.writeJsonString(payload.writer(tw.allocator), text);
+        try payload.writer(tw.allocator).writeAll("}");
+        try tw.recordEvent("ui.type", payload.items);
+    }
     try settleDevice(device, options);
 }
 

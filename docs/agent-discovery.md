@@ -47,6 +47,20 @@ ZMR as the deterministic mobile control plane.
 
    The draft contains `launch`, `snapshot`, and `assertVisible` steps from
    stable visible selectors. It does not tap, type, crawl, or commit anything.
+   If the trace contains successful typed actions and you want a replayable
+   starting point, include those supported events explicitly:
+
+   ```bash
+   zmr draft --from-trace traces/zmr-agent \
+     --out .zmr/discovered/replay-smoke.json \
+     --include-actions \
+     --json
+   ```
+
+   Replay drafts include only supported events with stable replay data, such as
+   launch, deep links, selector taps, selector text entry, waits, back, keyboard
+   hiding, and selector scrolls. Unsupported events stay out of the scenario and
+   are reported as warnings.
 
 8. Edit the draft into a candidate flow, for example
    `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
@@ -84,6 +98,8 @@ ZMR as the deterministic mobile control plane.
   over coordinates.
 - Require human review before committing generated tests.
 - Treat `zmr draft` output as a starting point, not as a production-ready flow.
+- Use `--include-actions` only after reviewing the trace events that produced
+  the replay draft.
 - Redact traces before sharing them outside the local team.
 
 ## Future Shape

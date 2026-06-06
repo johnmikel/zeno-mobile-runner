@@ -60,6 +60,15 @@ into fields, or commit files. The response is covered by
 {"ok":true,"mode":"draft","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/surface-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":4,"warnings":["draft requires human review before commit"],"nextCommands":["zmr validate --json .zmr/discovered/surface-smoke.json","zmr run .zmr/discovered/surface-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
+`zmr draft --include-actions` additionally parses `events.jsonl` and prepends
+successful supported replay steps before the final snapshot assertions. Replay
+drafts currently include app launch, deep links, selector taps, selector text
+entry, selector erase, visible/not-visible waits, matched wait-any events as
+`waitVisible`, back, keyboard hiding, selector scrolls, and `assertHealthy`.
+Events without enough replay data, failed events, diagnostics, raw swipes, and
+control events are skipped with warnings rather than guessed. Text entry events
+whose text has already been redacted from the trace are skipped.
+
 `zmr-release-readiness --json` checks one or more repeated app/device evidence
 files and emits a machine-readable readiness summary. The output is covered by
 `schemas/release-readiness-output.schema.json`:

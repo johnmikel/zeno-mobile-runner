@@ -95,6 +95,7 @@ zmr schemas --json
 zmr devices --json
 zmr inspect --json
 zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
+zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json
 zmr init --app --json --dir . --app-id com.example.mobiletest
 zmr validate --json .zmr/login-smoke.json
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke
@@ -132,6 +133,24 @@ zmr validate --json .zmr/discovered/surface-smoke.json
 `assertVisible` steps from stable visible selectors. It does not crawl the app,
 tap controls, type into fields, discover credentials, or commit tests.
 
+When the trace was produced by an agent or JSON-RPC/MCP session that took typed
+actions, add `--include-actions` to replay successful supported actions before
+the final snapshot assertions:
+
+```bash
+zmr draft --from-trace traces/zmr-agent \
+  --out .zmr/discovered/replay-smoke.json \
+  --include-actions \
+  --json
+zmr validate --json .zmr/discovered/replay-smoke.json
+```
+
+Replay drafts only use trace events with enough stable data to reproduce them,
+such as launch, deep links, selector taps, selector text entry, waits, back,
+keyboard hiding, and selector scrolls. Unsupported or underspecified events are
+skipped with warnings instead of guessed. Text entry events whose text was
+redacted from the trace are also skipped.
+
 ```bash
 zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
@@ -147,8 +166,8 @@ The MCP server exposes mobile-specific tools such as `semantic_snapshot`, `tap`,
 
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
-through MCP, JSON-RPC, trace events, and offline draft generation today; a
-built-in autonomous crawler is not shipped in this preview.
+through MCP, JSON-RPC, trace events, offline surface drafts, and replay drafts
+today; a built-in autonomous crawler is not shipped in this preview.
 
 ## Optional Protocol Clients
 

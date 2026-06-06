@@ -32,7 +32,7 @@ pub fn tryTypeTextSelector(
         return err;
     };
     if (!typed) return false;
-    if (writer) |tw| try recordSelectorAction(tw, "ui.type", wanted, null);
+    if (writer) |tw| try recordSelectorTextAction(tw, "ui.type", wanted, text);
     try device.settle(settle_ms);
     return true;
 }
@@ -66,6 +66,22 @@ fn recordSelectorAction(
     try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
     try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
     if (max_chars) |value| try payload.writer(tw.allocator).print(",\"maxChars\":{d}", .{value});
+    try payload.writer(tw.allocator).writeAll("}");
+    try tw.recordEvent(kind, payload.items);
+}
+
+fn recordSelectorTextAction(
+    tw: *trace.TraceWriter,
+    kind: []const u8,
+    wanted: selector.Selector,
+    text: []const u8,
+) !void {
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(tw.allocator);
+    try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
+    try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
+    try payload.writer(tw.allocator).writeAll(",\"text\":");
+    try trace.writeJsonString(payload.writer(tw.allocator), text);
     try payload.writer(tw.allocator).writeAll("}");
     try tw.recordEvent(kind, payload.items);
 }

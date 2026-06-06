@@ -156,9 +156,11 @@ Use \`semantic_snapshot\` before choosing tap or type actions. Prefer selectors 
 \`\`\`bash
 zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
 zmr validate --json .zmr/discovered/surface-smoke.json
+zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json
+zmr validate --json .zmr/discovered/replay-smoke.json
 \`\`\`
 
-Treat draft output as a reviewable starting point. It should contain only \`launch\`, \`snapshot\`, and conservative \`assertVisible\` checks; do not commit it until a human has reviewed and rerun it.
+Treat draft output as a reviewable starting point. The default draft contains only \`launch\`, \`snapshot\`, and conservative \`assertVisible\` checks. Use \`--include-actions\` only when the trace came from a reviewed agent session; unsupported events are skipped with warnings instead of guessed. Do not commit a draft until a human has reviewed and rerun it.
 
 ## Failure Triage
 

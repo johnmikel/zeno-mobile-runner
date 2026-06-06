@@ -89,7 +89,20 @@ zmr validate --json .zmr/discovered/surface-smoke.json
 
 `zmr draft` writes `launch`, `snapshot`, and conservative `assertVisible`
 checks only. It does not tap, type, crawl, discover credentials, or commit
-tests. See [Agent Discovery](agent-discovery.md) for the recommended
+tests by default. For traces produced by an agent session with successful typed
+actions, add `--include-actions` to generate a replay draft from supported
+events before the final snapshot assertions:
+
+```bash
+zmr draft --from-trace traces/zmr-agent \
+  --out .zmr/discovered/replay-smoke.json \
+  --include-actions \
+  --json
+zmr validate --json .zmr/discovered/replay-smoke.json
+```
+
+Unsupported or underspecified events are skipped with warnings instead of being
+guessed. See [Agent Discovery](agent-discovery.md) for the recommended
 reviewable loop.
 
 ZMR does not ship a built-in autonomous crawler or test writer in this developer

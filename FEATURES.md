@@ -45,6 +45,8 @@ state, and writes deterministic traces. It does not embed an LLM.
   `zmr explain --json`.
 - `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable
   surface-smoke scenario with conservative `assertVisible` checks.
+- `zmr draft --include-actions` can turn supported successful trace actions
+  into a replay draft while warning instead of guessing unsupported events.
 - Public JSON Schemas for scenarios, snapshots, semantic snapshots, action
   results, trace events, protocol messages, setup diagnostics, and release
   manifests.
@@ -61,8 +63,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 - Wait and retry behavior around transient observation failures.
 - Import helper for a documented subset of common mobile-flow YAML commands
   into native `.zmr/*.json` scenarios.
-- Trace-backed draft helper for generating reviewable surface-smoke scenarios
-  from observed UI state without tapping or crawling.
+- Trace-backed draft helper for generating reviewable surface and replay
+  scenarios from observed UI state and successful supported trace actions.
 
 ## Traces And Diagnostics
 

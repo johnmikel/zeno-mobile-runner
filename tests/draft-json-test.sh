@@ -13,6 +13,17 @@ mkdir -p "$TRACE_DIR/artifacts"
 cat > "$TRACE_DIR/trace.json" <<'JSON'
 {"schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","scenarioName":"login smoke","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":2,"partialFailureCount":0,"reportPath":null}
 JSON
+cat > "$TRACE_DIR/events.jsonl" <<'JSONL'
+{"seq":1,"timestampMs":1,"kind":"scenario.start","payload":{"value":"login smoke"}}
+{"seq":2,"timestampMs":2,"kind":"app.launch","payload":{"status":"ok"}}
+{"seq":3,"timestampMs":3,"kind":"app.openLink","payload":{"status":"ok","url":"exampleapp://login"}}
+{"seq":4,"timestampMs":4,"kind":"wait.visible","payload":{"status":"ok","selector":{"text":"Email"}}}
+{"seq":5,"timestampMs":5,"kind":"ui.tap","payload":{"status":"ok","selector":{"text":"Email"}}}
+{"seq":6,"timestampMs":6,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Email"},"text":"agent name"}}
+{"seq":7,"timestampMs":7,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Password"},"text":"[REDACTED:secret]"}}
+{"seq":8,"timestampMs":8,"kind":"ui.swipe","payload":{"status":"ok"}}
+{"seq":9,"timestampMs":9,"kind":"scenario.end","payload":{"value":"login smoke","status":"passed"}}
+JSONL
 cat > "$TRACE_DIR/artifacts/snapshot-2.json" <<'JSON'
 {
   "id": "snapshot-2",
@@ -85,4 +96,39 @@ assert [step["action"] for step in scenario["steps"]] == [
 assert scenario["steps"][2]["selector"] == {"resourceId": "com.example.mobiletest:id/continue_button"}
 assert scenario["steps"][3]["selector"] == {"text": "Welcome"}
 assert not any(step["action"] == "tap" for step in scenario["steps"])
+PY
+
+OUT_ACTIONS="$TMPDIR/draft-actions.json"
+"$ZMR" draft --from-trace "$TRACE_DIR" --out "$OUT_ACTIONS" --include-actions --json > "$TMPDIR/draft-actions-output.json"
+
+python3 - "$TMPDIR/draft-actions-output.json" "$OUT_ACTIONS" <<'PY'
+import json
+import sys
+
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+scenario = json.load(open(sys.argv[2], encoding="utf-8"))
+
+assert result["ok"] is True
+assert result["selectorCount"] == 2
+assert result["stepCount"] == 8
+assert "unsupported trace action was skipped: ui.swipe" in result["warnings"]
+assert "redacted trace text action was skipped: ui.type" in result["warnings"]
+
+actions = [step["action"] for step in scenario["steps"]]
+assert actions == [
+    "launch",
+    "openLink",
+    "waitVisible",
+    "tap",
+    "typeText",
+    "snapshot",
+    "assertVisible",
+    "assertVisible",
+]
+assert scenario["steps"][1]["url"] == "exampleapp://login"
+assert scenario["steps"][2]["selector"] == {"text": "Email"}
+assert scenario["steps"][4]["selector"] == {"text": "Email"}
+assert scenario["steps"][4]["text"] == "agent name"
+assert "[REDACTED:secret]" not in json.dumps(scenario)
+assert not any(step["action"] == "swipe" for step in scenario["steps"])
 PY

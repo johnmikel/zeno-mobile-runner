@@ -10,6 +10,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   trace-backed, review-first scenario drafting. The command reads the latest
   semantic snapshot artifact and writes a conservative surface-smoke scenario
   with `launch`, `snapshot`, and stable `assertVisible` checks only.
+- Added `zmr draft --include-actions` so agent sessions can turn supported
+  successful trace actions into reviewable replay drafts while unsupported
+  events are skipped with warnings instead of guessed.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 

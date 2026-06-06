@@ -117,7 +117,7 @@ fn usage() !void {
         \\  zmr schemas [--json]
         \\  zmr devices [--json] [--platform android|ios] [--ios-device-type simulator|physical|all] [--adb <path>] [--xcrun <path>]
         \\  zmr doctor [--json] [--strict] [--config <path>] [--zig <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
-        \\  zmr draft --from-trace <trace-dir> --out <scenario.json> [--name <name>] [--app-id <id>] [--force] [--json]
+        \\  zmr draft --from-trace <trace-dir> --out <scenario.json> [--include-actions] [--name <name>] [--app-id <id>] [--force] [--json]
         \\  zmr validate <scenario.json> [--json]
         \\  zmr init [scenario.json] [--app-id <id>] [--force] [--json]
         \\  zmr init --app [--dir <app-root>] [--app-id <id>] [--force] [--json]

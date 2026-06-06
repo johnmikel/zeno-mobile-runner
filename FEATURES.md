@@ -51,6 +51,9 @@ state, and writes deterministic traces. It does not embed an LLM.
   export.
 - `zmr run --discover-out <scenario.json> --json` can generate and validate a
   reviewable replay scenario from the trace immediately after the run.
+- `zmr explore --from-trace --goal ... --json` gives CLI agents a
+  goal-carrying, review-first exploration handoff with explicit guardrails,
+  replay coverage, validation, and deterministic next commands.
 - `zmr discover --from-trace` turns a traced agent session into a reviewable
   scenario candidate and can validate the generated scenario before returning.
 - `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable

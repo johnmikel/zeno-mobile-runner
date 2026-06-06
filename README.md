@@ -94,6 +94,7 @@ zmr version --json
 zmr schemas --json
 zmr devices --json
 zmr inspect --json
+zmr explore --from-trace traces/zmr-agent --out .zmr/discovered/login-smoke.json --goal "find a stable login smoke" --include-actions --validate --json
 zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json
 zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
 zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json
@@ -137,7 +138,27 @@ config status, generated agent instructions, configured platform scenarios, and
 recommended next commands. It does not launch devices or write tests.
 
 After a live session has produced trace artifacts, agents can ask ZMR to turn
-the trace into a validated, reviewable scenario candidate:
+the trace into a validated, reviewable scenario candidate. `zmr explore` is
+the agent-facing handoff: it records the goal, writes from existing trace
+evidence, validates the candidate, and returns guardrails that make the limits
+machine-readable:
+
+```bash
+zmr explore --from-trace traces/zmr-agent \
+  --out .zmr/discovered/login-smoke.json \
+  --goal "find a stable login smoke" \
+  --include-actions \
+  --validate \
+  --json
+```
+
+`zmr explore` is not an autonomous crawler. It does not launch devices, invent
+missing actions, discover credentials, or commit tests. Its JSON includes
+`autonomous:false`, `reviewRequired:true`, `guardrails`, and the same replay
+coverage and validation fields as `zmr discover`.
+
+When an agent wants the lower-level trace-to-test primitive directly, use
+`zmr discover`:
 
 ```bash
 zmr discover --from-trace traces/zmr-agent \
@@ -215,8 +236,9 @@ The MCP server exposes mobile-specific tools such as `semantic_snapshot`,
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
 through MCP, JSON-RPC, trace events, in-band trace discovery, offline surface
-drafts, replay drafts, and traced run `nextCommands` today; a built-in autonomous crawler is not shipped
-in this preview.
+drafts, replay drafts, guarded trace exploration, and traced run
+`nextCommands` today. Built-in exploration is review-first and trace-backed,
+not an unbounded autonomous crawler.
 
 ## Optional Protocol Clients
 

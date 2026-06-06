@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/explore-output.schema.json",
+  "title": "ZMR Explore Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "mode",
+    "schemaVersion",
+    "runnerVersion",
+    "protocolVersion",
+    "autonomous",
+    "reviewRequired",
+    "guardrails",
+    "out",
+    "traceDir",
+    "sourceSnapshot",
+    "name",
+    "appId",
+    "selectorCount",
+    "stepCount",
+    "replay",
+    "warnings",
+    "validated",
+    "validation",
+    "nextCommands"
+  ],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "mode": { "const": "explore" },
+    "schemaVersion": { "const": 1 },
+    "runnerVersion": { "type": "string", "minLength": 1 },
+    "protocolVersion": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string", "minLength": 1 },
+    "autonomous": { "const": false },
+    "reviewRequired": { "const": true },
+    "guardrails": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "out": { "type": "string", "minLength": 1 },
+    "traceDir": { "type": "string", "minLength": 1 },
+    "sourceSnapshot": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "appId": { "type": ["string", "null"] },
+    "selectorCount": { "type": "integer", "minimum": 0 },
+    "stepCount": { "type": "integer", "minimum": 2 },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "eventCount", "stepCount", "skippedEventCount"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "eventCount": { "type": "integer", "minimum": 0 },
+        "stepCount": { "type": "integer", "minimum": 0 },
+        "skippedEventCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "validated": { "type": "boolean" },
+    "validation": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ok", "path"],
+          "properties": {
+            "ok": { "type": "boolean" },
+            "path": { "type": "string", "minLength": 1 },
+            "name": { "type": "string", "minLength": 1 },
+            "appId": { "type": ["string", "null"] },
+            "stepCount": { "type": "integer", "minimum": 0 },
+            "errorCode": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 },
+            "fieldPath": { "type": "string", "minLength": 1 },
+            "line": { "type": "integer", "minimum": 1 },
+            "column": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "nextCommands": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

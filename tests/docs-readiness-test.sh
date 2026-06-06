@@ -93,6 +93,7 @@ require_grep 'zmr validate --json' README.md
 require_grep 'zmr devices --json' README.md
 require_grep 'zmr schemas --json' README.md
 require_grep 'zmr inspect --json' README.md
+require_grep 'zmr explore --from-trace traces/zmr-agent --out .zmr/discovered/login-smoke.json --goal "find a stable login smoke" --include-actions --validate --json' README.md
 require_grep '--discover-out .zmr/discovered/login-smoke.json' README.md
 require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' README.md
 require_grep 'The generated report handoff writes `report.html` and' README.md
@@ -126,7 +127,8 @@ require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
-require_grep 'built-in autonomous crawler is not shipped' README.md
+require_grep '`zmr explore` is not an autonomous crawler' README.md
+require_grep '`autonomous:false`, `reviewRequired:true`, `guardrails`' README.md
 require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
@@ -163,6 +165,7 @@ require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
 require_grep 'waits, assertions, trace polling' FEATURES.md
 require_grep 'zmr inspect --json' FEATURES.md
+require_grep 'zmr explore --from-trace --goal ... --json' FEATURES.md
 require_grep 'zmr discover --from-trace' FEATURES.md
 require_grep 'zmr run --discover-out <scenario.json> --json' FEATURES.md
 require_grep 'replay` coverage metadata' FEATURES.md
@@ -198,6 +201,7 @@ require_grep 'MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and' C
 require_grep 'MCP `open_link`, unscoped `type`, and `press_back` trace events' CHANGELOG.md
 require_grep 'MCP `trace_events` cursor metadata' CHANGELOG.md
 require_grep 'JSON-RPC `trace.explain` and MCP `trace_explain`' CHANGELOG.md
+require_grep 'zmr explore --from-trace <trace-dir>' CHANGELOG.md
 require_grep 'TypeScript, Python, Go, Rust, Swift, and Kotlin trace explanation helpers' CHANGELOG.md
 require_grep '`trace.discover` records a `trace.discover` event' CHANGELOG.md
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
@@ -230,7 +234,11 @@ require_grep 'CI runs retain `traces/`, `zig-cache/coverage/`, and `zig-out/bin/
 require_grep 'workflow artifact for 30 days' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
-require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
+require_grep 'trace-backed, not an unbounded crawler' docs/agent-discovery.md
+require_grep 'zmr explore --from-trace traces/zmr-agent' docs/agent-discovery.md
+require_grep '--goal "find a stable login smoke"' docs/agent-discovery.md
+require_grep 'schemas/explore-output.schema.json' docs/agent-discovery.md
+require_grep '`autonomous:false`, `reviewRequired:true`, `guardrails`' docs/agent-discovery.md
 require_grep 'trace.discover' docs/agent-discovery.md
 require_grep 'trace_discover' docs/agent-discovery.md
 require_grep 'scenario.validate' docs/agent-discovery.md
@@ -247,7 +255,7 @@ require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discov
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep '--include-actions' docs/agent-discovery.md
 require_grep 'Treat `zmr draft` output as a starting point' docs/agent-discovery.md
-require_grep 'zmr explore --goal' docs/agent-discovery.md
+require_grep 'Treat `zmr explore` output as a starting point' docs/agent-discovery.md
 require_grep 'human review before committing generated tests' docs/agent-discovery.md
 require_grep 'DiscoverTrace' docs/clients.md
 require_grep 'ValidateScenario' docs/clients.md
@@ -296,6 +304,10 @@ require_grep 'trace.discover' docs/ai-agents.md
 require_grep 'trace_discover' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md
 require_grep 'Agent-Led Discovery' docs/ai-agents.md
+require_grep 'zmr explore --from-trace <trace-dir>' docs/ai-agents.md
+require_grep '`autonomous:false`' docs/ai-agents.md
+require_grep '`reviewRequired:true`' docs/ai-agents.md
+require_grep '`guardrails`' docs/ai-agents.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep '--discover-out .zmr/discovered/<name>.json' docs/ai-agents.md
 require_grep '`replay` coverage metadata' docs/ai-agents.md
@@ -305,6 +317,10 @@ require_grep 'selector and timeout data for `assertVisible` and `assertNotVisibl
 require_grep 'arrays for `assertNoneVisible`' docs/ai-agents.md
 require_grep 'agent-discovery.md' docs/ai-agents.md
 require_grep 'zmr-mobile-testing' skills/zmr-mobile-testing/SKILL.md
+require_grep 'zmr explore --from-trace traces/zmr-agent' skills/zmr-mobile-testing/SKILL.md
+require_grep '`autonomous:false`' skills/zmr-mobile-testing/SKILL.md
+require_grep '`reviewRequired:true`' skills/zmr-mobile-testing/SKILL.md
+require_grep '`guardrails`' skills/zmr-mobile-testing/SKILL.md
 
 require_grep 'zmr init --app' docs/install.md
 require_grep 'zmr-wizard' docs/install.md
@@ -351,6 +367,9 @@ require_grep 'selector/timeout-preserving `assertVisible` and `assertNotVisible`
 require_grep '`assertNoneVisible` selector arrays plus timed `assertHealthy` checks' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md
 require_grep 'schemas/discover-output.schema.json' docs/protocol.md
+require_grep 'schemas/explore-output.schema.json' docs/protocol.md
+require_grep 'zmr explore --from-trace <trace-dir> --out <scenario.json> --goal <goal>' docs/protocol.md
+require_grep '"mode":"explore"' docs/protocol.md
 require_grep 'schemas/draft-output.schema.json' docs/protocol.md
 require_grep 'zmr report <trace-or-benchmark-dir> --out <report.html> --junit <report.xml>' docs/protocol.md
 require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' docs/protocol.md
@@ -373,6 +392,7 @@ require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
 require_grep 'auth/junit.xml' docs/demo.md
 require_grep 'ios-smoke/junit.xml' docs/demo.md
 require_grep 'ios-shim-smoke/junit.xml' docs/demo.md
+require_grep 'explore-output.schema.json' schemas/README.md
 
 require_not_grep 'market-claim' docs/ai-agents.md
 require_not_grep 'competitive claim' docs/ai-agents.md

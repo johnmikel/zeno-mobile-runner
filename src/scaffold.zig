@@ -336,6 +336,7 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\## Discover From Trace
         \\
         \\```bash
+        \\zmr explore --from-trace traces/zmr-agent --out .zmr/discovered/login-smoke.json --goal "find a stable login smoke" --include-actions --validate --json
         \\zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json
         \\zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
         \\zmr validate --json .zmr/discovered/surface-smoke.json
@@ -343,7 +344,7 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\zmr validate --json .zmr/discovered/replay-smoke.json
         \\```
         \\
-        \\Treat discover output as a reviewable starting point. It writes from trace evidence and validates the generated file when `--validate` is present, but it does not crawl, invent missing actions, discover credentials, or commit tests. Treat draft output as a reviewable starting point when using the lower-level split workflow. The default draft contains only `launch`, `snapshot`, and conservative `assertVisible` checks. Use `--include-actions` only when the trace came from a reviewed agent session; unsupported events are skipped with warnings instead of guessed. Do not commit a discovered or drafted scenario until a human has reviewed and rerun it.
+        \\Prefer `zmr explore` for CLI agent loops when the goal should travel with the generated candidate. Its JSON includes `autonomous:false`, `reviewRequired:true`, `guardrails`, replay coverage, validation, and deterministic next commands. Treat discover output as a lower-level reviewable starting point. It writes from trace evidence and validates the generated file when `--validate` is present, but it does not crawl, invent missing actions, discover credentials, or commit tests. Treat draft output as a reviewable starting point when using the lower-level split workflow. The default draft contains only `launch`, `snapshot`, and conservative `assertVisible` checks. Use `--include-actions` only when the trace came from a reviewed agent session; unsupported events are skipped with warnings instead of guessed. Do not commit a discovered or drafted scenario until a human has reviewed and rerun it.
         \\
         \\## Failure Triage
         \\

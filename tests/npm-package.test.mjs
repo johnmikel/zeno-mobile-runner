@@ -236,6 +236,8 @@ test("scaffold helpers centralize generated app commands and scenarios", () => {
   const scaffoldConfig = scaffold.find((file) => file.path === "config.json").value;
   assert.equal(scaffoldConfig.scripts.androidDevClient, devClientRunCommand({ platform: "android" }));
   assert.match(scaffold.find((file) => file.path === "AGENTS.md").value, /npm run zmr:android:dev-client/);
+  assert.match(scaffold.find((file) => file.path === "AGENTS.md").value, /zmr explore --from-trace traces\/zmr-agent/);
+  assert.match(scaffold.find((file) => file.path === "AGENTS.md").value, /--goal "find a stable login smoke"/);
   assert.equal(scaffold.find((file) => file.path === "device-matrix.json").value.devices[0].androidShim, "./.zmr/android shim");
   const plan = scaffoldPlan("com.example.demo", { android: true, ios: false, androidShim: "./.zmr/android shim" });
   assert.equal(plan.config.appId, "com.example.demo");
@@ -530,6 +532,9 @@ test("agent instruction fallback commands respect selected platforms", () => {
   const iosOnly = agentInstructions("com.example.demo", { android: false, ios: true });
   assert.match(iosOnly, /## App Commands/);
   assert.match(iosOnly, /zmr inspect --json --dir \./);
+  assert.match(iosOnly, /zmr explore --from-trace traces\/zmr-agent --out \.zmr\/discovered\/login-smoke\.json --goal "find a stable login smoke" --include-actions --validate --json/);
+  assert.match(iosOnly, /autonomous:false/);
+  assert.match(iosOnly, /reviewRequired:true/);
   assert.match(iosOnly, /zmr run \.zmr\/ios-smoke\.json --platform ios --device booted --trace-dir traces\/zmr-ios/);
   assert.match(iosOnly, /zmr-pilot-gate --ios --ios-app-root \. --ios-app-path \.\/build\/Debug-iphonesimulator\/Sample\.app --ios-app-id com\.example\.demo --ios-device booted/);
   assert.doesNotMatch(iosOnly, /--android/);
@@ -569,6 +574,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.match(tarList.stdout, /package\/schemas\/release-manifest\.schema\.json/);
     assert.match(tarList.stdout, /package\/schemas\/inspect-output\.schema\.json/);
     assert.match(tarList.stdout, /package\/schemas\/discover-output\.schema\.json/);
+    assert.match(tarList.stdout, /package\/schemas\/explore-output\.schema\.json/);
     assert.match(tarList.stdout, /package\/schemas\/draft-output\.schema\.json/);
     assert.match(tarList.stdout, /package\/clients\/README\.md/);
     assert.match(tarList.stdout, /package\/skills\/zmr-mobile-testing\/SKILL\.md/);

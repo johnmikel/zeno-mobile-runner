@@ -45,7 +45,7 @@ workflow artifact for 30 days in addition to GitHub release assets.
 | React Native | Public setup guidance plus selector-grade app evidence using stable labels or ids | Guidance exists; repeated public demo evidence is still needed |
 | Expo | Public smoke, dev-client scaffold, and iOS/Android run evidence | Basic iOS smoke is documented; repeated matrix evidence is still needed |
 | Flutter | Platform-level Android/iOS smoke using semantics, deep links, and screenshots | Supported at platform level; widget-tree claims are intentionally out of scope |
-| Agent workflows | MCP and JSON-RPC loop with semantic snapshots, typed actions, traces, redacted export, and scenario validation | Supported; built-in autonomous crawler is not shipped |
+| Agent workflows | MCP and JSON-RPC loop with semantic snapshots, typed actions, traces, redacted export, guarded trace exploration, and scenario validation | Supported; `zmr explore` is review-first and trace-backed; an unbounded autonomous crawler is not shipped |
 | CI reporting | HTML reports plus JUnit XML artifacts from trace, benchmark, and pilot directories | Supported by `zmr report --junit` and pilot wrappers |
 | Trace privacy | Redacted export path, denylist/allowlist controls, and public-safety tests | Supported and gated |
 | Release supply chain | Trusted npm publish, GitHub artifact attestations, checksums, SBOM, and release manifest | Workflow is ready; npm trusted publisher must be configured in package settings |

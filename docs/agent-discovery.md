@@ -1,14 +1,15 @@
 # Agent Discovery
 
 ZMR supports agent-led discovery today through its JSON-RPC and MCP interfaces,
-trace events, semantic snapshot artifacts, in-band trace discovery, and offline
-scenario drafting. An external agent can observe the app, choose typed actions,
-inspect trace events, draft a small repeatable scenario from the trace, and
-then edit it as it learns a flow.
+trace events, semantic snapshot artifacts, guarded trace exploration, in-band
+trace discovery, and offline scenario drafting. An external agent can observe
+the app, choose typed actions, inspect trace events, ask ZMR to write a small
+repeatable scenario from the trace, and then edit it as it learns a flow.
 
-ZMR does not include a built-in autonomous crawler or fully autonomous test
-writer in this developer preview. Keep the planning loop in the agent, and keep
-ZMR as the deterministic mobile control plane.
+`zmr explore` is the built-in review-first exploration command. It is
+trace-backed, not an unbounded crawler: it does not launch devices, invent
+missing actions, discover credentials, or commit files. Keep autonomous
+planning in the agent, and keep ZMR as the deterministic mobile control plane.
 
 ## Recommended Loop
 
@@ -52,8 +53,26 @@ ZMR as the deterministic mobile control plane.
    The run response embeds `discovery`, the same JSON payload returned by
    `zmr discover --json`, including `replay` coverage metadata for converted
    and skipped trace actions.
-9. Generate a reviewable scenario candidate from the trace. JSON-RPC agents can
-   call `trace.discover`:
+9. Generate a reviewable scenario candidate from the trace. For CLI-driven
+   agent loops, prefer `zmr explore` so the goal and guardrails travel with the
+   machine-readable result:
+
+   ```bash
+   zmr explore --from-trace traces/zmr-agent \
+     --out .zmr/discovered/login-smoke.json \
+     --goal "find a stable login smoke" \
+     --include-actions \
+     --validate \
+     --json
+   ```
+
+   The output is covered by `schemas/explore-output.schema.json` and includes
+   `autonomous:false`, `reviewRequired:true`, `guardrails`, replay coverage,
+   validation, and deterministic next commands.
+
+10. Use the lower-level trace discovery primitive when the agent already owns
+    goal tracking. JSON-RPC agents can
+    call `trace.discover`:
 
    ```json
    {"jsonrpc":"2.0","id":7,"method":"trace.discover","params":{"out":".zmr/discovered/replay-smoke.json","includeActions":true,"validate":true,"force":true}}
@@ -80,7 +99,7 @@ ZMR as the deterministic mobile control plane.
    generated replay steps, and `skippedEventCount` is the number of events left
    out.
 
-10. After editing a generated scenario, validate it in-band with JSON-RPC:
+11. After editing a generated scenario, validate it in-band with JSON-RPC:
 
    ```json
    {"jsonrpc":"2.0","id":8,"method":"scenario.validate","params":{"path":".zmr/discovered/replay-smoke.json"}}
@@ -90,7 +109,7 @@ ZMR as the deterministic mobile control plane.
    result matches `zmr validate --json`, including field paths and source
    locations for invalid files.
 
-11. Use the lower-level draft primitive when you want separate surface and
+12. Use the lower-level draft primitive when you want separate surface and
    replay files. For a conservative surface-smoke scenario:
 
    ```bash
@@ -120,16 +139,16 @@ ZMR as the deterministic mobile control plane.
    timeout context for successful waits and timeout diagnostics.
    Unsupported events stay out of the scenario and are reported as warnings.
 
-12. Edit the draft or discovery output into a candidate flow, for example
+13. Edit the draft, discovery, or exploration output into a candidate flow, for example
    `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
    and understood.
-13. Validate the candidate scenario:
+14. Validate the candidate scenario:
 
    ```bash
    zmr validate --json .zmr/discovered/login-smoke.json
    ```
 
-14. Re-run it deterministically:
+15. Re-run it deterministically:
 
    ```bash
    zmr run .zmr/discovered/login-smoke.json \
@@ -139,7 +158,7 @@ ZMR as the deterministic mobile control plane.
      --json
    ```
 
-15. Export a redacted bundle before sharing artifacts:
+16. Export a redacted bundle before sharing artifacts:
 
     ```bash
     zmr export traces/zmr-login-smoke \
@@ -155,6 +174,8 @@ ZMR as the deterministic mobile control plane.
 - Prefer accessibility identifiers, resource ids, stable labels, and exact text
   over coordinates.
 - Require human review before committing generated tests.
+- Treat `zmr explore` output as a starting point, not as a production-ready
+  flow.
 - Treat `zmr discover` output as a starting point, not as a production-ready
   flow.
 - Treat `zmr draft` output as a starting point, not as a production-ready flow.
@@ -162,14 +183,9 @@ ZMR as the deterministic mobile control plane.
   the replay draft.
 - Redact traces before sharing them outside the local team.
 
-## Future Shape
+## Current Shape
 
-A future command could add goal-driven exploration on top of this loop:
-
-```bash
-zmr explore --goal "find the login flow" --out .zmr/discovered/login-smoke.json
-```
-
-That command is not shipped today. The current product direction is to keep
-scenario discovery explicit, reviewable, and trace-backed before it becomes a
-goal-driven crawler.
+`zmr explore` is the first shipped goal-carrying command in this loop. It still
+requires an existing trace because the current product direction is to keep
+scenario generation explicit, reviewable, and trace-backed before any future
+goal-driven crawler can safely act inside an app.

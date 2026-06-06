@@ -121,6 +121,8 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.mobiletest --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr explain traces/zmr-agent --json") != null);
+    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr explore --from-trace traces/zmr-agent --out .zmr/discovered/login-smoke.json --goal \"find a stable login smoke\" --include-actions --validate --json") != null);
+    try std.testing.expect(std.mem.indexOf(u8, agent, "`autonomous:false`, `reviewRequired:true`, `guardrails`") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-release-readiness --evidence traces/zmr-pilots/evidence.jsonl --target production --json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "Use `recommendedWording` and keep `claimLimitations` intact") != null);

@@ -26,6 +26,7 @@ Public schemas:
 - `schemas/run-output.schema.json`
 - `schemas/inspect-output.schema.json`
 - `schemas/discover-output.schema.json`
+- `schemas/explore-output.schema.json`
 - `schemas/draft-output.schema.json`
 - `schemas/release-manifest.schema.json`
 - `schemas/release-readiness-output.schema.json`
@@ -60,6 +61,17 @@ invent credentials, or commit files. The response is covered by
 
 ```json
 {"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/replay-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/replay-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/replay-smoke.json","zmr run .zmr/discovered/replay-smoke.json --json --trace-dir traces/zmr-agent"]}
+```
+
+`zmr explore --from-trace <trace-dir> --out <scenario.json> --goal <goal>
+--include-actions --validate --json` is the review-first exploration handoff
+for CLI agents. It uses the same trace-backed scenario writer as `discover`,
+but carries the agent goal and explicit guardrails in the response. It does not
+launch devices, crawl the app, invent missing actions, discover credentials, or
+commit files. The response is covered by `schemas/explore-output.schema.json`:
+
+```json
+{"ok":true,"mode":"explore","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","goal":"find a stable login smoke","autonomous":false,"reviewRequired":true,"guardrails":["writes from existing trace evidence only","does not crawl the app","does not discover credentials or secrets","requires human review before commit"],"out":".zmr/discovered/login-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/login-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/login-smoke.json","zmr run .zmr/discovered/login-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` is the lower

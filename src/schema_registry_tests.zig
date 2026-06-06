@@ -18,6 +18,7 @@ test "registry exposes stable public schema metadata" {
     var found_inspect_output = false;
     var found_discover_output = false;
     var found_draft_output = false;
+    var found_explore_output = false;
     for (schemas) |schema| {
         if (std.mem.eql(u8, schema.name, "inspect-output")) {
             found_inspect_output = true;
@@ -34,10 +35,16 @@ test "registry exposes stable public schema metadata" {
             try std.testing.expectEqualStrings("schemas/discover-output.schema.json", schema.path);
             try std.testing.expectEqualStrings("https://zmr.dev/schemas/discover-output.schema.json", schema.id);
         }
+        if (std.mem.eql(u8, schema.name, "explore-output")) {
+            found_explore_output = true;
+            try std.testing.expectEqualStrings("schemas/explore-output.schema.json", schema.path);
+            try std.testing.expectEqualStrings("https://zmr.dev/schemas/explore-output.schema.json", schema.id);
+        }
     }
     try std.testing.expect(found_inspect_output);
     try std.testing.expect(found_discover_output);
     try std.testing.expect(found_draft_output);
+    try std.testing.expect(found_explore_output);
     try std.testing.expectEqualStrings("schemas-output", schemas[schemas.len - 1].name);
 }
 

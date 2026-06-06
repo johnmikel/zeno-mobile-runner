@@ -137,9 +137,13 @@ arrays for `assertNoneVisible`, and timeouts for `assertHealthy` when the trace
 records them. See [Agent Discovery](agent-discovery.md) for the
 recommended reviewable loop.
 
-ZMR does not ship a built-in autonomous crawler or test writer in this developer
-preview. Keep autonomous planning outside the runner, then commit only reviewed
-scenario JSON.
+CLI agents can use `zmr explore --from-trace <trace-dir> --out <scenario.json>
+--goal <goal> --include-actions --validate --json` when the goal should travel
+with the generated scenario candidate. The result includes `autonomous:false`,
+`reviewRequired:true`, `guardrails`, replay coverage, validation, and next
+commands. ZMR still does not ship an unbounded autonomous crawler or test
+writer in this developer preview. Keep autonomous planning outside the runner,
+then commit only reviewed scenario JSON.
 
 ## Scenario File Workflow
 

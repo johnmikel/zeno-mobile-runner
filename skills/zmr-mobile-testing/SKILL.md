@@ -61,6 +61,23 @@ Use the `semantic_snapshot`, `tap`, `type`, `wait_visible`, `trace_events`, and
 and iOS hierarchy classes into roles, selectors, bounds, and recommended
 actions.
 
+After a session has produced trace artifacts, prefer the review-first
+exploration handoff when a goal should travel with the generated scenario
+candidate:
+
+```bash
+zmr explore --from-trace traces/zmr-agent \
+  --out .zmr/discovered/login-smoke.json \
+  --goal "find a stable login smoke" \
+  --include-actions \
+  --validate \
+  --json
+```
+
+Treat the output as a starting point. Its JSON includes `autonomous:false`,
+`reviewRequired:true`, `guardrails`, replay coverage, validation, and next
+commands; it does not crawl, discover credentials, or commit tests.
+
 ## Scenario Pattern
 
 For repeatable tests, edit `.zmr/*.json` scenarios and run:

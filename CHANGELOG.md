@@ -22,6 +22,11 @@ All notable changes to Zeno Mobile Runner are tracked here.
   `zmr explain --json` without leaving the session.
 - Added TypeScript, Python, Go, Rust, Swift, and Kotlin trace explanation helpers
   so reference clients can call JSON-RPC `trace.explain` directly.
+- Added `zmr explore --from-trace <trace-dir> --out <scenario.json> --goal
+  <goal> --include-actions --validate --json` as a review-first CLI
+  exploration handoff for agents. It reuses trace-backed discovery, carries the
+  goal in JSON, and returns explicit guardrails instead of claiming autonomous
+  crawling.
 - Added trace discovery auditing: `trace.discover` records a `trace.discover` event
   for JSON-RPC and MCP agent sessions so generated scenario candidates are
   visible in the trace.

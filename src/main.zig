@@ -3,6 +3,7 @@ const cli_devices = @import("cli_devices.zig");
 const cli_discover = @import("cli_discover.zig");
 const cli_doctor = @import("cli_doctor.zig");
 const cli_draft = @import("cli_draft.zig");
+const cli_explore = @import("cli_explore.zig");
 const cli_info = @import("cli_info.zig");
 const cli_init = @import("cli_init.zig");
 const cli_import = @import("cli_import.zig");
@@ -47,6 +48,8 @@ fn mainInner() !void {
         try cli_discover.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "draft")) {
         try cli_draft.run(allocator, &args);
+    } else if (std.mem.eql(u8, command_name, "explore")) {
+        try cli_explore.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "validate")) {
         try cli_validate.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "init")) {
@@ -127,6 +130,7 @@ fn usage() !void {
         \\  zmr doctor [--json] [--strict] [--config <path>] [--zig <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
         \\  zmr discover --from-trace <trace-dir> --out <scenario.json> [--include-actions] [--validate] [--name <name>] [--app-id <id>] [--force] [--json]
         \\  zmr draft --from-trace <trace-dir> --out <scenario.json> [--include-actions] [--name <name>] [--app-id <id>] [--force] [--json]
+        \\  zmr explore --from-trace <trace-dir> --out <scenario.json> [--goal <goal>] [--include-actions] [--validate] [--name <name>] [--app-id <id>] [--force] [--json]
         \\  zmr validate <scenario.json> [--json]
         \\  zmr init [scenario.json] [--app-id <id>] [--force] [--json]
         \\  zmr init --app [--dir <app-root>] [--app-id <id>] [--force] [--json]

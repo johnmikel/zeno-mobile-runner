@@ -23,6 +23,14 @@ pub const DiscoverSummary = struct {
     validated: bool,
 };
 
+pub const JsonOptions = struct {
+    mode: []const u8 = "discover",
+    goal: ?[]const u8 = null,
+    autonomous: ?bool = null,
+    review_required: ?bool = null,
+    guardrails: []const []const u8 = &.{},
+};
+
 pub const OwnedDiscover = struct {
     draft: cli_draft.OwnedDraft,
     validation: ?validation.Result = null,
@@ -128,14 +136,40 @@ pub fn discoverFromTrace(allocator: std.mem.Allocator, parsed: ParsedArgs) !Owne
 }
 
 pub fn writeJson(writer: anytype, summary: DiscoverSummary, validation_result: ?validation.Result) !void {
+    try writeJsonWithOptions(writer, summary, validation_result, .{});
+}
+
+pub fn writeJsonWithOptions(writer: anytype, summary: DiscoverSummary, validation_result: ?validation.Result, options: JsonOptions) !void {
     const draft = summary.draft;
     try writer.writeAll("{\"ok\":");
     try writer.writeAll(if (summary.ok) "true" else "false");
-    try writer.writeAll(",\"mode\":\"discover\",\"schemaVersion\":1");
+    try writer.writeAll(",\"mode\":");
+    try trace.writeJsonString(writer, options.mode);
+    try writer.writeAll(",\"schemaVersion\":1");
     try writer.writeAll(",\"runnerVersion\":");
     try trace.writeJsonString(writer, version.runner_version);
     try writer.writeAll(",\"protocolVersion\":");
     try trace.writeJsonString(writer, version.protocol_version);
+    if (options.goal) |goal| {
+        try writer.writeAll(",\"goal\":");
+        try trace.writeJsonString(writer, goal);
+    }
+    if (options.autonomous) |autonomous| {
+        try writer.writeAll(",\"autonomous\":");
+        try writer.writeAll(if (autonomous) "true" else "false");
+    }
+    if (options.review_required) |review_required| {
+        try writer.writeAll(",\"reviewRequired\":");
+        try writer.writeAll(if (review_required) "true" else "false");
+    }
+    if (options.guardrails.len > 0) {
+        try writer.writeAll(",\"guardrails\":[");
+        for (options.guardrails, 0..) |guardrail, index| {
+            if (index > 0) try writer.writeAll(",");
+            try trace.writeJsonString(writer, guardrail);
+        }
+        try writer.writeAll("]");
+    }
     try writer.writeAll(",\"out\":");
     try trace.writeJsonString(writer, draft.out_path);
     try writer.writeAll(",\"traceDir\":");

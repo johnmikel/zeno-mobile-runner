@@ -43,11 +43,12 @@ DISCOVER_OUTPUT="$("$ZMR" run "$ROOT/examples/demo-fake.json" \
 grep -q '"ok":true' <<< "$DISCOVER_OUTPUT"
 grep -q '"discovery":{"ok":true,"mode":"discover"' <<< "$DISCOVER_OUTPUT"
 grep -q "\"out\":\"$DISCOVER_OUT\"" <<< "$DISCOVER_OUTPUT"
-grep -q '"replay":{"enabled":true,"eventCount":3,"stepCount":2,"skippedEventCount":1}' <<< "$DISCOVER_OUTPUT"
+grep -q '"replay":{"enabled":true,"eventCount":3,"stepCount":3,"skippedEventCount":0}' <<< "$DISCOVER_OUTPUT"
 grep -q '"validated":true' <<< "$DISCOVER_OUTPUT"
 grep -q '"validation":{"ok":true' <<< "$DISCOVER_OUTPUT"
 test -f "$DISCOVER_OUT"
 grep -q '"action":"openLink","url":"exampleapp://e2e-auth?probe=1"' "$DISCOVER_OUT"
+grep -q '"action":"waitVisible","selector":{"text":"E2E auth probe"},"timeoutMs":1000' "$DISCOVER_OUT"
 grep -q '"action":"assertVisible","selector":{"text":"Sample landing."}' "$DISCOVER_OUT"
 
 "$ZMR" export "$PASS_TRACE" --out "$OMIT_BUNDLE" --redact --omit-screenshots

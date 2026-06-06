@@ -149,7 +149,7 @@ test "draft from trace can replay successful supported actions" {
         \\{"seq":1,"timestampMs":1,"kind":"scenario.start","payload":{"value":"agent session"}}
         \\{"seq":2,"timestampMs":2,"kind":"app.launch","payload":{"status":"ok"}}
         \\{"seq":3,"timestampMs":3,"kind":"app.openLink","payload":{"status":"ok","url":"exampleapp://login"}}
-        \\{"seq":4,"timestampMs":4,"kind":"wait.visible","payload":{"status":"ok","selector":{"text":"Email"}}}
+        \\{"seq":4,"timestampMs":4,"kind":"wait.visible","payload":{"status":"ok","selector":{"text":"Email"},"timeoutMs":9000}}
         \\{"seq":5,"timestampMs":5,"kind":"ui.tap","payload":{"status":"ok","selector":{"text":"Email"}}}
         \\{"seq":6,"timestampMs":6,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Email"},"text":"agent@example.com"}}
         \\{"seq":7,"timestampMs":7,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Password"},"text":"[REDACTED:secret]"}}
@@ -219,7 +219,7 @@ test "draft from trace can replay successful supported actions" {
     const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://login\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"waitVisible\",\"selector\":{\"text\":\"Email\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"waitVisible\",\"selector\":{\"text\":\"Email\"},\"timeoutMs\":9000") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"tap\",\"selector\":{\"text\":\"Email\"}") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"typeText\",\"selector\":{\"text\":\"Email\"},\"text\":\"agent@example.com\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\",\"x1\":10,\"y1\":20,\"x2\":10,\"y2\":200,\"durationMs\":450") != null);

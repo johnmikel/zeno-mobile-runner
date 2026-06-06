@@ -35,8 +35,15 @@ pub fn waitUntilVisible(
             return err;
         };
         defer snap.deinit(device.allocator);
-        if (selector.find(snap.nodes, wanted) != null) {
-            if (writer) |tw| try tw.recordEvent("wait.visible", "{\"status\":\"ok\"}");
+        if (selector.find(snap.nodes, wanted)) |node| {
+            if (writer) |tw| {
+                var payload = std.ArrayList(u8).empty;
+                defer payload.deinit(tw.allocator);
+                try payload.writer(tw.allocator).print("{{\"status\":\"ok\",\"target\":\"{s}\",\"selector\":", .{node.stable_id});
+                try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
+                try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+                try tw.recordEvent("wait.visible", payload.items);
+            }
             return true;
         }
         if (std.time.milliTimestamp() >= deadline) {
@@ -77,7 +84,14 @@ pub fn waitUntilNotVisible(
         };
         defer snap.deinit(device.allocator);
         if (selector.find(snap.nodes, wanted) == null) {
-            if (writer) |tw| try tw.recordEvent("wait.notVisible", "{\"status\":\"ok\"}");
+            if (writer) |tw| {
+                var payload = std.ArrayList(u8).empty;
+                defer payload.deinit(tw.allocator);
+                try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"selector\":");
+                try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
+                try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+                try tw.recordEvent("wait.notVisible", payload.items);
+            }
             return true;
         }
         if (std.time.milliTimestamp() >= deadline) {
@@ -132,7 +146,7 @@ pub fn waitUntilAnyVisible(
                     defer payload.deinit(tw.allocator);
                     try payload.writer(tw.allocator).print("{{\"status\":\"ok\",\"matchedIndex\":{d},\"target\":\"{s}\",\"selector\":", .{ index, node.stable_id });
                     try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                    try payload.writer(tw.allocator).writeAll("}");
+                    try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
                     try tw.recordEvent("wait.any", payload.items);
                 }
                 return index;

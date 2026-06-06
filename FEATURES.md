@@ -57,6 +57,7 @@ state, and writes deterministic traces. It does not embed an LLM.
   surface-smoke scenario with conservative `assertVisible` checks.
 - `zmr draft --include-actions` can turn supported successful trace actions
   into a replay draft while warning instead of guessing unsupported events.
+  Wait replay preserves selectors and timeouts when the trace records them.
   Selector scroll replay preserves direction and timeout when the trace records
   them.
 - Draft and discover JSON include `replay` coverage metadata so agents can

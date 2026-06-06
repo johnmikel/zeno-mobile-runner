@@ -432,6 +432,9 @@ test "runner executes agent flow primitives and records trace events" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.swipe\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"x1\":10,\"y1\":20,\"x2\":30,\"y2\":40,\"durationMs\":50") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.pressBack\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.visible\",\"payload\":{\"status\":\"ok\",\"target\":\"node-snap-wait-visible\",\"selector\":{\"text\":\"Visible\"},\"timeoutMs\":10}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.notVisible\",\"payload\":{\"status\":\"ok\",\"selector\":{\"text\":\"Gone\"},\"timeoutMs\":10}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.any\",\"payload\":{\"status\":\"ok\",\"matchedIndex\":1,\"target\":\"node-snap-wait-any\",\"selector\":{\"text\":\"Any Match\"},\"timeoutMs\":10}") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.optional\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.whenVisible.skipped\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.scrollUntilVisible\"") != null);

@@ -78,12 +78,12 @@ into fields, or commit files. The response is covered by
 `zmr draft --include-actions` additionally parses `events.jsonl` and prepends
 successful supported replay steps before the final snapshot assertions. Replay
 drafts currently include app launch, deep links, selector taps, selector text
-entry, selector erase, visible/not-visible waits, matched wait-any events as
-`waitVisible`, back, keyboard hiding, coordinate-complete swipes,
-direction/timeout-preserving selector scrolls, and `assertHealthy`. Events
-without enough replay data, failed events, diagnostics, underspecified swipes,
-and control events are skipped with warnings rather than guessed. Text entry
-events redacted from the trace are skipped.
+entry, selector erase, selector/timeout-preserving visible/not-visible waits,
+matched wait-any events as `waitVisible`, back, keyboard hiding,
+coordinate-complete swipes, direction/timeout-preserving selector scrolls, and
+`assertHealthy`. Events without enough replay data, failed events, diagnostics,
+underspecified swipes, and control events are skipped with warnings rather than
+guessed. Text entry events redacted from the trace are skipped.
 The `replay` object in draft and discover JSON reports whether action replay
 was enabled, how many trace action events were considered, how many replay
 steps were generated, and how many events were skipped.

@@ -55,6 +55,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added direction and timeout preserving `scrollUntilVisible` trace replay so
   generated scenarios keep the original scroll intent from traced runs and
   live agent sessions.
+- Added selector and timeout preserving wait replay so trace-backed discovery
+  keeps successful `waitVisible`, `waitNotVisible`, and matched `waitAny`
+  steps from ordinary scenario runs.
 - Added `zmr report --junit <report.xml>` so trace directories and benchmark
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
 - Updated generated app report and reliability scripts to write `junit.xml`

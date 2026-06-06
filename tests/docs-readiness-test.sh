@@ -173,6 +173,7 @@ require_grep 'Kotlin `discoverTrace()` and `validateScenario()` helpers' CHANGEL
 require_grep 'coordinate-complete `ui.swipe` trace replay' CHANGELOG.md
 require_grep 'traced `pressBack` replay parity' CHANGELOG.md
 require_grep 'direction and timeout preserving `scrollUntilVisible` trace replay' CHANGELOG.md
+require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md

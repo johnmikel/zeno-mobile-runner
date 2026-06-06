@@ -327,16 +327,19 @@ fn replayStepJson(
     if (std.mem.eql(u8, kind, "wait.visible")) {
         const selector_value = payload.get("selector") orelse return try warnMissingReplayField(allocator, owned, kind);
         if (selector_value != .object) return try warnMissingReplayField(allocator, owned, kind);
+        if (optionalUsize(payload, "timeoutMs")) |timeout_ms| return try actionWithSelectorAndInt(allocator, owned, "waitVisible", selector_value, "timeoutMs", timeout_ms);
         return try actionWithSelector(allocator, owned, "waitVisible", selector_value);
     }
     if (std.mem.eql(u8, kind, "wait.notVisible")) {
         const selector_value = payload.get("selector") orelse return try warnMissingReplayField(allocator, owned, kind);
         if (selector_value != .object) return try warnMissingReplayField(allocator, owned, kind);
+        if (optionalUsize(payload, "timeoutMs")) |timeout_ms| return try actionWithSelectorAndInt(allocator, owned, "waitNotVisible", selector_value, "timeoutMs", timeout_ms);
         return try actionWithSelector(allocator, owned, "waitNotVisible", selector_value);
     }
     if (std.mem.eql(u8, kind, "wait.any")) {
         const selector_value = payload.get("selector") orelse return try warnMissingReplayField(allocator, owned, kind);
         if (selector_value != .object) return try warnMissingReplayField(allocator, owned, kind);
+        if (optionalUsize(payload, "timeoutMs")) |timeout_ms| return try actionWithSelectorAndInt(allocator, owned, "waitVisible", selector_value, "timeoutMs", timeout_ms);
         return try actionWithSelector(allocator, owned, "waitVisible", selector_value);
     }
     if (std.mem.eql(u8, kind, "ui.scrollUntilVisible")) {

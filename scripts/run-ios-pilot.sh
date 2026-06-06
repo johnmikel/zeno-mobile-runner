@@ -156,6 +156,11 @@ run() {
   fi
 }
 
+run_zmr_report() {
+  local trace_dir="$1"
+  run "$ZMR_BIN" report "$trace_dir" --out "$trace_dir/report.html" --junit "$trace_dir/junit.xml"
+}
+
 is_retryable_simctl_text() {
   local text="$1"
   [[ "$text" == *"CoreSimulatorService connection became invalid"* ]] ||
@@ -455,7 +460,7 @@ if [[ "$RUNS" -eq 1 ]]; then
   else
     run "$ZMR_BIN" run examples/ios-smoke.json --platform ios --ios-device-type "$IOS_DEVICE_TYPE" --device "$DEVICE" --app-id "$APP_ID" --xcrun "$XCRUN" --trace-dir "$TRACE_DIR"
   fi
-  run "$ZMR_BIN" report "$TRACE_DIR" --out "$TRACE_DIR/report.html"
+  run_zmr_report "$TRACE_DIR"
   run "$ZMR_BIN" export "$TRACE_DIR" --out "$TRACE_ROOT/ios-smoke.zmrtrace"
   run "$ZMR_BIN" export "$TRACE_DIR" --out "$TRACE_ROOT/ios-smoke-redacted.zmrtrace" --redact
 
@@ -463,7 +468,7 @@ if [[ "$RUNS" -eq 1 ]]; then
     SHIM_TRACE_DIR="$TRACE_ROOT/ios-shim-smoke"
     run rm -rf "$SHIM_TRACE_DIR"
     run "$ZMR_BIN" run examples/ios-shim-smoke.json --platform ios --ios-device-type "$IOS_DEVICE_TYPE" --device "$DEVICE" --app-id "$APP_ID" --xcrun "$XCRUN" --ios-shim "$IOS_SHIM" --trace-dir "$SHIM_TRACE_DIR"
-    run "$ZMR_BIN" report "$SHIM_TRACE_DIR" --out "$SHIM_TRACE_DIR/report.html"
+    run_zmr_report "$SHIM_TRACE_DIR"
     run "$ZMR_BIN" export "$SHIM_TRACE_DIR" --out "$TRACE_ROOT/ios-shim-smoke.zmrtrace"
     run "$ZMR_BIN" export "$SHIM_TRACE_DIR" --out "$TRACE_ROOT/ios-shim-smoke-redacted.zmrtrace" --redact
   fi
@@ -481,11 +486,11 @@ else
   else
     ZMR_BIN="$ZMR_BIN" run "$ROOT/scripts/benchmark.sh" --zmr examples/ios-smoke.json --device "$DEVICE" --platform ios --ios-device-type "$IOS_DEVICE_TYPE" --app-id "$APP_ID" --xcrun "$XCRUN" --runs "$RUNS" --trace-root "$TRACE_ROOT/ios-smoke-benchmark" "${benchmark_gate_args[@]}"
   fi
-  run "$ZMR_BIN" report "$TRACE_ROOT/ios-smoke-benchmark" --out "$TRACE_ROOT/ios-smoke-benchmark/report.html"
+  run_zmr_report "$TRACE_ROOT/ios-smoke-benchmark"
 
   if [[ -n "$IOS_SHIM" ]]; then
     ZMR_BIN="$ZMR_BIN" run "$ROOT/scripts/benchmark.sh" --zmr examples/ios-shim-smoke.json --device "$DEVICE" --platform ios --ios-device-type "$IOS_DEVICE_TYPE" --app-id "$APP_ID" --xcrun "$XCRUN" --ios-shim "$IOS_SHIM" --runs "$RUNS" --trace-root "$TRACE_ROOT/ios-shim-smoke-benchmark" "${benchmark_gate_args[@]}"
-    run "$ZMR_BIN" report "$TRACE_ROOT/ios-shim-smoke-benchmark" --out "$TRACE_ROOT/ios-shim-smoke-benchmark/report.html"
+    run_zmr_report "$TRACE_ROOT/ios-shim-smoke-benchmark"
   fi
 fi
 
@@ -501,8 +506,10 @@ if [[ "$RUNS" -eq 1 ]]; then
 else
   echo "Benchmark reports:"
   echo "  $TRACE_ROOT/ios-smoke-benchmark/report.html"
+  echo "  $TRACE_ROOT/ios-smoke-benchmark/junit.xml"
   if [[ -n "$IOS_SHIM" ]]; then
     echo "  $TRACE_ROOT/ios-shim-smoke-benchmark/report.html"
+    echo "  $TRACE_ROOT/ios-shim-smoke-benchmark/junit.xml"
   fi
 fi
 echo "Viewer:"

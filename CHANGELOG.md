@@ -40,6 +40,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
 - Updated generated app report and reliability scripts to write `junit.xml`
   beside `report.html` by default.
+- Updated Android and iOS pilot wrappers to emit `junit.xml` beside every
+  generated `report.html`.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

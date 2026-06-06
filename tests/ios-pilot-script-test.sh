@@ -160,7 +160,8 @@ assert "zmr run examples/ios-shim-smoke.json --platform ios --ios-device-type si
 assert f"--ios-shim {ios_shim}" in output
 assert f"--trace-dir {trace_root}/ios-smoke" in output
 assert f"--trace-dir {trace_root}/ios-shim-smoke" in output
-assert "zmr report" in output
+assert f"zmr report {trace_root}/ios-smoke --out {trace_root}/ios-smoke/report.html --junit {trace_root}/ios-smoke/junit.xml" in output
+assert f"zmr report {trace_root}/ios-shim-smoke --out {trace_root}/ios-shim-smoke/report.html --junit {trace_root}/ios-shim-smoke/junit.xml" in output
 assert "zmr export" in output
 assert "ios-shim-smoke-redacted.zmrtrace" in output
 assert "--redact" in output
@@ -235,6 +236,10 @@ assert f"--trace-root {trace_root}/ios-shim-smoke-benchmark" in output
 assert "Benchmark reports:" in output
 assert "ios-smoke-benchmark/report.html" in output
 assert "ios-shim-smoke-benchmark/report.html" in output
+assert "ios-smoke-benchmark/junit.xml" in output
+assert "ios-shim-smoke-benchmark/junit.xml" in output
+assert f"zmr report {trace_root}/ios-smoke-benchmark --out {trace_root}/ios-smoke-benchmark/report.html --junit {trace_root}/ios-smoke-benchmark/junit.xml" in output
+assert f"zmr report {trace_root}/ios-shim-smoke-benchmark --out {trace_root}/ios-shim-smoke-benchmark/report.html --junit {trace_root}/ios-shim-smoke-benchmark/junit.xml" in output
 assert "Shareable bundle:" not in output
 PY
 
@@ -285,4 +290,6 @@ assert "zmr run examples/ios-shim-smoke.json --platform ios --ios-device-type ph
 assert "--app-id com.example.physical" in output
 assert f"--ios-shim {ios_shim}" in output
 assert f"--trace-dir {trace_root}/ios-smoke" in output
+assert f"zmr report {trace_root}/ios-smoke --out {trace_root}/ios-smoke/report.html --junit {trace_root}/ios-smoke/junit.xml" in output
+assert f"zmr report {trace_root}/ios-shim-smoke --out {trace_root}/ios-shim-smoke/report.html --junit {trace_root}/ios-shim-smoke/junit.xml" in output
 PY

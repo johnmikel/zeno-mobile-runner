@@ -85,6 +85,8 @@ assert "zmr run examples/android-app-login-smoke.json --device emulator-5554" in
 assert "--app-id com.example.override" in output
 assert f"--trace-dir {trace_root}/auth" in output
 assert f"--trace-dir {trace_root}/login-smoke" in output
+assert f"zmr report {trace_root}/auth --out {trace_root}/auth/report.html --junit {trace_root}/auth/junit.xml" in output
+assert f"zmr report {trace_root}/login-smoke --out {trace_root}/login-smoke/report.html --junit {trace_root}/login-smoke/junit.xml" in output
 assert "zmr export" in output
 assert "--redact" in output
 assert ".env.test" in output
@@ -203,6 +205,14 @@ assert "--max-failures 0" in output
 assert "--max-p95-ms 30000" in output
 assert f"--trace-root {trace_root}/bench-auth" in output
 assert f"--trace-root {trace_root}/bench-login-smoke" in output
+assert f"zmr report {trace_root}/bench-auth --out {trace_root}/bench-auth/report.html --junit {trace_root}/bench-auth/junit.xml" in output
+assert f"zmr report {trace_root}/bench-login-smoke --out {trace_root}/bench-login-smoke/report.html --junit {trace_root}/bench-login-smoke/junit.xml" in output
+assert "Benchmark reports:" in output
+assert "bench-auth/report.html" in output
+assert "bench-auth/junit.xml" in output
+assert "bench-login-smoke/report.html" in output
+assert "bench-login-smoke/junit.xml" in output
+assert "Shareable bundles:" not in output
 PY
 
 custom_adb_benchmark_output="$("$ROOT/scripts/run-android-pilot.sh" \

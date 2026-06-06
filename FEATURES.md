@@ -90,6 +90,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 - `zmr explain` summarizes failed traces for humans and agents.
 - `zmr report --junit <report.xml>` writes CI-friendly JUnit XML for trace
   directories and benchmark result directories.
+- Android and iOS pilot wrappers emit `junit.xml` next to generated HTML
+  reports, so CI can collect the same artifacts used by app-local scripts.
 - Redacted `.zmrtrace` export can replace or omit screenshots, omit screen
   recordings, and redact common secrets plus app-configured denylist fields.
 

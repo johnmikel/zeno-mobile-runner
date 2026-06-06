@@ -171,6 +171,11 @@ run() {
   fi
 }
 
+run_zmr_report() {
+  local trace_dir="$1"
+  run "$ZMR_BIN" report "$trace_dir" --out "$trace_dir/report.html" --junit "$trace_dir/junit.xml"
+}
+
 capture() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo ""
@@ -505,7 +510,7 @@ if [[ "$RUNS" -eq 1 ]]; then
     SINGLE_TRACE="$TRACE_ROOT/scenario"
     run rm -rf "$SINGLE_TRACE"
     run_zmr_android_scenario "$SCENARIO" --device "$DEVICE" --app-id "$APP_ID" --trace-dir "$SINGLE_TRACE"
-    run "$ZMR_BIN" report "$SINGLE_TRACE" --out "$SINGLE_TRACE/report.html"
+    run_zmr_report "$SINGLE_TRACE"
     run "$ZMR_BIN" export "$SINGLE_TRACE" --out "$TRACE_ROOT/scenario.zmrtrace"
     run "$ZMR_BIN" export "$SINGLE_TRACE" --out "$TRACE_ROOT/scenario-redacted.zmrtrace" --redact
   else
@@ -513,11 +518,11 @@ if [[ "$RUNS" -eq 1 ]]; then
     LOGIN_TRACE="$TRACE_ROOT/login-smoke"
     run rm -rf "$AUTH_TRACE" "$LOGIN_TRACE"
     run_zmr_android_scenario examples/android-app-auth-probe.json --device "$DEVICE" --app-id "$APP_ID" --trace-dir "$AUTH_TRACE"
-    run "$ZMR_BIN" report "$AUTH_TRACE" --out "$AUTH_TRACE/report.html"
+    run_zmr_report "$AUTH_TRACE"
     run "$ZMR_BIN" export "$AUTH_TRACE" --out "$TRACE_ROOT/auth.zmrtrace"
     run "$ZMR_BIN" export "$AUTH_TRACE" --out "$TRACE_ROOT/auth-redacted.zmrtrace" --redact
     run_zmr_android_scenario examples/android-app-login-smoke.json --device "$DEVICE" --app-id "$APP_ID" --trace-dir "$LOGIN_TRACE"
-    run "$ZMR_BIN" report "$LOGIN_TRACE" --out "$LOGIN_TRACE/report.html"
+    run_zmr_report "$LOGIN_TRACE"
     run "$ZMR_BIN" export "$LOGIN_TRACE" --out "$TRACE_ROOT/login-smoke.zmrtrace"
     run "$ZMR_BIN" export "$LOGIN_TRACE" --out "$TRACE_ROOT/login-smoke-redacted.zmrtrace" --redact
   fi
@@ -531,12 +536,12 @@ else
   fi
   if [[ -n "$SCENARIO" ]]; then
     run_android_benchmark --zmr "$SCENARIO" --device "$DEVICE" --app-id "$APP_ID" --runs "$RUNS" --trace-root "$TRACE_ROOT/bench-scenario" "${benchmark_gate_args[@]}"
-    run "$ZMR_BIN" report "$TRACE_ROOT/bench-scenario" --out "$TRACE_ROOT/bench-scenario/report.html"
+    run_zmr_report "$TRACE_ROOT/bench-scenario"
   else
     run_android_benchmark --zmr examples/android-app-auth-probe.json --device "$DEVICE" --app-id "$APP_ID" --runs "$RUNS" --trace-root "$TRACE_ROOT/bench-auth" "${benchmark_gate_args[@]}"
-    run "$ZMR_BIN" report "$TRACE_ROOT/bench-auth" --out "$TRACE_ROOT/bench-auth/report.html"
+    run_zmr_report "$TRACE_ROOT/bench-auth"
     run_android_benchmark --zmr examples/android-app-login-smoke.json --device "$DEVICE" --app-id "$APP_ID" --runs "$RUNS" --trace-root "$TRACE_ROOT/bench-login-smoke" "${benchmark_gate_args[@]}"
-    run "$ZMR_BIN" report "$TRACE_ROOT/bench-login-smoke" --out "$TRACE_ROOT/bench-login-smoke/report.html"
+    run_zmr_report "$TRACE_ROOT/bench-login-smoke"
   fi
 fi
 
@@ -546,9 +551,30 @@ cat <<EOF
 
 Android pilot complete.
 Output directory: $TRACE_ROOT
-Shareable bundles:
-  $TRACE_ROOT/auth-redacted.zmrtrace
-  $TRACE_ROOT/login-smoke-redacted.zmrtrace
+EOF
+
+if [[ "$RUNS" -eq 1 ]]; then
+  echo "Shareable bundles:"
+  if [[ -n "$SCENARIO" ]]; then
+    echo "  $TRACE_ROOT/scenario-redacted.zmrtrace"
+  else
+    echo "  $TRACE_ROOT/auth-redacted.zmrtrace"
+    echo "  $TRACE_ROOT/login-smoke-redacted.zmrtrace"
+  fi
+else
+  echo "Benchmark reports:"
+  if [[ -n "$SCENARIO" ]]; then
+    echo "  $TRACE_ROOT/bench-scenario/report.html"
+    echo "  $TRACE_ROOT/bench-scenario/junit.xml"
+  else
+    echo "  $TRACE_ROOT/bench-auth/report.html"
+    echo "  $TRACE_ROOT/bench-auth/junit.xml"
+    echo "  $TRACE_ROOT/bench-login-smoke/report.html"
+    echo "  $TRACE_ROOT/bench-login-smoke/junit.xml"
+  fi
+fi
+
+cat <<EOF
 Viewer:
   $ROOT/viewer/index.html
 EOF

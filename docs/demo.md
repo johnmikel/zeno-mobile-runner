@@ -124,7 +124,9 @@ The script builds `zmr` when needed, validates both sample scenarios, installs t
 For each single run it writes:
 
 - `auth/report.html`
+- `auth/junit.xml`
 - `login-smoke/report.html`
+- `login-smoke/junit.xml`
 - `auth.zmrtrace`
 - `auth-redacted.zmrtrace`
 - `login-smoke.zmrtrace`
@@ -233,9 +235,11 @@ Build the app for an iOS simulator, boot a simulator, then run:
 For each run it writes:
 
 - `ios-smoke/report.html`
+- `ios-smoke/junit.xml`
 - `ios-smoke.zmrtrace`
 - `ios-smoke-redacted.zmrtrace`
 - `ios-shim-smoke/report.html` when `--ios-shim` is set
+- `ios-shim-smoke/junit.xml` when `--ios-shim` is set
 - `ios-shim-smoke.zmrtrace` when `--ios-shim` is set
 - `ios-shim-smoke-redacted.zmrtrace` when `--ios-shim` is set
 

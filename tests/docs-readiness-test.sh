@@ -149,6 +149,7 @@ require_grep 'replay` coverage metadata' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
 require_grep 'zmr report --junit <report.xml>' FEATURES.md
+require_grep 'Android and iOS pilot wrappers emit `junit.xml`' FEATURES.md
 require_grep 'HTML/JUnit report scripts' FEATURES.md
 require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML artifacts' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
@@ -159,6 +160,7 @@ require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
 require_grep 'zmr report --junit <report.xml>' CHANGELOG.md
 require_grep 'generated app report and reliability scripts to write `junit.xml`' CHANGELOG.md
 require_grep 'beside `report.html` by default' CHANGELOG.md
+require_grep 'Android and iOS pilot wrappers to emit `junit.xml`' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -178,6 +180,7 @@ require_grep 'Release supply chain' docs/production-readiness.md
 require_grep 'trusted publisher must be configured' docs/production-readiness.md
 require_grep 'Agentic Standard' docs/production-readiness.md
 require_grep 'zmr report --junit' docs/production-readiness.md
+require_grep 'pilot wrapper run that produced both `report.html` and `junit.xml`' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
@@ -269,8 +272,12 @@ require_grep 'React Native' docs/app-integration.md
 require_grep 'Flutter' docs/app-integration.md
 require_grep 'zmr-device-matrix' docs/benchmarking.md
 require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
+require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
+require_grep 'auth/junit.xml' docs/demo.md
+require_grep 'ios-smoke/junit.xml' docs/demo.md
+require_grep 'ios-shim-smoke/junit.xml' docs/demo.md
 
 require_not_grep 'market-claim' docs/ai-agents.md
 require_not_grep 'competitive claim' docs/ai-agents.md

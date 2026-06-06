@@ -67,8 +67,8 @@ Use `--screen-record` when investigating visual flakes:
 ```
 
 For `--runs 1`, the script exports normal and redacted `.zmrtrace` bundles.
-For `--runs > 1`, generated app reliability scripts write benchmark
-directories with HTML and JUnit reports.
+For `--runs > 1`, the pilot wrappers and generated app reliability scripts
+write benchmark directories with HTML and JUnit reports.
 
 The iOS pilot wrapper supports the same repeated-run gates:
 

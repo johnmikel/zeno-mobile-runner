@@ -1,6 +1,7 @@
 const std = @import("std");
 const cli_discover = @import("cli_discover.zig");
 const protocol = @import("json_rpc_protocol.zig");
+const runner_events = @import("runner_events.zig");
 const trace = @import("trace.zig");
 
 pub fn writeEventsResult(
@@ -102,6 +103,13 @@ pub fn writeDiscoverResult(
         .json = true,
     });
     defer discovered.deinit(allocator);
+    try runner_events.recordTraceDiscover(
+        tw,
+        if (discovered.summary.ok) "ok" else "failed",
+        discovered.summary.draft.out_path,
+        include_actions,
+        discovered.summary.validated,
+    );
 
     var payload = std.ArrayList(u8).empty;
     defer payload.deinit(allocator);

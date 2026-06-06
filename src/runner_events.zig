@@ -97,6 +97,18 @@ pub fn recordSwipe(tw: *trace.TraceWriter, x1: i32, y1: i32, x2: i32, y2: i32, d
     try tw.recordEvent("ui.swipe", payload);
 }
 
+pub fn recordTraceDiscover(tw: *trace.TraceWriter, status: []const u8, out_path: []const u8, include_actions: bool, validated: bool) !void {
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(tw.allocator);
+    const out = payload.writer(tw.allocator);
+    try out.writeAll("{\"status\":");
+    try trace.writeJsonString(out, status);
+    try out.writeAll(",\"out\":");
+    try trace.writeJsonString(out, out_path);
+    try out.print(",\"includeActions\":{},\"validated\":{}}}", .{ include_actions, validated });
+    try tw.recordEvent("trace.discover", payload.items);
+}
+
 pub fn recordStepError(tw: *trace.TraceWriter, index: usize, err: anyerror) !void {
     const payload = try std.fmt.allocPrint(
         tw.allocator,

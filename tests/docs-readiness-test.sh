@@ -196,6 +196,7 @@ require_grep 'direction and timeout preserving `scrollUntilVisible` trace replay
 require_grep 'MCP `erase_text`, `hide_keyboard`, `wait_not_visible`, `wait_any`, and' CHANGELOG.md
 require_grep 'MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and' CHANGELOG.md
 require_grep 'MCP `open_link`, unscoped `type`, and `press_back` trace events' CHANGELOG.md
+require_grep '`trace.discover` records a `trace.discover` event' CHANGELOG.md
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
 require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
 require_grep 'replay metadata for successful `assertNoneVisible`' CHANGELOG.md

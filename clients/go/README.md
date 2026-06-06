@@ -18,6 +18,11 @@ discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-agent.json", zm
     Validate: true,
     Force: true,
 })
+explored, err := client.ExploreTrace(ctx, ".zmr/discovered/go-goal.json", "find a stable login smoke", zmr.TraceDiscoverOptions{
+    IncludeActions: true,
+    Validate: true,
+    Force: true,
+})
 validation, err := client.ValidateScenario(ctx, discovered.Out)
 ```
 

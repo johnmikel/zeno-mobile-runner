@@ -338,6 +338,14 @@ pub struct TraceDiscover {
     pub validation: Option<ValidationResult>,
     #[serde(default, rename = "nextCommands")]
     pub next_commands: Vec<String>,
+    #[serde(default)]
+    pub goal: Option<String>,
+    #[serde(default)]
+    pub autonomous: bool,
+    #[serde(default, rename = "reviewRequired")]
+    pub review_required: bool,
+    #[serde(default)]
+    pub guardrails: Vec<String>,
 }
 
 impl Client {
@@ -610,6 +618,31 @@ impl Client {
             params["appId"] = json!(app_id);
         }
         self.request("trace.discover", params)
+    }
+
+    pub fn explore_trace(
+        &mut self,
+        out: &str,
+        goal: &str,
+        options: TraceDiscoverOptions,
+    ) -> Result<TraceDiscover, Error> {
+        let mut params = json!({ "out": out, "goal": goal });
+        if options.include_actions {
+            params["includeActions"] = json!(true);
+        }
+        if options.validate {
+            params["validate"] = json!(true);
+        }
+        if options.force {
+            params["force"] = json!(true);
+        }
+        if let Some(name) = options.name {
+            params["name"] = json!(name);
+        }
+        if let Some(app_id) = options.app_id {
+            params["appId"] = json!(app_id);
+        }
+        self.request("trace.explore", params)
     }
 }
 

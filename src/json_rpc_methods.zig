@@ -350,6 +350,22 @@ fn dispatchTraceMethod(
         );
         return true;
     }
+    if (std.mem.eql(u8, method, "trace.explore")) {
+        try rpc_trace.writeExploreResult(
+            allocator,
+            writer,
+            id,
+            live_trace,
+            try params_parser.requiredString(params, "out"),
+            try params_parser.requiredString(params, "goal"),
+            try params_parser.optionalBool(params, "includeActions", false),
+            try params_parser.optionalBool(params, "validate", false),
+            try params_parser.optionalBool(params, "force", false),
+            try params_parser.optionalString(params, "name"),
+            try params_parser.optionalString(params, "appId"),
+        );
+        return true;
+    }
     if (std.mem.eql(u8, method, "trace.explain")) {
         try rpc_trace.writeExplainResult(allocator, writer, id, live_trace);
         return true;

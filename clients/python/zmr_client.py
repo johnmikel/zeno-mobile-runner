@@ -195,6 +195,20 @@ class ZmrClient:
             params["appId"] = app_id
         return self.request("trace.discover", params)
 
+    def explore_trace(self, out, goal, include_actions=False, validate=False, force=False, name=None, app_id=None):
+        params = {
+            "out": out,
+            "goal": goal,
+            "includeActions": include_actions,
+            "validate": validate,
+            "force": force,
+        }
+        if name is not None:
+            params["name"] = name
+        if app_id is not None:
+            params["appId"] = app_id
+        return self.request("trace.explore", params)
+
     def close(self):
         if self._closed:
             return

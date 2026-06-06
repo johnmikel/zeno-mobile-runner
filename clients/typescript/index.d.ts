@@ -143,6 +143,7 @@ export interface ZmrClient {
   traceEvents(afterSeq?: number, options?: { limit?: number }): Promise<Record<string, unknown>>;
   explainTrace(): Promise<Record<string, unknown>>;
   discoverTrace(out: string, options?: TraceDiscoverOptions): Promise<Record<string, unknown>>;
+  exploreTrace(out: string, goal: string, options?: TraceDiscoverOptions): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
 

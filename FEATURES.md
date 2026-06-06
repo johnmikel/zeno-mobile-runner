@@ -36,11 +36,11 @@ state, and writes deterministic traces. It does not embed an LLM.
 - JSON-RPC v1 over newline-delimited stdio or localhost TCP.
 - MCP stdio server with mobile-native tools for AI agents, including semantic
   snapshots, selector actions, waits, assertions, trace polling, trace
-  discovery, and trace export.
+  exploration, trace discovery, and trace export.
 - `runner.capabilities`, `device.list`, `session.create`,
   `observe.snapshot`, `observe.semanticSnapshot`, UI actions, waits,
-  assertions, scenario validation, live trace events, trace-backed discovery,
-  and redacted trace export.
+  assertions, scenario validation, live trace events, trace-backed exploration,
+  trace-backed discovery, and redacted trace export.
 - TypeScript, Python, Go, Rust, Swift, and Kotlin reference clients.
 - Machine-readable CLI output for `zmr version --json`, `zmr schemas --json`,
   `zmr inspect --json`, `zmr doctor --json`, `zmr devices --json`,
@@ -54,6 +54,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 - `zmr explore --from-trace --goal ... --json` gives CLI agents a
   goal-carrying, review-first exploration handoff with explicit guardrails,
   replay coverage, validation, and deterministic next commands.
+- JSON-RPC `trace.explore` and MCP `trace_explore` expose the same
+  goal-carrying, review-required trace exploration from active traced sessions.
 - `zmr discover --from-trace` turns a traced agent session into a reviewable
   scenario candidate and can validate the generated scenario before returning.
 - `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable

@@ -20,11 +20,11 @@ The TypeScript and Python clients expose the broadest app-facing control
 surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
 scenario validation, trace event polling, trace explanation, trace discovery,
-and trace export.
+trace exploration, and trace export.
 The Go and Rust clients also include typed scenario validation and trace
-explanation/discovery helpers. Swift and Kotlin include lightweight trace
-explanation, validation, and discovery helpers for host-side agents in those
-ecosystems.
+explanation/exploration/discovery helpers. Swift and Kotlin include lightweight
+trace explanation, validation, exploration, and discovery helpers for
+host-side agents in those ecosystems.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.
@@ -48,6 +48,7 @@ const zmr = createZmrClient({
   command: "zmr",
   args: ["serve", "--transport", "stdio", "--config", ".zmr/config.json"],
 });
+const explored = await zmr.exploreTrace(".zmr/discovered/agent-goal.json", "find a stable login smoke", { includeActions: true, validate: true, force: true });
 ```
 
 ## Python
@@ -68,6 +69,7 @@ from zmr_client import ZmrClient
 with ZmrClient("zmr", ["serve", "--transport", "stdio", "--config", ".zmr/config.json"]) as zmr:
     snapshot = zmr.snapshot()
     explanation = zmr.explain_trace()
+    explored = zmr.explore_trace(".zmr/discovered/agent-goal.json", "find a stable login smoke", include_actions=True, validate=True, force=True)
 ```
 
 ## Go
@@ -88,6 +90,7 @@ go run ./clients/go/examples/fake-session \
 ```go
 client, err := zmr.Start(ctx, "zmr", "serve", "--transport", "stdio", "--config", ".zmr/config.json")
 discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-agent.json", zmr.TraceDiscoverOptions{IncludeActions: true, Validate: true, Force: true})
+explored, err := client.ExploreTrace(ctx, ".zmr/discovered/go-goal.json", "find a stable login smoke", zmr.TraceDiscoverOptions{IncludeActions: true, Validate: true, Force: true})
 validation, err := client.ValidateScenario(ctx, discovered.Out)
 explanation, err := client.ExplainTrace(ctx)
 ```
@@ -124,6 +127,12 @@ let discovered = client.discover_trace(".zmr/discovered/rust-agent.json", zmr_cl
     force: true,
     ..Default::default()
 })?;
+let explored = client.explore_trace(".zmr/discovered/rust-goal.json", "find a stable login smoke", zmr_client::TraceDiscoverOptions {
+    include_actions: true,
+    validate: true,
+    force: true,
+    ..Default::default()
+})?;
 let validation = client.validate_scenario(&discovered.out)?;
 let explanation = client.explain_trace()?;
 ```
@@ -151,6 +160,11 @@ let discovered = try client.discoverTrace(
     out: out,
     options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
 )
+let explored = try client.exploreTrace(
+    out: ".zmr/discovered/swift-goal.json",
+    goal: "find a stable login smoke",
+    options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
+)
 let validation = try client.validateScenario(path: out)
 let explanation = try client.explainTrace()
 client.close()
@@ -172,6 +186,11 @@ gradle -p vendor/zeno-mobile-runner/clients/kotlin build
 val out = ".zmr/discovered/kotlin-agent.json"
 val discovered = client.discoverTrace(
     out,
+    TraceDiscoverOptions(includeActions = true, validate = true, force = true)
+)
+val explored = client.exploreTrace(
+    ".zmr/discovered/kotlin-goal.json",
+    "find a stable login smoke",
     TraceDiscoverOptions(includeActions = true, validate = true, force = true)
 )
 val validation = client.validateScenario(out)

@@ -54,6 +54,19 @@ class ZmrClient(
         return call("trace.discover", "{${fields.joinToString(",")}}")
     }
 
+    fun exploreTrace(out: String, goal: String, options: TraceDiscoverOptions = TraceDiscoverOptions()): String {
+        val fields = mutableListOf(
+            """"out":"${escapeJson(out)}"""",
+            """"goal":"${escapeJson(goal)}""""
+        )
+        if (options.includeActions) fields.add(""""includeActions":true""")
+        if (options.validate) fields.add(""""validate":true""")
+        if (options.force) fields.add(""""force":true""")
+        options.name?.let { fields.add(""""name":"${escapeJson(it)}"""") }
+        options.appId?.let { fields.add(""""appId":"${escapeJson(it)}"""") }
+        return call("trace.explore", "{${fields.joinToString(",")}}")
+    }
+
     @Synchronized
     fun call(method: String, paramsJson: String? = null): String {
         val id = nextId++

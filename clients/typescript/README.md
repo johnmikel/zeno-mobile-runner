@@ -28,11 +28,17 @@ try {
     validate: true,
     force: true,
   });
+  const explored = await zmr.exploreTrace(".zmr/discovered/agent-goal.json", "find a stable login smoke", {
+    includeActions: true,
+    validate: true,
+    force: true,
+  });
   const validation = await zmr.validateScenario(discovered.out);
   console.log(snapshot.nodes);
   console.log(events.events.length);
   console.log(explanation.status);
   console.log(discovered.out);
+  console.log(explored.reviewRequired);
   console.log(validation.ok);
   await zmr.exportTrace("traces/agent-session-redacted.zmrtrace", { redact: true, omitScreenshots: true });
 } finally {

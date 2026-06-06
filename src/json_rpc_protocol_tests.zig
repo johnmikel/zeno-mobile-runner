@@ -10,6 +10,7 @@ test "capabilities result includes protocol metadata and agent methods" {
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"protocolVersion\":\"2026-04-28\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"observe.semanticSnapshot\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"scenario.validate\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"trace.explore\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"trace.discover\"") != null);
 }
 

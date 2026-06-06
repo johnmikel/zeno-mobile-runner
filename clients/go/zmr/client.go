@@ -221,6 +221,10 @@ type TraceDiscover struct {
 	Validated       bool              `json:"validated"`
 	Validation      *ValidationResult `json:"validation"`
 	NextCommands    []string          `json:"nextCommands"`
+	Goal            string            `json:"goal,omitempty"`
+	Autonomous      bool              `json:"autonomous,omitempty"`
+	ReviewRequired  bool              `json:"reviewRequired,omitempty"`
+	Guardrails      []string          `json:"guardrails,omitempty"`
 }
 
 func Start(ctx context.Context, command string, args ...string) (*Client, error) {
@@ -544,5 +548,27 @@ func (c *Client) DiscoverTrace(ctx context.Context, outPath string, options Trac
 		params["appId"] = options.AppID
 	}
 	err := c.Request(ctx, "trace.discover", params, &out)
+	return out, err
+}
+
+func (c *Client) ExploreTrace(ctx context.Context, outPath string, goal string, options TraceDiscoverOptions) (TraceDiscover, error) {
+	var out TraceDiscover
+	params := map[string]interface{}{"out": outPath, "goal": goal}
+	if options.IncludeActions {
+		params["includeActions"] = true
+	}
+	if options.Validate {
+		params["validate"] = true
+	}
+	if options.Force {
+		params["force"] = true
+	}
+	if options.Name != "" {
+		params["name"] = options.Name
+	}
+	if options.AppID != "" {
+		params["appId"] = options.AppID
+	}
+	err := c.Request(ctx, "trace.explore", params, &out)
 	return out, err
 }

@@ -140,6 +140,30 @@ fn client_drives_fake_session() {
     assert!(discovered.validation.as_ref().unwrap().ok);
     assert!(discovered.next_commands[0].contains("zmr validate --json"));
 
+    let explored = client
+        .explore_trace(
+            ".zmr/discovered/rust-client-explore.json",
+            "find rust client smoke",
+            TraceDiscoverOptions {
+                include_actions: true,
+                validate: true,
+                force: true,
+                name: Some("Rust exploration".to_string()),
+                app_id: Some("com.example.rust".to_string()),
+            },
+        )
+        .unwrap();
+    assert!(explored.ok);
+    assert_eq!(explored.mode, "explore");
+    assert_eq!(explored.goal.as_deref(), Some("find rust client smoke"));
+    assert_eq!(explored.out, ".zmr/discovered/rust-client-explore.json");
+    assert!(explored.review_required);
+    assert!(!explored.autonomous);
+    assert!(explored
+        .guardrails
+        .iter()
+        .any(|guardrail| guardrail == "requires human review before commit"));
+
     let validation = client
         .validate_scenario(".zmr/discovered/rust-client.json")
         .unwrap();

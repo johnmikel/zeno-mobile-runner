@@ -193,6 +193,19 @@ func TestClientDrivesFakeSession(t *testing.T) {
 		t.Fatalf("unexpected discovery result: %+v", discovered)
 	}
 
+	explored, err := client.ExploreTrace(ctx, ".zmr/discovered/go-client-explore.json", "find go client smoke", TraceDiscoverOptions{
+		IncludeActions: true,
+		Validate:       true,
+		Force:          true,
+		Name:           "go client exploration",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !explored.OK || explored.Mode != "explore" || explored.Goal != "find go client smoke" || explored.Out != ".zmr/discovered/go-client-explore.json" || !explored.ReviewRequired || explored.Autonomous || len(explored.Guardrails) == 0 {
+		t.Fatalf("unexpected exploration result: %+v", explored)
+	}
+
 	validation, err := client.ValidateScenario(ctx, ".zmr/discovered/go-client.json")
 	if err != nil {
 		t.Fatal(err)

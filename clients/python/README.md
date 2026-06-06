@@ -27,11 +27,19 @@ with ZmrClient(
         validate=True,
         force=True,
     )
+    explored = zmr.explore_trace(
+        ".zmr/discovered/agent-goal.json",
+        "find a stable login smoke",
+        include_actions=True,
+        validate=True,
+        force=True,
+    )
     validation = zmr.validate_scenario(discovered["out"])
     print(snapshot["nodes"])
     print(len(events["events"]))
     print(explanation["status"])
     print(discovered["out"])
+    print(explored["reviewRequired"])
     print(validation["ok"])
     zmr.export_trace("traces/agent-session-redacted.zmrtrace", redact=True, omit_screenshots=True)
 ```

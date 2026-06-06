@@ -150,6 +150,29 @@ public final class ZMRClient {
         return result
     }
 
+    public func exploreTrace(out: String, goal: String, options: TraceDiscoverOptions = TraceDiscoverOptions()) throws -> [String: Any] {
+        var params: [String: Any] = ["out": out, "goal": goal]
+        if options.includeActions {
+            params["includeActions"] = true
+        }
+        if options.validate {
+            params["validate"] = true
+        }
+        if options.force {
+            params["force"] = true
+        }
+        if let name = options.name {
+            params["name"] = name
+        }
+        if let appId = options.appId {
+            params["appId"] = appId
+        }
+        guard let result = try call("trace.explore", params: params) as? [String: Any] else {
+            throw ZMRError.invalidResponse
+        }
+        return result
+    }
+
     public func explainTrace() throws -> [String: Any] {
         guard let result = try call("trace.explain", params: [:]) as? [String: Any] else {
             throw ZMRError.invalidResponse

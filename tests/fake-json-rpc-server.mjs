@@ -53,6 +53,7 @@ rl.on("line", (line) => {
         "scenario.validate",
         "trace.events",
         "trace.explain",
+        "trace.explore",
         "trace.discover",
         "trace.export",
       ],
@@ -198,6 +199,38 @@ rl.on("line", (line) => {
       nextCommands: [
         `zmr validate --json ${request.params?.out ?? ".zmr/discovered/client.json"}`,
         `zmr run ${request.params?.out ?? ".zmr/discovered/client.json"} --json --trace-dir traces/client`,
+      ],
+    };
+  } else if (method === "trace.explore") {
+    result = {
+      ok: true,
+      mode: "explore",
+      schemaVersion: 1,
+      runnerVersion: "0.1.7",
+      protocolVersion: "2026-04-28",
+      out: request.params?.out ?? ".zmr/discovered/client-explore.json",
+      traceDir: "traces/client",
+      sourceSnapshot: "traces/client/artifacts/snapshot-1.json",
+      name: request.params?.name ?? "Client exploration",
+      appId: request.params?.appId ?? "com.example.mobiletest",
+      selectorCount: 1,
+      stepCount: 4,
+      replay: { enabled: Boolean(request.params?.includeActions), eventCount: 2, stepCount: request.params?.includeActions ? 1 : 0, skippedEventCount: request.params?.includeActions ? 1 : 0 },
+      warnings: ["draft requires human review before commit"],
+      validated: Boolean(request.params?.validate),
+      validation: request.params?.validate ? { ok: true, path: request.params?.out ?? ".zmr/discovered/client-explore.json", name: request.params?.name ?? "Client exploration", appId: request.params?.appId ?? "com.example.mobiletest", stepCount: 4 } : null,
+      nextCommands: [
+        `zmr validate --json ${request.params?.out ?? ".zmr/discovered/client-explore.json"}`,
+        `zmr run ${request.params?.out ?? ".zmr/discovered/client-explore.json"} --json --trace-dir traces/client`,
+      ],
+      goal: request.params?.goal ?? null,
+      autonomous: false,
+      reviewRequired: true,
+      guardrails: [
+        "writes from existing trace evidence only",
+        "does not crawl the app",
+        "does not discover credentials or secrets",
+        "requires human review before commit",
       ],
     };
   } else if (method === "scenario.validate") {

@@ -70,7 +70,18 @@ planning in the agent, and keep ZMR as the deterministic mobile control plane.
    `autonomous:false`, `reviewRequired:true`, `guardrails`, replay coverage,
    validation, and deterministic next commands.
 
-10. Use the lower-level trace discovery primitive when the agent already owns
+10. Use live trace exploration when the agent should keep the goal attached to
+    the generated draft. JSON-RPC agents can call `trace.explore`:
+
+   ```json
+   {"jsonrpc":"2.0","id":7,"method":"trace.explore","params":{"out":".zmr/discovered/login-smoke.json","goal":"find a stable login smoke","includeActions":true,"validate":true,"force":true}}
+   ```
+
+   MCP agents can call `trace_explore` with `out`, `goal`,
+   `includeActions`, `validate`, and `force`. The response includes
+   `autonomous:false`, `reviewRequired:true`, and `guardrails`.
+
+11. Use the lower-level trace discovery primitive when the agent already owns
     goal tracking. JSON-RPC agents can
     call `trace.discover`:
 

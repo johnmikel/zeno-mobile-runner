@@ -1,6 +1,7 @@
 const std = @import("std");
 const bundle = @import("bundle.zig");
 const cli_discover = @import("cli_discover.zig");
+const cli_explore = @import("cli_explore.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
 const report = @import("report.zig");
 const runner_events = @import("runner_events.zig");
@@ -154,5 +155,51 @@ pub fn writeDiscoverToolResult(
     var payload = std.ArrayList(u8).empty;
     defer payload.deinit(allocator);
     try cli_discover.writeJson(payload.writer(allocator), discovered.summary, discovered.validation);
+    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+}
+
+pub fn writeExploreToolResult(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    id: ?std.json.Value,
+    live_trace: ?*trace.TraceWriter,
+    out_path: []const u8,
+    goal: []const u8,
+    include_actions: bool,
+    validate: bool,
+    force: bool,
+    name: ?[]const u8,
+    app_id: ?[]const u8,
+) !void {
+    const tw = live_trace orelse {
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":false,\"mode\":\"explore\",\"traceDir\":null,\"message\":\"start zmr mcp with --trace-dir to enable live trace exploration\"}");
+        return;
+    };
+
+    try tw.flushManifest();
+    var explored = try cli_explore.exploreFromTrace(allocator, .{
+        .from_trace = tw.root_dir,
+        .out_path = out_path,
+        .goal = goal,
+        .name = name,
+        .app_id = app_id,
+        .include_actions = include_actions,
+        .validate = validate,
+        .force = force,
+        .json = true,
+    });
+    defer explored.deinit(allocator);
+    try runner_events.recordTraceExplore(
+        tw,
+        if (explored.summary.ok) "ok" else "failed",
+        explored.discovered.summary.draft.out_path,
+        goal,
+        include_actions,
+        explored.discovered.summary.validated,
+    );
+
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(allocator);
+    try cli_explore.writeJson(payload.writer(allocator), explored.summary, explored.discovered.summary, explored.discovered.validation);
     try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
 }

@@ -24,6 +24,11 @@ let discovered = try client.discoverTrace(
     out: out,
     options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
 )
+let explored = try client.exploreTrace(
+    out: ".zmr/discovered/swift-goal.json",
+    goal: "find a stable login smoke",
+    options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
+)
 let validation = try client.validateScenario(path: out)
 let explanation = try client.explainTrace()
 client.close()

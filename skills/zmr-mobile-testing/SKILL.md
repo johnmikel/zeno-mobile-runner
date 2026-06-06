@@ -57,13 +57,21 @@ zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
 Use the `semantic_snapshot`, `tap`, `type`, `wait_visible`, `trace_events`, and
-`trace_export` tools. Prefer `semantic_snapshot` because it normalizes Android
-and iOS hierarchy classes into roles, selectors, bounds, and recommended
-actions.
+`trace_explore`, `trace_discover`, and `trace_export` tools. Prefer
+`semantic_snapshot` because it normalizes Android and iOS hierarchy classes
+into roles, selectors, bounds, and recommended actions.
 
 After a session has produced trace artifacts, prefer the review-first
 exploration handoff when a goal should travel with the generated scenario
 candidate:
+
+```json
+{"method":"trace.explore","params":{"out":".zmr/discovered/login-smoke.json","goal":"find a stable login smoke","includeActions":true,"validate":true,"force":true}}
+```
+
+For MCP agents, call `trace_explore` with the same `out`, `goal`,
+`includeActions`, `validate`, and `force` arguments. The offline CLI equivalent
+is:
 
 ```bash
 zmr explore --from-trace traces/zmr-agent \

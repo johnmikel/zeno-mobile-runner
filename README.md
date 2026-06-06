@@ -231,14 +231,15 @@ The MCP server exposes mobile-specific tools such as `semantic_snapshot`,
 `erase_text`, `hide_keyboard`, `swipe`, `press_back`, `open_link`,
 `wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible`,
 `assert_visible`, `assert_not_visible`, `assert_healthy`, `scenario_validate`,
-`trace_events`, `trace_explain`, `trace_discover`, and `trace_export`.
+`trace_events`, `trace_explain`, `trace_explore`, `trace_discover`, and
+`trace_export`.
 
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
 through MCP, JSON-RPC, trace events, in-band trace discovery, offline surface
-drafts, replay drafts, guarded trace exploration, and traced run
-`nextCommands` today. Built-in exploration is review-first and trace-backed,
-not an unbounded autonomous crawler.
+drafts, replay drafts, live and offline guarded trace exploration, and traced
+run `nextCommands` today. Built-in exploration is review-first and
+trace-backed, not an unbounded autonomous crawler.
 
 ## Optional Protocol Clients
 

@@ -27,6 +27,12 @@ All notable changes to Zeno Mobile Runner are tracked here.
   exploration handoff for agents. It reuses trace-backed discovery, carries the
   goal in JSON, and returns explicit guardrails instead of claiming autonomous
   crawling.
+- Added JSON-RPC `trace.explore` and MCP `trace_explore` so live agents can
+  generate the same goal-carrying, review-required scenario draft without
+  leaving the active traced session.
+- Added TypeScript `exploreTrace()`, Python `explore_trace()`, Go
+  `ExploreTrace()`, Rust `explore_trace()`, Swift `exploreTrace()`, and Kotlin
+  `exploreTrace()` helpers for the new JSON-RPC exploration method.
 - Added trace discovery auditing: `trace.discover` records a `trace.discover` event
   for JSON-RPC and MCP agent sessions so generated scenario candidates are
   visible in the trace.

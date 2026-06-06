@@ -159,6 +159,64 @@ test "mcp trace discover tool writes validated scenario text payload" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"out\":\"zig-cache-test-mcp-trace-discover/discovered.json\"") != null);
 }
 
+test "mcp trace explore tool writes guarded scenario text payload" {
+    const allocator = std.testing.allocator;
+    const trace_dir = "zig-cache-test-mcp-trace-explore";
+    const out_path = trace_dir ++ "/explored.json";
+    const goal = "find a stable MCP smoke";
+    std.fs.cwd().deleteTree(trace_dir) catch {};
+    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+
+    var no_trace = std.ArrayList(u8).empty;
+    defer no_trace.deinit(allocator);
+    try mcp_trace.writeExploreToolResult(allocator, no_trace.writer(allocator), .{ .integer = 6 }, null, out_path, goal, true, true, true, null, null);
+    const no_trace_text = try toolText(allocator, no_trace.items);
+    defer allocator.free(no_trace_text);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"ok\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"mode\":\"explore\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
+
+    var tw = try trace.TraceWriter.init(allocator, trace_dir);
+    defer tw.deinit();
+    try tw.startManifest("mcp explore", "com.example.mobiletest");
+    try tw.recordEvent("app.launch", "{\"status\":\"ok\"}");
+    try tw.recordEvent("app.openLink", "{\"status\":\"ok\",\"url\":\"exampleapp://explore-mcp\"}");
+    var snapshot = try makeTraceSnapshot(allocator, "snapshot-1", "Explore MCP");
+    defer snapshot.deinit(allocator);
+    const snapshot_path = try tw.writeSnapshot(snapshot);
+    defer allocator.free(snapshot_path);
+    tw.snapshot_count = 1;
+    try tw.recordEvent("observe.semanticSnapshot", "{\"status\":\"ok\"}");
+
+    var explored = std.ArrayList(u8).empty;
+    defer explored.deinit(allocator);
+    try mcp_trace.writeExploreToolResult(allocator, explored.writer(allocator), .{ .integer = 7 }, &tw, out_path, goal, true, true, true, "MCP explored", null);
+
+    try std.testing.expect(std.mem.indexOf(u8, explored.items, "\"id\":7") != null);
+    const explored_text = try toolText(allocator, explored.items);
+    defer allocator.free(explored_text);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"mode\":\"explore\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"goal\":\"find a stable MCP smoke\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"autonomous\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"reviewRequired\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"guardrails\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"validated\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"validation\":{\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explored_text, "unsupported trace action was skipped: rpc.request") == null);
+
+    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    defer allocator.free(scenario);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://explore-mcp\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Explore MCP\"}") != null);
+
+    const events = try std.fs.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"trace.explore\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"out\":\"zig-cache-test-mcp-trace-explore/explored.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"goal\":\"find a stable MCP smoke\"") != null);
+}
+
 fn toolText(allocator: std.mem.Allocator, response: []const u8) ![]const u8 {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, response, .{});
     defer parsed.deinit();

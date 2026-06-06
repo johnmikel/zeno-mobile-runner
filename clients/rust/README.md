@@ -20,6 +20,16 @@ let discovered = client.discover_trace(
         ..Default::default()
     },
 )?;
+let explored = client.explore_trace(
+    ".zmr/discovered/rust-goal.json",
+    "find a stable login smoke",
+    zmr_client::TraceDiscoverOptions {
+        include_actions: true,
+        validate: true,
+        force: true,
+        ..Default::default()
+    },
+)?;
 let validation = client.validate_scenario(&discovered.out)?;
 ```
 

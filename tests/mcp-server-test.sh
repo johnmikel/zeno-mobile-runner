@@ -46,7 +46,7 @@ assert rows[0]["result"]["protocolVersion"] == "2024-11-05"
 assert rows[0]["result"]["serverInfo"]["name"] == "zmr"
 
 tool_names = [tool["name"] for tool in rows[1]["result"]["tools"]]
-for expected in ["snapshot", "semantic_snapshot", "install_app", "launch_app", "stop_app", "clear_state", "tap", "type", "press_back", "open_link", "swipe", "wait_visible", "wait_not_visible", "wait_any", "hide_keyboard", "erase_text", "scroll_until_visible", "assert_visible", "assert_not_visible", "assert_healthy", "scenario_validate", "trace_events", "trace_explain", "trace_discover", "trace_export"]:
+for expected in ["snapshot", "semantic_snapshot", "install_app", "launch_app", "stop_app", "clear_state", "tap", "type", "press_back", "open_link", "swipe", "wait_visible", "wait_not_visible", "wait_any", "hide_keyboard", "erase_text", "scroll_until_visible", "assert_visible", "assert_not_visible", "assert_healthy", "scenario_validate", "trace_events", "trace_explain", "trace_explore", "trace_discover", "trace_export"]:
     assert expected in tool_names, expected
 
 for index in [2, 3, 4, 5, 6, 7]:

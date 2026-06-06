@@ -36,6 +36,24 @@ class ZmrClientTest {
             assertTrue(discovered.contains("\"appId\":\"com.example.kotlin\""))
             assertTrue(discovered.contains("\"validated\":true"))
 
+            val explored = client.exploreTrace(
+                ".zmr/discovered/kotlin-client-explore.json",
+                "find kotlin client smoke",
+                TraceDiscoverOptions(
+                    includeActions = true,
+                    validate = true,
+                    force = true,
+                    name = "Kotlin exploration",
+                    appId = "com.example.kotlin"
+                )
+            )
+            assertTrue(explored.contains("\"mode\":\"explore\""))
+            assertTrue(explored.contains("\"goal\":\"find kotlin client smoke\""))
+            assertTrue(explored.contains("\"out\":\".zmr/discovered/kotlin-client-explore.json\""))
+            assertTrue(explored.contains("\"reviewRequired\":true"))
+            assertTrue(explored.contains("\"autonomous\":false"))
+            assertTrue(explored.contains("requires human review before commit"))
+
             val explanation = client.explainTrace()
             assertTrue(explanation.contains("\"traceDir\":\"traces/client\""))
             assertTrue(explanation.contains("\"scenario\":\"client session\""))

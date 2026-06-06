@@ -339,6 +339,23 @@ fn callTool(
         return;
     }
 
+    if (std.mem.eql(u8, tool_name, "trace_explore")) {
+        try mcp_trace.writeExploreToolResult(
+            allocator,
+            writer,
+            id,
+            live_trace,
+            try requiredParamString(arguments, "out"),
+            try requiredParamString(arguments, "goal"),
+            try optionalParamBool(arguments, "includeActions", false),
+            try optionalParamBool(arguments, "validate", false),
+            try optionalParamBool(arguments, "force", false),
+            optionalParamString(arguments, "name"),
+            optionalParamString(arguments, "appId"),
+        );
+        return;
+    }
+
     if (std.mem.eql(u8, tool_name, "trace_explain")) {
         try mcp_trace.writeExplainToolResult(allocator, writer, id, live_trace);
         return;

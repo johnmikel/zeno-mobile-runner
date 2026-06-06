@@ -25,6 +25,7 @@ class PythonClientTest(unittest.TestCase):
             self.assertIn("assert.healthy", capabilities["methods"])
             self.assertIn("scenario.validate", capabilities["methods"])
             self.assertIn("trace.explain", capabilities["methods"])
+            self.assertIn("trace.explore", capabilities["methods"])
             self.assertIn("trace.discover", capabilities["methods"])
             self.assertFalse(capabilities["iosPreview"])
             self.assertEqual(capabilities["platformSupport"]["ios"]["status"], "supported")
@@ -77,6 +78,21 @@ class PythonClientTest(unittest.TestCase):
             self.assertEqual(discovered["mode"], "discover")
             self.assertEqual(discovered["out"], ".zmr/discovered/python-client.json")
             self.assertTrue(discovered["validated"])
+
+            explored = client.explore_trace(
+                ".zmr/discovered/python-client-explore.json",
+                "find python client smoke",
+                include_actions=True,
+                validate=True,
+                force=True,
+                name="Python exploration",
+            )
+            self.assertEqual(explored["mode"], "explore")
+            self.assertEqual(explored["goal"], "find python client smoke")
+            self.assertEqual(explored["out"], ".zmr/discovered/python-client-explore.json")
+            self.assertTrue(explored["reviewRequired"])
+            self.assertFalse(explored["autonomous"])
+            self.assertIn("requires human review before commit", explored["guardrails"])
 
             validation = client.validate_scenario(".zmr/discovered/python-client.json")
             self.assertTrue(validation["ok"])

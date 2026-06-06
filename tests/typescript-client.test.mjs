@@ -19,6 +19,7 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     assert.ok(capabilities.methods.includes("assert.healthy"));
     assert.ok(capabilities.methods.includes("scenario.validate"));
     assert.ok(capabilities.methods.includes("trace.explain"));
+    assert.ok(capabilities.methods.includes("trace.explore"));
     assert.ok(capabilities.methods.includes("trace.discover"));
     assert.equal(capabilities.iosPreview, false);
     assert.equal(capabilities.platformSupport.ios.status, "supported");
@@ -72,6 +73,19 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     assert.equal(discovered.mode, "discover");
     assert.equal(discovered.out, ".zmr/discovered/client.json");
     assert.equal(discovered.validated, true);
+
+    const explored = await client.exploreTrace(".zmr/discovered/client-explore.json", "find client smoke", {
+      includeActions: true,
+      validate: true,
+      force: true,
+      name: "Client exploration",
+    });
+    assert.equal(explored.mode, "explore");
+    assert.equal(explored.goal, "find client smoke");
+    assert.equal(explored.out, ".zmr/discovered/client-explore.json");
+    assert.equal(explored.reviewRequired, true);
+    assert.equal(explored.autonomous, false);
+    assert.ok(explored.guardrails.includes("requires human review before commit"));
 
     const validation = await client.validateScenario(".zmr/discovered/client.json");
     assert.equal(validation.ok, true);

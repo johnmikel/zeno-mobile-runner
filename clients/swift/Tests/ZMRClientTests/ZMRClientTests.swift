@@ -41,6 +41,25 @@ final class ZMRClientTests: XCTestCase {
         let discoveredValidation = discovered["validation"] as? [String: Any]
         XCTAssertEqual(discoveredValidation?["ok"] as? Bool, true)
 
+        let explored = try client.exploreTrace(
+            out: ".zmr/discovered/swift-client-explore.json",
+            goal: "find swift client smoke",
+            options: TraceDiscoverOptions(
+                includeActions: true,
+                validate: true,
+                force: true,
+                name: "Swift exploration",
+                appId: "com.example.swift"
+            )
+        )
+        XCTAssertEqual(explored["ok"] as? Bool, true)
+        XCTAssertEqual(explored["mode"] as? String, "explore")
+        XCTAssertEqual(explored["goal"] as? String, "find swift client smoke")
+        XCTAssertEqual(explored["out"] as? String, ".zmr/discovered/swift-client-explore.json")
+        XCTAssertEqual(explored["reviewRequired"] as? Bool, true)
+        XCTAssertEqual(explored["autonomous"] as? Bool, false)
+        XCTAssertTrue((explored["guardrails"] as? [String])?.contains("requires human review before commit") == true)
+
         let explanation = try client.explainTrace()
         XCTAssertEqual(explanation["traceDir"] as? String, "traces/client")
         XCTAssertEqual(explanation["scenario"] as? String, "client session")

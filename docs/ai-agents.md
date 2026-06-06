@@ -43,11 +43,13 @@ Recommended flow:
 6. Poll `trace.events` during long runs.
 7. Call `trace.explain` when you need the active trace status, failure
    diagnostic, or next commands.
-8. Call `trace.discover` when you want a reviewable scenario candidate from
-   the active trace.
-9. Call `scenario.validate` after editing generated scenario files.
-10. Call `trace.export` with `redact: true` before sharing artifacts.
-11. Call `session.close`.
+8. Call `trace.explore` when you want a review-required scenario candidate for
+   a stated goal from the active trace.
+9. Call `trace.discover` when you want a lower-level reviewable scenario
+   candidate from the active trace and the agent already owns goal tracking.
+10. Call `scenario.validate` after editing generated scenario files.
+11. Call `trace.export` with `redact: true` before sharing artifacts.
+12. Call `session.close`.
 
 Do not parse screenshots or terminal text when the same fact is available from
 snapshot nodes, action results, CLI JSON, or trace events.
@@ -86,7 +88,8 @@ The MCP server exposes mobile-specific tools:
 - `wait_visible`, `wait_not_visible`, and `wait_any`
 - `assert_visible`, `assert_not_visible`, and `assert_healthy`
 - `scenario_validate`
-- `trace_events`, `trace_explain`, `trace_discover`, and `trace_export`
+- `trace_events`, `trace_explain`, `trace_explore`, `trace_discover`, and
+  `trace_export`
 
 Prefer `semantic_snapshot` for action planning. It avoids forcing an agent to
 infer intent from platform-specific Android/UI Automator or XCTest class names.
@@ -97,10 +100,11 @@ Agents can use ZMR to discover flows and draft scenarios by looping over
 `observe.semanticSnapshot`, one typed action, trace events, and scenario
 validation. After a session has produced trace artifacts, call JSON-RPC
 `trace.explain` or MCP `trace_explain` for in-band triage, then call JSON-RPC
-`trace.discover` or MCP `trace_discover` to create and validate a reviewable
-starting point without leaving the live agent session. Use JSON-RPC
-`scenario.validate` or MCP `scenario_validate` after edits. The CLI command is
-the offline equivalent:
+`trace.explore` or MCP `trace_explore` when the generated draft should carry a
+stated goal and guardrails. Use JSON-RPC `trace.discover` or MCP
+`trace_discover` for the lower-level trace-backed draft when the agent already
+owns goal tracking. Use JSON-RPC `scenario.validate` or MCP
+`scenario_validate` after edits. The CLI command is the offline equivalent:
 
 ```bash
 zmr discover --from-trace traces/zmr-agent \

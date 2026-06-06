@@ -37,6 +37,11 @@ val discovered = client.discoverTrace(
     out,
     TraceDiscoverOptions(includeActions = true, validate = true, force = true)
 )
+val explored = client.exploreTrace(
+    ".zmr/discovered/kotlin-goal.json",
+    "find a stable login smoke",
+    TraceDiscoverOptions(includeActions = true, validate = true, force = true)
+)
 val validation = client.validateScenario(out)
 val explanation = client.explainTrace()
 client.close()

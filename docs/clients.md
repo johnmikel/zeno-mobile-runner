@@ -41,7 +41,7 @@ even when normal page text is also present.
 | --- | --- | --- |
 | TypeScript | `clients/typescript/index.mjs`, `index.d.ts` | ESM runtime plus type declarations, no build step required |
 | Python | `clients/python/zmr_client.py`, `pyproject.toml` | Standard-library importable module that can be vendored or pip-installed from source |
-| Go | `clients/go/zmr/client.go` | Normal Go package inside a module |
+| Go | `clients/go/zmr/client.go` | Normal Go package inside a module, including `DiscoverTrace` and `ValidateScenario` helpers |
 | Rust | `clients/rust/src/lib.rs` | Cargo library crate convention |
 | Swift | `clients/swift/Sources/ZMRClient/ZMRClient.swift` | SwiftPM package for macOS host-side tools |
 | Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt` | Gradle/Kotlin source package for JVM host-side tools |

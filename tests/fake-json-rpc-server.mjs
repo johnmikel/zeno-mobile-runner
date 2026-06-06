@@ -165,6 +165,7 @@ rl.on("line", (line) => {
       appId: request.params?.appId ?? "com.example.mobiletest",
       selectorCount: 1,
       stepCount: 4,
+      replay: { enabled: Boolean(request.params?.includeActions), eventCount: 2, stepCount: request.params?.includeActions ? 1 : 0, skippedEventCount: request.params?.includeActions ? 1 : 0 },
       warnings: ["draft requires human review before commit"],
       validated: Boolean(request.params?.validate),
       validation: request.params?.validate ? { ok: true, path: request.params?.out ?? ".zmr/discovered/client.json", name: request.params?.name ?? "Client discovery", appId: request.params?.appId ?? "com.example.mobiletest", stepCount: 4 } : null,

@@ -165,6 +165,27 @@ func TestClientDrivesFakeSession(t *testing.T) {
 	if events.NextSeq != 2 || len(events.Events) == 0 || events.Events[0]["kind"] != "rpc.request" {
 		t.Fatalf("unexpected events: %+v", events)
 	}
+
+	discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-client.json", TraceDiscoverOptions{
+		IncludeActions: true,
+		Validate:       true,
+		Force:          true,
+		Name:           "go client discovery",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !discovered.OK || discovered.Mode != "discover" || discovered.Out != ".zmr/discovered/go-client.json" || discovered.Replay.StepCount == 0 || !discovered.Validated || discovered.Validation == nil || !discovered.Validation.OK {
+		t.Fatalf("unexpected discovery result: %+v", discovered)
+	}
+
+	validation, err := client.ValidateScenario(ctx, ".zmr/discovered/go-client.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validation.OK || validation.StepCount == 0 {
+		t.Fatalf("unexpected validation result: %+v", validation)
+	}
 }
 
 func TestClientReturnsRPCError(t *testing.T) {

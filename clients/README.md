@@ -83,6 +83,8 @@ go run ./clients/go/examples/fake-session \
 
 ```go
 client, err := zmr.Start(ctx, "zmr", "serve", "--transport", "stdio", "--config", ".zmr/config.json")
+discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-agent.json", zmr.TraceDiscoverOptions{IncludeActions: true, Validate: true, Force: true})
+validation, err := client.ValidateScenario(ctx, discovered.Out)
 ```
 
 ## Rust

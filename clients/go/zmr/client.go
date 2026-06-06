@@ -141,6 +141,55 @@ type TraceExport struct {
 	OmitScreenshots bool   `json:"omitScreenshots"`
 }
 
+type ValidationResult struct {
+	OK           bool     `json:"ok"`
+	Path         string   `json:"path"`
+	Name         string   `json:"name,omitempty"`
+	AppID        string   `json:"appId,omitempty"`
+	StepCount    int      `json:"stepCount,omitempty"`
+	ErrorCode    string   `json:"errorCode,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	FieldPath    string   `json:"fieldPath,omitempty"`
+	Line         int      `json:"line,omitempty"`
+	Column       int      `json:"column,omitempty"`
+	NextCommands []string `json:"nextCommands,omitempty"`
+}
+
+type ReplaySummary struct {
+	Enabled           bool `json:"enabled"`
+	EventCount        int  `json:"eventCount"`
+	StepCount         int  `json:"stepCount"`
+	SkippedEventCount int  `json:"skippedEventCount"`
+}
+
+type TraceDiscoverOptions struct {
+	IncludeActions bool
+	Validate       bool
+	Force          bool
+	Name           string
+	AppID          string
+}
+
+type TraceDiscover struct {
+	OK              bool              `json:"ok"`
+	Mode            string            `json:"mode"`
+	SchemaVersion   int               `json:"schemaVersion"`
+	RunnerVersion   string            `json:"runnerVersion"`
+	ProtocolVersion string            `json:"protocolVersion"`
+	Out             string            `json:"out"`
+	TraceDir        string            `json:"traceDir"`
+	SourceSnapshot  string            `json:"sourceSnapshot"`
+	Name            string            `json:"name"`
+	AppID           string            `json:"appId,omitempty"`
+	SelectorCount   int               `json:"selectorCount"`
+	StepCount       int               `json:"stepCount"`
+	Replay          ReplaySummary     `json:"replay"`
+	Warnings        []string          `json:"warnings"`
+	Validated       bool              `json:"validated"`
+	Validation      *ValidationResult `json:"validation"`
+	NextCommands    []string          `json:"nextCommands"`
+}
+
 func Start(ctx context.Context, command string, args ...string) (*Client, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	stdin, err := cmd.StdinPipe()
@@ -415,6 +464,12 @@ func (c *Client) AssertHealthy(ctx context.Context, timeoutMS int64) (bool, erro
 	return out, err
 }
 
+func (c *Client) ValidateScenario(ctx context.Context, path string) (ValidationResult, error) {
+	var out ValidationResult
+	err := c.Request(ctx, "scenario.validate", map[string]interface{}{"path": path}, &out)
+	return out, err
+}
+
 func (c *Client) ExportTrace(ctx context.Context, outPath string, redact bool, omitScreenshots bool) (TraceExport, error) {
 	var out TraceExport
 	err := c.Request(ctx, "trace.export", map[string]interface{}{"out": outPath, "redact": redact, "omitScreenshots": omitScreenshots}, &out)
@@ -428,5 +483,27 @@ func (c *Client) TraceEvents(ctx context.Context, afterSeq int64, limit int64) (
 		params["limit"] = limit
 	}
 	err := c.Request(ctx, "trace.events", params, &out)
+	return out, err
+}
+
+func (c *Client) DiscoverTrace(ctx context.Context, outPath string, options TraceDiscoverOptions) (TraceDiscover, error) {
+	var out TraceDiscover
+	params := map[string]interface{}{"out": outPath}
+	if options.IncludeActions {
+		params["includeActions"] = true
+	}
+	if options.Validate {
+		params["validate"] = true
+	}
+	if options.Force {
+		params["force"] = true
+	}
+	if options.Name != "" {
+		params["name"] = options.Name
+	}
+	if options.AppID != "" {
+		params["appId"] = options.AppID
+	}
+	err := c.Request(ctx, "trace.discover", params, &out)
 	return out, err
 }

@@ -163,6 +163,7 @@ require_grep 'generated app report and reliability scripts to write `junit.xml`'
 require_grep 'beside `report.html` by default' CHANGELOG.md
 require_grep 'Android and iOS pilot wrappers to emit `junit.xml`' CHANGELOG.md
 require_grep 'release workflows to retain generated run evidence' CHANGELOG.md
+require_grep 'Go `DiscoverTrace()` and `ValidateScenario()` helpers' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -203,6 +204,8 @@ require_grep '--include-actions' docs/agent-discovery.md
 require_grep 'Treat `zmr draft` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr explore --goal' docs/agent-discovery.md
 require_grep 'human review before committing generated tests' docs/agent-discovery.md
+require_grep 'DiscoverTrace' docs/clients.md
+require_grep 'ValidateScenario' docs/clients.md
 
 require_grep 'ZMR scenarios are JSON' docs/scenario-authoring.md
 require_grep 'resource ids or accessibility identifiers' docs/scenario-authoring.md

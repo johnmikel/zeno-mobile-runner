@@ -12,6 +12,12 @@ defer client.Close()
 
 snapshot, err := client.Snapshot(ctx)
 healthy, err := client.AssertHealthy(ctx, 1000)
+discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-agent.json", zmr.TraceDiscoverOptions{
+    IncludeActions: true,
+    Validate: true,
+    Force: true,
+})
+validation, err := client.ValidateScenario(ctx, discovered.Out)
 ```
 
 Run the fake-session example from the repository root:

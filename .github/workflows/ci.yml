@@ -40,7 +40,7 @@ jobs:
         run: ./scripts/ci-gate.sh
       - name: Upload CI artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: zmr-ci-artifacts
           path: |

@@ -46,6 +46,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   GitHub Actions artifacts: CI keeps traces, coverage output, and the built
   `zmr` binary for 14 days, while releases keep the generated `dist/` bundle
   for 30 days.
+- Updated artifact upload workflow steps to a Node 24-compatible
+  `actions/upload-artifact` major so CI stays ahead of GitHub Actions runtime
+  deprecations.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

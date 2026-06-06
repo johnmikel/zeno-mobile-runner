@@ -54,8 +54,9 @@ zig build-exe src/main.zig -target aarch64-macos.15.0 -O ReleaseSafe -femit-bin=
 ./zig-out/bin/zmr version
 ```
 
-On macOS hosts where Zig can infer the target, `zig build test` and `zig build`
-are also valid.
+On hosts where Zig can infer the target and locate the system SDK, `zig build`
+can also build the binary. The explicit target form above is the supported
+verification path used by CI and release gates.
 
 ## First Run Without A Device
 

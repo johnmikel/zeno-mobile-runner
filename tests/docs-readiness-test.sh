@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OLD_PACKAGE_NAME="zig""-mobile-runner"
+OLD_PRODUCT_NAME="Zig"" Mobile Runner"
 
 require_file() {
   test -f "$ROOT/$1"
@@ -158,8 +160,8 @@ require_not_grep 'Before publishing' README.md
 require_not_grep 'verify-release-artifacts.sh' README.md
 require_not_grep 'market-claim' README.md
 require_not_grep 'competitive claim' README.md
-require_not_grep 'zig-mobile-runner' README.md
-require_not_grep 'Zig Mobile Runner' README.md
+require_not_grep "$OLD_PACKAGE_NAME" README.md
+require_not_grep "$OLD_PRODUCT_NAME" README.md
 
 require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
@@ -345,7 +347,7 @@ require_grep 'zmr-device-matrix' docs/install.md
 require_grep 'zmr-install-ios-shim' docs/install.md
 require_grep 'docs/npm.md' docs/install.md
 require_grep 'npm install --save-dev zeno-mobile-runner' docs/client-installation.md
-require_not_grep 'zig-mobile-runner' docs/client-installation.md
+require_not_grep "$OLD_PACKAGE_NAME" docs/client-installation.md
 require_not_grep 'Today, install the GitHub release tarball' docs/client-installation.md
 require_not_grep 'After the npm registry package is published' docs/client-installation.md
 
@@ -417,4 +419,5 @@ require_not_grep 'maintainer release' docs/npm.md
 require_not_grep 'source checkout, not the app-install npm package' docs/npm.md
 require_not_grep 'pending publish' docs/install.md
 require_not_grep 'Today, install' docs/install.md
-require_not_grep 'zig-mobile-runner' docs/install.md
+require_not_grep "$OLD_PACKAGE_NAME" docs/install.md
+require_not_grep 'zig build test' docs/install.md

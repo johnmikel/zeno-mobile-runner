@@ -29,6 +29,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   helpers for in-band scenario validation.
 - Added Go `DiscoverTrace()` and `ValidateScenario()` helpers so Go agents can
   use the same trace-to-test and validation loop without raw JSON-RPC calls.
+- Added Rust `discover_trace()` and `validate_scenario()` helpers so Rust
+  agents and host-side harnesses can use the same trace-to-test and validation
+  loop without raw JSON-RPC calls.
 - Added a trace-backed discovery handoff to traced `zmr run --json`
   `nextCommands`, so agents can generate a reviewable replay scenario directly
   from a run summary.

@@ -218,7 +218,9 @@ same JSON-RPC protocol.
 
 TypeScript and Python are the most common starting points for app teams and
 agent harnesses. Go, Rust, Swift, and Kotlin clients are reference integrations
-for teams that want to embed the protocol from those ecosystems.
+for teams that want to embed the protocol from those ecosystems. Go and Rust
+also include typed trace discovery and scenario validation helpers for
+host-side agent loops.
 
 | Language | Entry point | Example |
 | --- | --- | --- |

@@ -113,6 +113,8 @@ require_grep 'discovery.replay' README.md
 require_grep '## Optional Protocol Clients' README.md
 require_grep 'TypeScript and Python are the most common starting points' README.md
 require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' README.md
+require_grep 'Go and Rust' README.md
+require_grep 'scenario validation helpers for' README.md
 require_grep 'physical iOS devices use `devicectl`' README.md
 require_grep 'iOS physical device' README.md
 require_grep 'Current release: `0.1.7` developer preview' README.md
@@ -164,6 +166,7 @@ require_grep 'beside `report.html` by default' CHANGELOG.md
 require_grep 'Android and iOS pilot wrappers to emit `junit.xml`' CHANGELOG.md
 require_grep 'release workflows to retain generated run evidence' CHANGELOG.md
 require_grep 'Go `DiscoverTrace()` and `ValidateScenario()` helpers' CHANGELOG.md
+require_grep 'Rust `discover_trace()` and `validate_scenario()` helpers' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -206,6 +209,8 @@ require_grep 'zmr explore --goal' docs/agent-discovery.md
 require_grep 'human review before committing generated tests' docs/agent-discovery.md
 require_grep 'DiscoverTrace' docs/clients.md
 require_grep 'ValidateScenario' docs/clients.md
+require_grep 'discover_trace' docs/clients.md
+require_grep 'validate_scenario' docs/clients.md
 
 require_grep 'ZMR scenarios are JSON' docs/scenario-authoring.md
 require_grep 'resource ids or accessibility identifiers' docs/scenario-authoring.md

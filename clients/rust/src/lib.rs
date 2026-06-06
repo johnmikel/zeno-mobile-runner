@@ -204,6 +204,84 @@ pub struct TraceEvents {
     pub events: Vec<Value>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ValidationResult {
+    pub ok: bool,
+    pub path: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, rename = "appId")]
+    pub app_id: Option<String>,
+    #[serde(default, rename = "stepCount")]
+    pub step_count: i64,
+    #[serde(default, rename = "errorCode")]
+    pub error_code: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default, rename = "fieldPath")]
+    pub field_path: Option<String>,
+    #[serde(default)]
+    pub line: Option<i64>,
+    #[serde(default)]
+    pub column: Option<i64>,
+    #[serde(default, rename = "nextCommands")]
+    pub next_commands: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReplaySummary {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "eventCount")]
+    pub event_count: i64,
+    #[serde(default, rename = "stepCount")]
+    pub step_count: i64,
+    #[serde(default, rename = "skippedEventCount")]
+    pub skipped_event_count: i64,
+}
+
+#[derive(Debug, Default)]
+pub struct TraceDiscoverOptions {
+    pub include_actions: bool,
+    pub validate: bool,
+    pub force: bool,
+    pub name: Option<String>,
+    pub app_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TraceDiscover {
+    pub ok: bool,
+    pub mode: String,
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: i64,
+    #[serde(rename = "runnerVersion")]
+    pub runner_version: String,
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
+    pub out: String,
+    #[serde(rename = "traceDir")]
+    pub trace_dir: String,
+    #[serde(rename = "sourceSnapshot")]
+    pub source_snapshot: String,
+    pub name: String,
+    #[serde(default, rename = "appId")]
+    pub app_id: Option<String>,
+    #[serde(rename = "selectorCount")]
+    pub selector_count: i64,
+    #[serde(rename = "stepCount")]
+    pub step_count: i64,
+    pub replay: ReplaySummary,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub validated: bool,
+    #[serde(default)]
+    pub validation: Option<ValidationResult>,
+    #[serde(default, rename = "nextCommands")]
+    pub next_commands: Vec<String>,
+}
+
 impl Client {
     pub fn start<I, S>(command: &str, args: I) -> Result<Self, Error>
     where
@@ -420,6 +498,10 @@ impl Client {
         self.request("assert.healthy", params)
     }
 
+    pub fn validate_scenario(&mut self, path: &str) -> Result<ValidationResult, Error> {
+        self.request("scenario.validate", json!({ "path": path }))
+    }
+
     pub fn export_trace(
         &mut self,
         out: &str,
@@ -442,6 +524,30 @@ impl Client {
             params["limit"] = json!(limit);
         }
         self.request("trace.events", params)
+    }
+
+    pub fn discover_trace(
+        &mut self,
+        out: &str,
+        options: TraceDiscoverOptions,
+    ) -> Result<TraceDiscover, Error> {
+        let mut params = json!({ "out": out });
+        if options.include_actions {
+            params["includeActions"] = json!(true);
+        }
+        if options.validate {
+            params["validate"] = json!(true);
+        }
+        if options.force {
+            params["force"] = json!(true);
+        }
+        if let Some(name) = options.name {
+            params["name"] = json!(name);
+        }
+        if let Some(app_id) = options.app_id {
+            params["appId"] = json!(app_id);
+        }
+        self.request("trace.discover", params)
     }
 }
 

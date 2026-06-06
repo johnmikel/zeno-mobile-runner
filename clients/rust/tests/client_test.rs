@@ -1,6 +1,6 @@
 use serde_json::json;
 use std::path::PathBuf;
-use zmr_client::{Client, Error};
+use zmr_client::{Client, Error, TraceDiscoverOptions};
 
 fn fake_server_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -101,6 +101,35 @@ fn client_drives_fake_session() {
     let events = client.trace_events(0, Some(10)).unwrap();
     assert_eq!(events.next_seq, 2);
     assert_eq!(events.events[0]["kind"], "rpc.request");
+
+    let discovered = client
+        .discover_trace(
+            ".zmr/discovered/rust-client.json",
+            TraceDiscoverOptions {
+                include_actions: true,
+                validate: true,
+                force: true,
+                name: Some("Rust discovery".to_string()),
+                app_id: Some("com.example.rust".to_string()),
+            },
+        )
+        .unwrap();
+    assert!(discovered.ok);
+    assert_eq!(discovered.mode, "discover");
+    assert_eq!(discovered.out, ".zmr/discovered/rust-client.json");
+    assert_eq!(discovered.app_id.as_deref(), Some("com.example.rust"));
+    assert_eq!(discovered.replay.step_count, 1);
+    assert!(discovered.validated);
+    assert!(discovered.validation.as_ref().unwrap().ok);
+    assert!(discovered.next_commands[0].contains("zmr validate --json"));
+
+    let validation = client
+        .validate_scenario(".zmr/discovered/rust-client.json")
+        .unwrap();
+    assert!(validation.ok);
+    assert_eq!(validation.path, ".zmr/discovered/rust-client.json");
+    assert_eq!(validation.step_count, 4);
+    assert!(validation.next_commands[0].contains("zmr run"));
 }
 
 #[test]

@@ -20,8 +20,9 @@ The TypeScript and Python clients expose the broadest app-facing control
 surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
 scenario validation, trace event polling, trace discovery, and trace export.
-The Go, Rust, Swift, and Kotlin clients show the same protocol shape in other
-host languages and are useful starting points for custom integration work.
+The Go and Rust clients also include typed scenario validation and trace
+discovery helpers. Swift and Kotlin remain smaller reference clients for teams
+that want to embed the protocol shape in those host-side ecosystems.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.
@@ -113,6 +114,13 @@ cargo run --manifest-path clients/rust/Cargo.toml --example fake_session -- \
 ```rust
 let mut client = zmr_client::Client::start("zmr", ["serve", "--transport", "stdio", "--config", ".zmr/config.json"])?;
 let snapshot = client.snapshot()?;
+let discovered = client.discover_trace(".zmr/discovered/rust-agent.json", zmr_client::TraceDiscoverOptions {
+    include_actions: true,
+    validate: true,
+    force: true,
+    ..Default::default()
+})?;
+let validation = client.validate_scenario(&discovered.out)?;
 ```
 
 ## Swift

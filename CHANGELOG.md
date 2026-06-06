@@ -17,6 +17,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   trace-backed discovery sees full simple action sessions from MCP agents.
 - Added MCP `trace_events` cursor metadata so MCP agents get `afterSeq`,
   `nextSeq`, and `latestSeq` parity with JSON-RPC trace polling.
+- Added JSON-RPC `trace.explain` and MCP `trace_explain` so live agents can
+  get the same failure summary, diagnostics, and next commands as
+  `zmr explain --json` without leaving the session.
 - Added trace discovery auditing: `trace.discover` records a `trace.discover` event
   for JSON-RPC and MCP agent sessions so generated scenario candidates are
   visible in the trace.

@@ -2,6 +2,7 @@ const std = @import("std");
 const bundle = @import("bundle.zig");
 const cli_discover = @import("cli_discover.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
+const report = @import("report.zig");
 const runner_events = @import("runner_events.zig");
 const trace = @import("trace.zig");
 
@@ -92,6 +93,25 @@ pub fn writeExportToolResult(
     try trace.writeJsonString(payload_writer, out_path);
     try payload_writer.print(",\"redacted\":{},\"omitScreenshots\":{}}}", .{ redact, omit_screenshots });
     try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+}
+
+pub fn writeExplainToolResult(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    id: ?std.json.Value,
+    live_trace: ?*trace.TraceWriter,
+) !void {
+    const tw = live_trace orelse {
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"traceDir\":null,\"message\":\"start zmr mcp with --trace-dir to enable live trace explanation\"}");
+        return;
+    };
+
+    try tw.flushManifest();
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(allocator);
+    try report.writeTraceExplanationJson(allocator, tw.root_dir, payload.writer(allocator));
+    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    try tw.recordEvent("trace.explain", "{\"status\":\"ok\"}");
 }
 
 pub fn writeDiscoverToolResult(

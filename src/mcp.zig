@@ -339,6 +339,11 @@ fn callTool(
         return;
     }
 
+    if (std.mem.eql(u8, tool_name, "trace_explain")) {
+        try mcp_trace.writeExplainToolResult(allocator, writer, id, live_trace);
+        return;
+    }
+
     if (std.mem.eql(u8, tool_name, "trace_export")) {
         const out_path = try requiredParamString(arguments, "out");
         const omit_screenshots = try optionalParamBool(arguments, "omitScreenshots", false);

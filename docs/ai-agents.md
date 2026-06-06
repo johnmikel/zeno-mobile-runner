@@ -1,7 +1,8 @@
 # AI Agent Guide
 
 ZMR is built for external agents. The runner provides device state, typed
-actions, waits, assertions, and trace export; the agent decides the next step.
+actions, waits, assertions, trace explanation, and trace export; the agent
+decides the next step.
 
 ## Agent Setup Loop
 
@@ -40,11 +41,13 @@ Recommended flow:
 4. Choose one typed action or assertion.
 5. Let ZMR settle, then observe again.
 6. Poll `trace.events` during long runs.
-7. Call `trace.discover` when you want a reviewable scenario candidate from
+7. Call `trace.explain` when you need the active trace status, failure
+   diagnostic, or next commands.
+8. Call `trace.discover` when you want a reviewable scenario candidate from
    the active trace.
-8. Call `scenario.validate` after editing generated scenario files.
-9. Call `trace.export` with `redact: true` before sharing artifacts.
-10. Call `session.close`.
+9. Call `scenario.validate` after editing generated scenario files.
+10. Call `trace.export` with `redact: true` before sharing artifacts.
+11. Call `session.close`.
 
 Do not parse screenshots or terminal text when the same fact is available from
 snapshot nodes, action results, CLI JSON, or trace events.
@@ -83,7 +86,7 @@ The MCP server exposes mobile-specific tools:
 - `wait_visible`, `wait_not_visible`, and `wait_any`
 - `assert_visible`, `assert_not_visible`, and `assert_healthy`
 - `scenario_validate`
-- `trace_events`, `trace_discover`, and `trace_export`
+- `trace_events`, `trace_explain`, `trace_discover`, and `trace_export`
 
 Prefer `semantic_snapshot` for action planning. It avoids forcing an agent to
 infer intent from platform-specific Android/UI Automator or XCTest class names.
@@ -93,6 +96,7 @@ infer intent from platform-specific Android/UI Automator or XCTest class names.
 Agents can use ZMR to discover flows and draft scenarios by looping over
 `observe.semanticSnapshot`, one typed action, trace events, and scenario
 validation. After a session has produced trace artifacts, call JSON-RPC
+`trace.explain` or MCP `trace_explain` for in-band triage, then call JSON-RPC
 `trace.discover` or MCP `trace_discover` to create and validate a reviewable
 starting point without leaving the live agent session. Use JSON-RPC
 `scenario.validate` or MCP `scenario_validate` after edits. The CLI command is

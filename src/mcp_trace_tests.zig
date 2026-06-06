@@ -71,6 +71,43 @@ test "mcp trace export tool reports no-trace fallback and redacted export payloa
     try std.testing.expect(std.mem.indexOf(u8, exported_text, "\"omitScreenshots\":true") != null);
 }
 
+test "mcp trace explain tool summarizes active trace" {
+    const allocator = std.testing.allocator;
+    const trace_dir = "zig-cache-test-mcp-trace-explain";
+    std.fs.cwd().deleteTree(trace_dir) catch {};
+    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+
+    var no_trace = std.ArrayList(u8).empty;
+    defer no_trace.deinit(allocator);
+    try mcp_trace.writeExplainToolResult(allocator, no_trace.writer(allocator), .{ .integer = 8 }, null);
+    const no_trace_text = try toolText(allocator, no_trace.items);
+    defer allocator.free(no_trace_text);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
+
+    var tw = try trace.TraceWriter.init(allocator, trace_dir);
+    defer tw.deinit();
+    try tw.startManifest("mcp trace explain", "com.example.mobiletest");
+    try tw.recordEvent("wait.visible", "{\"status\":\"timeout\",\"snapshotId\":\"snapshot-9\",\"activePackage\":\"com.example.mobiletest\",\"visibleTexts\":[\"Login\",\"Retry\"]}");
+    try tw.recordEvent("scenario.end", "{\"value\":\"mcp trace explain\",\"status\":\"failed\",\"failedStepIndex\":4,\"error\":\"WaitTimeout\"}");
+    try tw.finishManifest(.{ .status = "failed", .failed_step_index = 4, .error_name = "WaitTimeout" });
+
+    var explained = std.ArrayList(u8).empty;
+    defer explained.deinit(allocator);
+    try mcp_trace.writeExplainToolResult(allocator, explained.writer(allocator), .{ .integer = 9 }, &tw);
+
+    try std.testing.expect(std.mem.indexOf(u8, explained.items, "\"id\":9") != null);
+    const explained_text = try toolText(allocator, explained.items);
+    defer allocator.free(explained_text);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"traceDir\":\"zig-cache-test-mcp-trace-explain\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"scenario\":\"mcp trace explain\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"status\":\"failed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"failedStepIndex\":4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"error\":\"WaitTimeout\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"diagnostic\":{\"kind\":\"wait.visible\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"visibleTexts\":[\"Login\",\"Retry\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"nextCommands\"") != null);
+}
+
 test "mcp trace discover tool writes validated scenario text payload" {
     const allocator = std.testing.allocator;
     const trace_dir = "zig-cache-test-mcp-trace-discover";

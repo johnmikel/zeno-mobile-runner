@@ -214,7 +214,7 @@ and method inventory for JSON-RPC clients. The result object is covered by
 iOS simulator, or physical iOS workflows are available.
 
 ```json
-{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.discover","trace.export"]}
+{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.discover","trace.explain","trace.export"]}
 ```
 
 ## Doctor Output Contract
@@ -379,6 +379,7 @@ zmr mcp --config .zmr/config.json --trace-dir traces/mcp-agent-session
 - `scenario.validate`
 - `trace.events`
 - `trace.discover`
+- `trace.explain`
 - `trace.export`
 
 `runner.capabilities` returns both legacy `protocolVersion` and a structured `protocol` object. Clients should treat `protocol.version` as the compatibility key for method and payload shape, and should reject servers older than `protocol.minimumCompatibleVersion` unless they intentionally support that older shape. Before `v1.0.0`, `protocol.stability` is `dev-preview` and breaking changes require both a protocol version bump and changelog entry.
@@ -418,7 +419,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.discover","trace.export"]}}
+{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.discover","trace.explain","trace.export"]}}
 ```
 
 ### `trace.events`
@@ -443,6 +444,28 @@ Response:
 `limit` defaults to `100` and is capped at `1000`. `latestSeq` is the current
 server-side event counter; `nextSeq` is the last returned event and can be
 passed back as `afterSeq`.
+
+### `trace.explain`
+
+Summarizes the active live trace with the same JSON shape as
+`zmr explain <trace-dir> --json`. Use it when an agent needs the current trace
+status, failure diagnostic, last event, and next commands without leaving the
+JSON-RPC session.
+
+Request:
+
+```json
+{"jsonrpc":"2.0","id":26,"method":"trace.explain","params":{}}
+```
+
+Response:
+
+```json
+{"jsonrpc":"2.0","id":26,"result":{"ok":true,"traceDir":"traces/agent-session","scenario":"json-rpc session","status":"failed","appId":"com.example.mobiletest","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","diagnostic":{"kind":"wait.visible","status":"timeout","snapshotId":"snapshot-7","visibleTexts":["Sign in","Try again"]},"lastEvent":"scenario.end","nextCommands":["zmr report traces/agent-session --out traces/agent-session/report.html --junit traces/agent-session/junit.xml","zmr export traces/agent-session --out traces/agent-session.zmrtrace --redact"]}}
+```
+
+Without `--trace-dir`, it returns a result with `traceDir: null` and a message
+explaining how to enable live trace explanation.
 
 ### `scenario.validate`
 
@@ -548,10 +571,10 @@ Core tools are `snapshot`, `semantic_snapshot`, `install_app`, `launch_app`,
 `stop_app`, `clear_state`, `tap`, `type`, `erase_text`, `hide_keyboard`,
 `swipe`, `press_back`, `open_link`, `wait_visible`, `wait_not_visible`,
 `wait_any`, `scroll_until_visible`, `assert_visible`, `assert_not_visible`,
-`assert_healthy`, `scenario_validate`, `trace_events`, `trace_discover`, and
-`trace_export`. The MCP protocol handshake is intentionally standard, while
-the tool names and payloads are versioned with the ZMR runner and public
-schemas.
+`assert_healthy`, `scenario_validate`, `trace_events`, `trace_explain`,
+`trace_discover`, and `trace_export`. The MCP protocol handshake is
+intentionally standard, while the tool names and payloads are versioned with
+the ZMR runner and public schemas.
 
 ### `ui.tap`
 
@@ -587,6 +610,12 @@ Request:
 `trace_discover` mirrors JSON-RPC `trace.discover` for MCP agents. Required
 argument: `out`. Optional arguments: `includeActions`, `validate`, `force`,
 `name`, and `appId`. The tool response text is the same discover JSON payload.
+
+### MCP `trace_explain`
+
+`trace_explain` mirrors JSON-RPC `trace.explain` for MCP agents. It takes no
+arguments. The tool response text is the same explanation JSON payload returned
+by `zmr explain --json`.
 
 ### MCP `scenario_validate`
 

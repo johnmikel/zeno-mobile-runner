@@ -1,6 +1,7 @@
 const std = @import("std");
 const cli_discover = @import("cli_discover.zig");
 const protocol = @import("json_rpc_protocol.zig");
+const report = @import("report.zig");
 const runner_events = @import("runner_events.zig");
 const trace = @import("trace.zig");
 
@@ -115,4 +116,23 @@ pub fn writeDiscoverResult(
     defer payload.deinit(allocator);
     try cli_discover.writeJson(payload.writer(allocator), discovered.summary, discovered.validation);
     try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+}
+
+pub fn writeExplainResult(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    id: ?std.json.Value,
+    live_trace: ?*trace.TraceWriter,
+) !void {
+    const tw = live_trace orelse {
+        try protocol.writeResultRaw(writer, id, "{\"traceDir\":null,\"message\":\"start zmr serve with --trace-dir to enable live RPC trace explanation\"}");
+        return;
+    };
+
+    try tw.flushManifest();
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(allocator);
+    try report.writeTraceExplanationJson(allocator, tw.root_dir, payload.writer(allocator));
+    try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    try tw.recordEvent("trace.explain", "{\"status\":\"ok\"}");
 }

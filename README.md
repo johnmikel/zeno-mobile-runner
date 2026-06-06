@@ -53,8 +53,8 @@ See [docs/frameworks.md](docs/frameworks.md) and
 ## Why ZMR
 
 - **Agent-native protocol:** structured snapshots, semantic mobile trees,
-  actions, waits, assertions, live trace events, and redacted trace export over
-  JSON-RPC or MCP.
+  actions, waits, assertions, live trace events, trace explanation, and
+  redacted trace export over JSON-RPC or MCP.
 - **Trace-first debugging:** every run can produce screenshots, UI trees, logs,
   timings, action inputs, assertion results, and HTML/JUnit reports.
 - **Fast local core:** Zig owns orchestration, subprocess control, selectors,
@@ -210,7 +210,7 @@ The MCP server exposes mobile-specific tools such as `semantic_snapshot`,
 `erase_text`, `hide_keyboard`, `swipe`, `press_back`, `open_link`,
 `wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible`,
 `assert_visible`, `assert_not_visible`, `assert_healthy`, `scenario_validate`,
-`trace_events`, `trace_discover`, and `trace_export`.
+`trace_events`, `trace_explain`, `trace_discover`, and `trace_export`.
 
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop

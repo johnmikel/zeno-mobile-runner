@@ -350,6 +350,10 @@ fn dispatchTraceMethod(
         );
         return true;
     }
+    if (std.mem.eql(u8, method, "trace.explain")) {
+        try rpc_trace.writeExplainResult(allocator, writer, id, live_trace);
+        return true;
+    }
     if (std.mem.eql(u8, method, "trace.export")) {
         const tw = live_trace orelse {
             try protocol.writeTraceDisabledResult(writer, id);

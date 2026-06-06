@@ -31,6 +31,7 @@ cat <<'JSONL' | ./zig-out/bin/zmr mcp --device fake-android-1 --app-id com.examp
 {"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"scenario_validate","arguments":{"path":"examples/demo-fake.json"}}}
 {"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"stop_app","arguments":{}}}
 {"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"trace_events","arguments":{"afterSeq":0,"limit":100}}}
+{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"trace_explain","arguments":{}}}
 JSONL
 
 python3 - "$tmp" <<'PY'
@@ -39,13 +40,13 @@ import sys
 
 path = sys.argv[1]
 rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
-assert len(rows) == 22, rows
+assert len(rows) == 23, rows
 
 assert rows[0]["result"]["protocolVersion"] == "2024-11-05"
 assert rows[0]["result"]["serverInfo"]["name"] == "zmr"
 
 tool_names = [tool["name"] for tool in rows[1]["result"]["tools"]]
-for expected in ["snapshot", "semantic_snapshot", "install_app", "launch_app", "stop_app", "clear_state", "tap", "type", "press_back", "open_link", "swipe", "wait_visible", "wait_not_visible", "wait_any", "hide_keyboard", "erase_text", "scroll_until_visible", "assert_visible", "assert_not_visible", "assert_healthy", "scenario_validate", "trace_events", "trace_discover", "trace_export"]:
+for expected in ["snapshot", "semantic_snapshot", "install_app", "launch_app", "stop_app", "clear_state", "tap", "type", "press_back", "open_link", "swipe", "wait_visible", "wait_not_visible", "wait_any", "hide_keyboard", "erase_text", "scroll_until_visible", "assert_visible", "assert_not_visible", "assert_healthy", "scenario_validate", "trace_events", "trace_explain", "trace_discover", "trace_export"]:
     assert expected in tool_names, expected
 
 for index in [2, 3, 4, 5, 6, 7]:
@@ -102,4 +103,11 @@ events = trace_result["events"]
 assert any(event["kind"] == "app.openLink" and event["payload"]["url"] == "exampleapp://mcp-trace" for event in events)
 assert any(event["kind"] == "ui.type" and event["payload"]["text"] == "mcp unscoped text" for event in events)
 assert any(event["kind"] == "ui.pressBack" and event["payload"]["status"] == "ok" for event in events)
+
+explain_text = rows[22]["result"]["content"][0]["text"]
+explain_result = json.loads(explain_text)
+assert explain_result["traceDir"] == trace_result["traceDir"]
+assert explain_result["scenario"] == "mcp session"
+assert explain_result["status"] == "running"
+assert "nextCommands" in explain_result
 PY

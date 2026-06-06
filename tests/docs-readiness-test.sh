@@ -197,6 +197,7 @@ require_grep 'MCP `erase_text`, `hide_keyboard`, `wait_not_visible`, `wait_any`,
 require_grep 'MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and' CHANGELOG.md
 require_grep 'MCP `open_link`, unscoped `type`, and `press_back` trace events' CHANGELOG.md
 require_grep 'MCP `trace_events` cursor metadata' CHANGELOG.md
+require_grep 'JSON-RPC `trace.explain` and MCP `trace_explain`' CHANGELOG.md
 require_grep '`trace.discover` records a `trace.discover` event' CHANGELOG.md
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
 require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
@@ -281,6 +282,8 @@ require_grep 'assert_not_visible' docs/ai-agents.md
 require_grep 'assert_healthy' docs/ai-agents.md
 require_grep 'scenario.validate' docs/ai-agents.md
 require_grep 'scenario_validate' docs/ai-agents.md
+require_grep 'trace.explain' docs/ai-agents.md
+require_grep 'trace_explain' docs/ai-agents.md
 require_grep 'trace.discover' docs/ai-agents.md
 require_grep 'trace_discover' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md

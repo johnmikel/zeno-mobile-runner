@@ -54,6 +54,7 @@ test "json rpc dispatches core action wait assertion and trace methods" {
     try json_rpc.dispatchLine(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"assert.notVisible\",\"params\":{\"selector\":{\"text\":\"Gone\"},\"timeoutMs\":10}}", writer);
     try json_rpc.dispatchLine(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"assert.healthy\",\"params\":{\"timeoutMs\":10}}", writer);
     try json_rpc.dispatchLine(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"trace.export\",\"params\":{}}", writer);
+    try json_rpc.dispatchLine(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"trace.explain\",\"params\":{}}", writer);
 
     try std.testing.expectEqualStrings("/tmp/app.apk", fake.installed_path.?);
     try std.testing.expect(fake.launched);
@@ -82,6 +83,8 @@ test "json rpc dispatches core action wait assertion and trace methods" {
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"text\":\"Observed\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"matchedIndex\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"traceDir\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"trace.explain\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "enable live RPC trace explanation") != null);
 }
 
 test "json rpc writes parse request method and execution errors" {

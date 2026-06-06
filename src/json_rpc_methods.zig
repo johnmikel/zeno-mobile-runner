@@ -6,6 +6,7 @@ const params_parser = @import("json_rpc_params.zig");
 const protocol = @import("json_rpc_protocol.zig");
 const rpc_trace = @import("json_rpc_trace.zig");
 const runner = @import("runner.zig");
+const runner_events = @import("runner_events.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
 const validation = @import("validation.zig");
@@ -194,14 +195,13 @@ fn dispatchUiMethod(
         return true;
     }
     if (std.mem.eql(u8, method, "ui.swipe")) {
-        try device.swipe(
-            try params_parser.requiredI32(params, "x1"),
-            try params_parser.requiredI32(params, "y1"),
-            try params_parser.requiredI32(params, "x2"),
-            try params_parser.requiredI32(params, "y2"),
-            @as(u32, @intCast(try params_parser.optionalU64(params, "durationMs", 300))),
-        );
-        if (live_trace) |tw| try tw.recordEvent("ui.swipe", "{\"status\":\"ok\"}");
+        const x1 = try params_parser.requiredI32(params, "x1");
+        const y1 = try params_parser.requiredI32(params, "y1");
+        const x2 = try params_parser.requiredI32(params, "x2");
+        const y2 = try params_parser.requiredI32(params, "y2");
+        const duration_ms = @as(u32, @intCast(try params_parser.optionalU64(params, "durationMs", 300)));
+        try device.swipe(x1, y1, x2, y2, duration_ms);
+        if (live_trace) |tw| try runner_events.recordSwipe(tw, x1, y1, x2, y2, duration_ms);
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }

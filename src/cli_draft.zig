@@ -317,6 +317,13 @@ fn replayStepJson(
     if (std.mem.eql(u8, kind, "ui.pressBack")) {
         return try ownString(allocator, owned, "{\"action\":\"pressBack\"}");
     }
+    if (std.mem.eql(u8, kind, "ui.swipe")) {
+        const x1 = optionalI32(payload, "x1") orelse return try warnMissingReplayField(allocator, owned, kind);
+        const y1 = optionalI32(payload, "y1") orelse return try warnMissingReplayField(allocator, owned, kind);
+        const x2 = optionalI32(payload, "x2") orelse return try warnMissingReplayField(allocator, owned, kind);
+        const y2 = optionalI32(payload, "y2") orelse return try warnMissingReplayField(allocator, owned, kind);
+        return try actionWithSwipe(allocator, owned, x1, y1, x2, y2, optionalUsize(payload, "durationMs"));
+    }
     if (std.mem.eql(u8, kind, "wait.visible")) {
         const selector_value = payload.get("selector") orelse return try warnMissingReplayField(allocator, owned, kind);
         if (selector_value != .object) return try warnMissingReplayField(allocator, owned, kind);
@@ -673,6 +680,24 @@ fn actionWithSelectorAndInt(
     return try ownBytes(allocator, owned, buffer.items);
 }
 
+fn actionWithSwipe(
+    allocator: std.mem.Allocator,
+    owned: *OwnedDraft,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    duration_ms: ?usize,
+) ![]const u8 {
+    var buffer = std.ArrayList(u8).empty;
+    defer buffer.deinit(allocator);
+    const writer = buffer.writer(allocator);
+    try writer.print("{{\"action\":\"swipe\",\"x1\":{d},\"y1\":{d},\"x2\":{d},\"y2\":{d}", .{ x1, y1, x2, y2 });
+    if (duration_ms) |actual| try writer.print(",\"durationMs\":{d}", .{actual});
+    try writer.writeAll("}");
+    return try ownBytes(allocator, owned, buffer.items);
+}
+
 fn warnMissingReplayField(
     allocator: std.mem.Allocator,
     owned: *OwnedDraft,
@@ -798,6 +823,14 @@ fn optionalUsize(object: std.json.ObjectMap, key: []const u8) ?usize {
     const value = object.get(key) orelse return null;
     return switch (value) {
         .integer => |actual| if (actual >= 0) @as(usize, @intCast(actual)) else null,
+        else => null,
+    };
+}
+
+fn optionalI32(object: std.json.ObjectMap, key: []const u8) ?i32 {
+    const value = object.get(key) orelse return null;
+    return switch (value) {
+        .integer => |actual| if (actual >= std.math.minInt(i32) and actual <= std.math.maxInt(i32)) @as(i32, @intCast(actual)) else null,
         else => null,
     };
 }

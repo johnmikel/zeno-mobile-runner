@@ -170,6 +170,7 @@ require_grep 'Go `DiscoverTrace()` and `ValidateScenario()` helpers' CHANGELOG.m
 require_grep 'Rust `discover_trace()` and `validate_scenario()` helpers' CHANGELOG.md
 require_grep 'Swift `discoverTrace()` and `validateScenario()` helpers' CHANGELOG.md
 require_grep 'Kotlin `discoverTrace()` and `validateScenario()` helpers' CHANGELOG.md
+require_grep 'coordinate-complete `ui.swipe` trace replay' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -203,6 +204,7 @@ require_grep 'traced run' docs/agent-discovery.md
 require_grep '`nextCommands`; traced run' docs/agent-discovery.md
 require_grep '--discover-out .zmr/discovered/replay-smoke.json' docs/agent-discovery.md
 require_grep '`replay` coverage metadata' docs/agent-discovery.md
+require_grep 'coordinate-complete swipes' docs/agent-discovery.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md

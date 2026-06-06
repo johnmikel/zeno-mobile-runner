@@ -111,6 +111,7 @@ pub fn executeStep(
         },
         .swipe => |swipe| {
             try device.swipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.duration_ms);
+            if (writer) |tw| try runner_events.recordSwipe(tw, swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.duration_ms);
             try settleDevice(device, options);
         },
         .wait_visible => |wait| {

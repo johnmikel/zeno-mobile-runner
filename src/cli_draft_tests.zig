@@ -153,7 +153,7 @@ test "draft from trace can replay successful supported actions" {
         \\{"seq":5,"timestampMs":5,"kind":"ui.tap","payload":{"status":"ok","selector":{"text":"Email"}}}
         \\{"seq":6,"timestampMs":6,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Email"},"text":"agent@example.com"}}
         \\{"seq":7,"timestampMs":7,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Password"},"text":"[REDACTED:secret]"}}
-        \\{"seq":8,"timestampMs":8,"kind":"ui.swipe","payload":{"status":"ok"}}
+        \\{"seq":8,"timestampMs":8,"kind":"ui.swipe","payload":{"status":"ok","x1":10,"y1":20,"x2":10,"y2":200,"durationMs":450}}
         \\{"seq":9,"timestampMs":9,"kind":"scenario.end","payload":{"value":"agent session","status":"passed"}}
         \\
         ,
@@ -199,19 +199,16 @@ test "draft from trace can replay successful supported actions" {
     defer result.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 1), result.summary.selector_count);
-    try std.testing.expectEqual(@as(usize, 7), result.summary.step_count);
+    try std.testing.expectEqual(@as(usize, 8), result.summary.step_count);
     try std.testing.expect(result.summary.replay.enabled);
     try std.testing.expectEqual(@as(usize, 7), result.summary.replay.event_count);
-    try std.testing.expectEqual(@as(usize, 5), result.summary.replay.step_count);
-    try std.testing.expectEqual(@as(usize, 2), result.summary.replay.skipped_event_count);
+    try std.testing.expectEqual(@as(usize, 6), result.summary.replay.step_count);
+    try std.testing.expectEqual(@as(usize, 1), result.summary.replay.skipped_event_count);
     var saw_review_warning = false;
-    var saw_unsupported_warning = false;
     for (result.summary.warnings) |warning| {
         if (std.mem.indexOf(u8, warning, "human review") != null) saw_review_warning = true;
-        if (std.mem.eql(u8, warning, "unsupported trace action was skipped: ui.swipe")) saw_unsupported_warning = true;
     }
     try std.testing.expect(saw_review_warning);
-    try std.testing.expect(saw_unsupported_warning);
     var saw_redacted_warning = false;
     for (result.summary.warnings) |warning| {
         if (std.mem.eql(u8, warning, "redacted trace text action was skipped: ui.type")) saw_redacted_warning = true;
@@ -224,9 +221,9 @@ test "draft from trace can replay successful supported actions" {
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"waitVisible\",\"selector\":{\"text\":\"Email\"}") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"tap\",\"selector\":{\"text\":\"Email\"}") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"typeText\",\"selector\":{\"text\":\"Email\"},\"text\":\"agent@example.com\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\",\"x1\":10,\"y1\":20,\"x2\":10,\"y2\":200,\"durationMs\":450") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "[REDACTED:secret]") == null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Home\"}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\"") == null);
 }
 
 test "draft json response points agents to validation before running" {

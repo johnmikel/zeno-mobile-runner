@@ -101,13 +101,14 @@ test "discover from trace writes reviewable scenario and validates it" {
     const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://discover\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\",\"x1\":10,\"y1\":20,\"x2\":10,\"y2\":200") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"resourceId\":\"welcome-title\"}") != null);
 
     var out = std.ArrayList(u8).empty;
     defer out.deinit(allocator);
     try cli_discover.writeJson(out.writer(allocator), result.summary, result.validation);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"discover\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":2,\"skippedEventCount\":1}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":3,\"skippedEventCount\":0}") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validated\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validation\":{\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr validate --json ") != null);

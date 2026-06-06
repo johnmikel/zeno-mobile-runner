@@ -47,6 +47,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added replay coverage metadata to `zmr draft --json`, `zmr discover --json`,
   and embedded run discovery output so agents can see how many trace actions
   became replay steps and how many were skipped.
+- Added coordinate-complete `ui.swipe` trace replay so JSON-RPC sessions and
+  traced `zmr run` flows can carry swipes into generated replay scenarios
+  without guessing missing coordinates.
 - Added `zmr report --junit <report.xml>` so trace directories and benchmark
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
 - Updated generated app report and reliability scripts to write `junit.xml`

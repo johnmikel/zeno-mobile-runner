@@ -72,6 +72,16 @@ pub fn recordActionStatus(tw: *trace.TraceWriter, kind: []const u8, status: []co
     try tw.recordEvent(kind, payload.items);
 }
 
+pub fn recordSwipe(tw: *trace.TraceWriter, x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) !void {
+    const payload = try std.fmt.allocPrint(
+        tw.allocator,
+        "{{\"status\":\"ok\",\"x1\":{d},\"y1\":{d},\"x2\":{d},\"y2\":{d},\"durationMs\":{d}}}",
+        .{ x1, y1, x2, y2, duration_ms },
+    );
+    defer tw.allocator.free(payload);
+    try tw.recordEvent("ui.swipe", payload);
+}
+
 pub fn recordStepError(tw: *trace.TraceWriter, index: usize, err: anyerror) !void {
     const payload = try std.fmt.allocPrint(
         tw.allocator,

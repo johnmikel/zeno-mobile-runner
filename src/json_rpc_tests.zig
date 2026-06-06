@@ -143,7 +143,8 @@ test "json rpc live trace records session events and exports a bundle" {
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"app.clearState\",\"params\":{}}", writer, &live_trace);
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"app.stop\",\"params\":{}}", writer, &live_trace);
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"observe.snapshot\",\"params\":{}}", writer, &live_trace);
-    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"trace.export\",\"params\":{\"out\":\"zig-cache-test-rpc-live-trace.zmrtrace\",\"redact\":true,\"omitScreenshots\":true}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ui.swipe\",\"params\":{\"x1\":12,\"y1\":700,\"x2\":12,\"y2\":240,\"durationMs\":450}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"trace.export\",\"params\":{\"out\":\"zig-cache-test-rpc-live-trace.zmrtrace\",\"redact\":true,\"omitScreenshots\":true}}", writer, &live_trace);
 
     const events_path = try std.fs.path.join(allocator, &.{ trace_dir, "events.jsonl" });
     defer allocator.free(events_path);
@@ -158,6 +159,8 @@ test "json rpc live trace records session events and exports a bundle" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.clearState\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.stop\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.swipe\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"x1\":12,\"y1\":700,\"x2\":12,\"y2\":240,\"durationMs\":450") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"trace.export\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"out\":\"zig-cache-test-rpc-live-trace.zmrtrace\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"omitScreenshots\":true") != null);
@@ -228,10 +231,11 @@ test "json rpc trace discover writes validated scenario from live trace" {
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session.create\",\"params\":{}}", writer, &live_trace);
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"app.launch\",\"params\":{}}", writer, &live_trace);
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"app.openLink\",\"params\":{\"url\":\"exampleapp://discover-rpc\"}}", writer, &live_trace);
-    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"observe.semanticSnapshot\",\"params\":{}}", writer, &live_trace);
-    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"trace.discover\",\"params\":{\"out\":\"zig-cache-test-rpc-discover/discovered.json\",\"includeActions\":true,\"validate\":true,\"force\":true,\"name\":\"RPC discovered\"}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ui.swipe\",\"params\":{\"x1\":20,\"y1\":600,\"x2\":20,\"y2\":120,\"durationMs\":500}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"observe.semanticSnapshot\",\"params\":{}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"trace.discover\",\"params\":{\"out\":\"zig-cache-test-rpc-discover/discovered.json\",\"includeActions\":true,\"validate\":true,\"force\":true,\"name\":\"RPC discovered\"}}", writer, &live_trace);
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"id\":5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"id\":6") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"discover\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validated\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validation\":{\"ok\":true") != null);
@@ -244,6 +248,7 @@ test "json rpc trace discover writes validated scenario from live trace" {
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"name\":\"RPC discovered\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"appId\":\"com.example.mobiletest\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://discover-rpc\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\",\"x1\":20,\"y1\":600,\"x2\":20,\"y2\":120,\"durationMs\":500") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Discover Home\"}") != null);
 }
 

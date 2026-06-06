@@ -14,10 +14,3 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
-
-# Local scratch artifacts created in restricted environments.
-.perm-test
-Gate
-iOS
-scripts/_cod[e]x_write_test.txt
-scripts/python_redirect_test.txt

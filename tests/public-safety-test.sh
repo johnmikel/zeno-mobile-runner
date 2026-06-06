@@ -40,3 +40,8 @@ while IFS= read -r -d '' path; do
     fi
   done
 done < <(git ls-files -z)
+
+if grep -nE 'Local scratch artifacts|_cod\[e\]x_write_test|python_redirect_test|^Gate$|^iOS$' .gitignore; then
+  echo "public .gitignore should not contain local scratch or permission-probe entries" >&2
+  exit 1
+fi

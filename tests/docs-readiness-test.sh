@@ -102,6 +102,8 @@ require_grep 'Unsupported or underspecified events are' README.md
 require_grep 'skipped with warnings instead of guessed' README.md
 require_grep 'redacted from the trace are also skipped' README.md
 require_grep 'zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact' README.md
+require_grep 'For traced runs, `zmr run --json` returns executable `nextCommands`' README.md
+require_grep 'zmr discover --from-trace' README.md
 require_grep '## Optional Protocol Clients' README.md
 require_grep 'TypeScript and Python are the most common starting points' README.md
 require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' README.md
@@ -167,6 +169,8 @@ require_grep 'trace.discover' docs/agent-discovery.md
 require_grep 'trace_discover' docs/agent-discovery.md
 require_grep 'scenario.validate' docs/agent-discovery.md
 require_grep 'scenario_validate' docs/agent-discovery.md
+require_grep 'traced run' docs/agent-discovery.md
+require_grep '`nextCommands`; traced run' docs/agent-discovery.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md

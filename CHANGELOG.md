@@ -27,6 +27,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   the new JSON-RPC discovery method.
 - Added TypeScript `validateScenario()` and Python `validate_scenario()`
   helpers for in-band scenario validation.
+- Added a trace-backed discovery handoff to traced `zmr run --json`
+  `nextCommands`, so agents can generate a reviewable replay scenario directly
+  from a run summary.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

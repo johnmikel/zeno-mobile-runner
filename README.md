@@ -105,6 +105,11 @@ zmr import flow-yaml .zmr/legacy-flow.yaml --out .zmr/legacy-flow.json
 zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact
 ```
 
+For traced runs, `zmr run --json` returns executable `nextCommands` for
+reporting, failure explanation, `zmr discover --from-trace`, and redacted
+export so agents can continue from a run summary without guessing the next
+handoff.
+
 See [docs/scenario-authoring.md](docs/scenario-authoring.md) for selector and
 wait guidance.
 
@@ -185,7 +190,7 @@ and `trace_export`.
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
 through MCP, JSON-RPC, trace events, in-band trace discovery, offline surface
-drafts, and replay drafts today; a built-in autonomous crawler is not shipped
+drafts, replay drafts, and traced run `nextCommands` today; a built-in autonomous crawler is not shipped
 in this preview.
 
 ## Optional Protocol Clients

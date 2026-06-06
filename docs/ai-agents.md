@@ -55,6 +55,10 @@ For iOS visual captures, `artifactStatus: "captured"` with
 XCTest hierarchy extraction failed. Use `zmr explain --json <trace-dir>` for
 the same diagnostic shape after the run.
 
+For traced CLI runs, `zmr run --json` also returns `nextCommands` with the
+report, explain, `zmr discover --from-trace`, and redacted export handoffs.
+Agents should prefer those commands over reconstructing trace paths from text.
+
 ## MCP Session
 
 Agents that support the Model Context Protocol can use ZMR directly as a local

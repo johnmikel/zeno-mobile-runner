@@ -45,6 +45,9 @@ state, and writes deterministic traces. It does not embed an LLM.
   `zmr inspect --json`, `zmr doctor --json`, `zmr devices --json`,
   `zmr discover --json`, `zmr draft --json`, `zmr validate --json`,
   `zmr run --json`, and `zmr explain --json`.
+- Traced `zmr run --json` output includes executable follow-up commands for
+  reports, failure explanation, trace-backed scenario discovery, and redacted
+  export.
 - `zmr discover --from-trace` turns a traced agent session into a reviewable
   scenario candidate and can validate the generated scenario before returning.
 - `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable

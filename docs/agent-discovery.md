@@ -37,7 +37,9 @@ ZMR as the deterministic mobile control plane.
 5. Choose one typed action, such as `ui.tap`, `ui.type`, `app.openLink`, or
    `wait.until`.
 6. Observe again and inspect `trace.events`.
-7. Generate a reviewable scenario candidate from the trace. JSON-RPC agents can
+7. If you used `zmr run --json --trace-dir`, read `nextCommands`; traced run
+   summaries include the matching `zmr discover --from-trace` command.
+8. Generate a reviewable scenario candidate from the trace. JSON-RPC agents can
    call `trace.discover`:
 
    ```json
@@ -61,7 +63,7 @@ ZMR as the deterministic mobile control plane.
    runnable by ZMR. It is still review-first: it does not crawl, invent missing
    actions, discover credentials, or commit the scenario.
 
-8. After editing a generated scenario, validate it in-band with JSON-RPC:
+9. After editing a generated scenario, validate it in-band with JSON-RPC:
 
    ```json
    {"jsonrpc":"2.0","id":8,"method":"scenario.validate","params":{"path":".zmr/discovered/replay-smoke.json"}}
@@ -71,7 +73,7 @@ ZMR as the deterministic mobile control plane.
    result matches `zmr validate --json`, including field paths and source
    locations for invalid files.
 
-9. Use the lower-level draft primitive when you want separate surface and
+10. Use the lower-level draft primitive when you want separate surface and
    replay files. For a conservative surface-smoke scenario:
 
    ```bash
@@ -97,16 +99,16 @@ ZMR as the deterministic mobile control plane.
    hiding, and selector scrolls. Unsupported events stay out of the scenario and
    are reported as warnings.
 
-10. Edit the draft or discovery output into a candidate flow, for example
+11. Edit the draft or discovery output into a candidate flow, for example
    `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
    and understood.
-11. Validate the candidate scenario:
+12. Validate the candidate scenario:
 
    ```bash
    zmr validate --json .zmr/discovered/login-smoke.json
    ```
 
-12. Re-run it deterministically:
+13. Re-run it deterministically:
 
    ```bash
    zmr run .zmr/discovered/login-smoke.json \
@@ -116,7 +118,7 @@ ZMR as the deterministic mobile control plane.
      --json
    ```
 
-13. Export a redacted bundle before sharing artifacts:
+14. Export a redacted bundle before sharing artifacts:
 
     ```bash
     zmr export traces/zmr-login-smoke \

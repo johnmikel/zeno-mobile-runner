@@ -129,12 +129,13 @@ Clients should read the last `scenario.end` event as the authoritative trace out
 scenario completes. For traced runs it mirrors the authoritative `trace.json`
 terminal fields, including trace paths, event/snapshot counts, failed step, and
 stable error name. Traced summaries also include `nextCommands` so agents can
-immediately render an HTML report, explain the failure, or export a redacted
-trace bundle. Failed scenarios still exit non-zero after writing the JSON
-summary. The response is covered by `schemas/run-output.schema.json`:
+immediately render an HTML report, explain the failure, generate a reviewable
+scenario from the trace, or export a redacted trace bundle. Failed scenarios
+still exit non-zero after writing the JSON summary. The response is covered by
+`schemas/run-output.schema.json`:
 
 ```json
-{"ok":false,"status":"failed","scenario":"login smoke","appId":"com.example.mobiletest","traceDir":"traces/login-smoke","eventsPath":"events.jsonl","artifactsDir":"artifacts","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html","zmr explain traces/login-smoke --json","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
+{"ok":false,"status":"failed","scenario":"login smoke","appId":"com.example.mobiletest","traceDir":"traces/login-smoke","eventsPath":"events.jsonl","artifactsDir":"artifacts","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html","zmr explain traces/login-smoke --json","zmr discover --from-trace traces/login-smoke --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
 ```
 
 When a run captures useful artifacts but a non-terminal enrichment fails, such

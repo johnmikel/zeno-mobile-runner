@@ -306,7 +306,9 @@ fn writeRunNextCommandsJson(writer: anytype, trace_dir: []const u8) !void {
     try writeJoinedPathShellArgJsonContent(writer, trace_dir, "report.html");
     try writer.writeAll("\",\"zmr explain ");
     try writeShellArgJsonContent(writer, trace_dir);
-    try writer.writeAll(" --json\",\"zmr export ");
+    try writer.writeAll(" --json\",\"zmr discover --from-trace ");
+    try writeShellArgJsonContent(writer, trace_dir);
+    try writer.writeAll(" --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json\",\"zmr export ");
     try writeShellArgJsonContent(writer, trace_dir);
     try writer.writeAll(" --out ");
     try writePathWithSuffixShellArgJsonContent(writer, trace_dir, ".zmrtrace");

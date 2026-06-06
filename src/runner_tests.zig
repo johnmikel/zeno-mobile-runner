@@ -431,6 +431,7 @@ test "runner executes agent flow primitives and records trace events" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"text\":\"agent name\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.swipe\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"x1\":10,\"y1\":20,\"x2\":30,\"y2\":40,\"durationMs\":50") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.pressBack\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.optional\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.whenVisible.skipped\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.scrollUntilVisible\"") != null);

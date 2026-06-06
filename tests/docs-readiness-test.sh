@@ -171,6 +171,7 @@ require_grep 'Rust `discover_trace()` and `validate_scenario()` helpers' CHANGEL
 require_grep 'Swift `discoverTrace()` and `validateScenario()` helpers' CHANGELOG.md
 require_grep 'Kotlin `discoverTrace()` and `validateScenario()` helpers' CHANGELOG.md
 require_grep 'coordinate-complete `ui.swipe` trace replay' CHANGELOG.md
+require_grep 'traced `pressBack` replay parity' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md

@@ -102,6 +102,7 @@ pub fn executeStep(
         },
         .press_back => {
             try device.pressBack();
+            if (writer) |tw| try tw.recordEvent("ui.pressBack", "{\"status\":\"ok\"}");
             try settleDevice(device, options);
         },
         .hide_keyboard => {

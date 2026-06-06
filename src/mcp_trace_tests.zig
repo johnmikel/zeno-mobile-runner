@@ -9,6 +9,16 @@ test "mcp trace events tool emits filtered text payload" {
     std.fs.cwd().deleteTree(trace_dir) catch {};
     defer std.fs.cwd().deleteTree(trace_dir) catch {};
 
+    var no_trace = std.ArrayList(u8).empty;
+    defer no_trace.deinit(allocator);
+    try mcp_trace.writeEventsToolResult(allocator, no_trace.writer(allocator), .{ .integer = 3 }, null, 2, 10);
+    const no_trace_text = try toolText(allocator, no_trace.items);
+    defer allocator.free(no_trace_text);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"afterSeq\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"nextSeq\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"latestSeq\":0") != null);
+
     var tw = try trace.TraceWriter.init(allocator, trace_dir);
     defer tw.deinit();
     try tw.recordEvent("first", "{\"ok\":true}");
@@ -23,6 +33,8 @@ test "mcp trace events tool emits filtered text payload" {
     defer allocator.free(text);
     try std.testing.expect(std.mem.indexOf(u8, text, "\"traceDir\":\"zig-cache-test-mcp-trace-events\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\"afterSeq\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "\"nextSeq\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "\"latestSeq\":2") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\"kind\":\"first\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\"kind\":\"second\"") != null);
 }

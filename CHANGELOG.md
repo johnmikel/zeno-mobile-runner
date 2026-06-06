@@ -15,6 +15,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
   `swipe` tools so MCP agents can run full app lifecycle and gesture flows.
 - Added MCP `open_link`, unscoped `type`, and `press_back` trace events so
   trace-backed discovery sees full simple action sessions from MCP agents.
+- Added MCP `trace_events` cursor metadata so MCP agents get `afterSeq`,
+  `nextSeq`, and `latestSeq` parity with JSON-RPC trace polling.
 - Added trace discovery auditing: `trace.discover` records a `trace.discover` event
   for JSON-RPC and MCP agent sessions so generated scenario candidates are
   visible in the trace.

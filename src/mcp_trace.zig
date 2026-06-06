@@ -14,7 +14,10 @@ pub fn writeEventsToolResult(
     limit: u64,
 ) !void {
     const tw = live_trace orelse {
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"traceDir\":null,\"events\":[]}");
+        var no_trace_payload = std.ArrayList(u8).empty;
+        defer no_trace_payload.deinit(allocator);
+        try no_trace_payload.writer(allocator).print("{{\"traceDir\":null,\"afterSeq\":{d},\"nextSeq\":{d},\"latestSeq\":0,\"events\":[]}}", .{ after_seq, after_seq });
+        try mcp_protocol.writeToolTextResult(writer, id, no_trace_payload.items);
         return;
     };
 
@@ -31,7 +34,11 @@ pub fn writeEventsToolResult(
     const payload_writer = payload.writer(allocator);
     try payload_writer.writeAll("{\"traceDir\":");
     try trace.writeJsonString(payload_writer, tw.root_dir);
-    try payload_writer.print(",\"afterSeq\":{d},\"events\":[", .{after_seq});
+    try payload_writer.print(",\"afterSeq\":{d},\"nextSeq\":", .{after_seq});
+    var events_json = std.ArrayList(u8).empty;
+    defer events_json.deinit(allocator);
+    const events_writer = events_json.writer(allocator);
+    var next_seq = after_seq;
     var emitted: u64 = 0;
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |raw_line| {
@@ -45,10 +52,13 @@ pub fn writeEventsToolResult(
         if (seq_value != .integer or seq_value.integer <= 0) continue;
         const seq = @as(u64, @intCast(seq_value.integer));
         if (seq <= after_seq) continue;
-        if (emitted > 0) try payload_writer.writeAll(",");
-        try payload_writer.writeAll(line);
+        if (emitted > 0) try events_writer.writeAll(",");
+        try events_writer.writeAll(line);
+        next_seq = seq;
         emitted += 1;
     }
+    try payload_writer.print("{d},\"latestSeq\":{d},\"events\":[", .{ next_seq, tw.event_count });
+    try payload_writer.writeAll(events_json.items);
     try payload_writer.writeAll("]}");
     try mcp_protocol.writeToolTextResult(writer, id, payload.items);
 }

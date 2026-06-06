@@ -54,6 +54,8 @@ test("init command creates app-local scenario and npm script snippets", () => {
     assert.match(agentInstructions, /Do not claim production readiness from smoke runs alone/);
     assert.match(agentInstructions, /zmr mcp --config \.zmr\/config\.json --trace-dir traces\/zmr-agent/);
     assert.match(agentInstructions, /Use `semantic_snapshot` before choosing tap or type actions/);
+    assert.match(agentInstructions, /zmr draft --from-trace traces\/zmr-agent --out \.zmr\/discovered\/surface-smoke\.json --json/);
+    assert.match(agentInstructions, /Treat draft output as a reviewable starting point/);
     assert.match(agentInstructions, /## App Commands/);
     assert.match(agentInstructions, /zmr-benchmark --zmr \.zmr\/android-smoke\.json --device emulator-5554 --app-id com\.example\.demo/);
     assert.match(agentInstructions, /zmr-benchmark --zmr \.zmr\/ios-smoke\.json --platform ios --device booted --app-id com\.example\.demo/);

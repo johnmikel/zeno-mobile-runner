@@ -1,12 +1,14 @@
 # Agent Discovery
 
-ZMR supports agent-led discovery today through its JSON-RPC and MCP interfaces.
-An external agent can observe the app, choose typed actions, inspect trace
-events, and write a repeatable scenario file as it learns a flow.
+ZMR supports agent-led discovery today through its JSON-RPC and MCP interfaces,
+trace events, semantic snapshot artifacts, and offline scenario drafting. An
+external agent can observe the app, choose typed actions, inspect trace events,
+draft a small repeatable scenario from the trace, and then edit it as it learns
+a flow.
 
-ZMR does not include a built-in autonomous crawler or test writer in this
-developer preview. Keep the planning loop in the agent, and keep ZMR as the
-deterministic mobile control plane.
+ZMR does not include a built-in autonomous crawler or fully autonomous test
+writer in this developer preview. Keep the planning loop in the agent, and keep
+ZMR as the deterministic mobile control plane.
 
 ## Recommended Loop
 
@@ -35,15 +37,27 @@ deterministic mobile control plane.
 5. Choose one typed action, such as `ui.tap`, `ui.type`, `app.openLink`, or
    `wait.until`.
 6. Observe again and inspect `trace.events`.
-7. Write successful steps into a candidate scenario, for example
-   `.zmr/discovered/login-smoke.json`.
-8. Validate the candidate scenario:
+7. Draft a reviewable surface-smoke scenario from the trace:
+
+   ```bash
+   zmr draft --from-trace traces/zmr-agent \
+     --out .zmr/discovered/surface-smoke.json \
+     --json
+   ```
+
+   The draft contains `launch`, `snapshot`, and `assertVisible` steps from
+   stable visible selectors. It does not tap, type, crawl, or commit anything.
+
+8. Edit the draft into a candidate flow, for example
+   `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
+   and understood.
+9. Validate the candidate scenario:
 
    ```bash
    zmr validate --json .zmr/discovered/login-smoke.json
    ```
 
-9. Re-run it deterministically:
+10. Re-run it deterministically:
 
    ```bash
    zmr run .zmr/discovered/login-smoke.json \
@@ -53,7 +67,7 @@ deterministic mobile control plane.
      --json
    ```
 
-10. Export a redacted bundle before sharing artifacts:
+11. Export a redacted bundle before sharing artifacts:
 
     ```bash
     zmr export traces/zmr-login-smoke \
@@ -69,6 +83,7 @@ deterministic mobile control plane.
 - Prefer accessibility identifiers, resource ids, stable labels, and exact text
   over coordinates.
 - Require human review before committing generated tests.
+- Treat `zmr draft` output as a starting point, not as a production-ready flow.
 - Redact traces before sharing them outside the local team.
 
 ## Future Shape

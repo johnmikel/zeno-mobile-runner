@@ -1,6 +1,7 @@
 const std = @import("std");
 const cli_devices = @import("cli_devices.zig");
 const cli_doctor = @import("cli_doctor.zig");
+const cli_draft = @import("cli_draft.zig");
 const cli_info = @import("cli_info.zig");
 const cli_init = @import("cli_init.zig");
 const cli_import = @import("cli_import.zig");
@@ -41,6 +42,8 @@ fn mainInner() !void {
         try cli_info.runSchemas(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "doctor")) {
         try cli_doctor.run(allocator, &args);
+    } else if (std.mem.eql(u8, command_name, "draft")) {
+        try cli_draft.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "validate")) {
         try cli_validate.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "init")) {
@@ -88,6 +91,7 @@ fn exitCodeForError(err: anyerror) u8 {
         error.MissingScenarioPath,
         error.MissingDeviceSerial,
         error.MissingTraceDir,
+        error.MissingDraftOut,
         error.MissingAppId,
         error.MissingAdbPath,
         error.MissingXcrunPath,
@@ -113,6 +117,7 @@ fn usage() !void {
         \\  zmr schemas [--json]
         \\  zmr devices [--json] [--platform android|ios] [--ios-device-type simulator|physical|all] [--adb <path>] [--xcrun <path>]
         \\  zmr doctor [--json] [--strict] [--config <path>] [--zig <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
+        \\  zmr draft --from-trace <trace-dir> --out <scenario.json> [--name <name>] [--app-id <id>] [--force] [--json]
         \\  zmr validate <scenario.json> [--json]
         \\  zmr init [scenario.json] [--app-id <id>] [--force] [--json]
         \\  zmr init --app [--dir <app-root>] [--app-id <id>] [--force] [--json]

@@ -2,7 +2,16 @@
 
 All notable changes to Zeno Mobile Runner are tracked here.
 
-## Unreleased
+## 0.1.7 (2026-06-06)
+
+### Added
+
+- Added `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` for
+  trace-backed, review-first scenario drafting. The command reads the latest
+  semantic snapshot artifact and writes a conservative surface-smoke scenario
+  with `launch`, `snapshot`, and stable `assertVisible` checks only.
+- Added `schemas/draft-output.schema.json` and included it in `zmr schemas
+  --json`.
 
 ## 0.1.6 (2026-06-05)
 

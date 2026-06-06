@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/draft-output.schema.json",
+  "title": "ZMR Draft Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "mode",
+    "schemaVersion",
+    "runnerVersion",
+    "protocolVersion",
+    "out",
+    "traceDir",
+    "sourceSnapshot",
+    "name",
+    "appId",
+    "selectorCount",
+    "stepCount",
+    "warnings",
+    "nextCommands"
+  ],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "mode": { "const": "draft" },
+    "schemaVersion": { "const": 1 },
+    "runnerVersion": { "type": "string", "minLength": 1 },
+    "protocolVersion": { "type": "string", "minLength": 1 },
+    "out": { "type": "string", "minLength": 1 },
+    "traceDir": { "type": "string", "minLength": 1 },
+    "sourceSnapshot": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "appId": { "type": ["string", "null"] },
+    "selectorCount": { "type": "integer", "minimum": 0 },
+    "stepCount": { "type": "integer", "minimum": 2 },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "nextCommands": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

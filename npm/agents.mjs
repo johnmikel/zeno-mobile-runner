@@ -151,6 +151,15 @@ ${mcpCommand}
 
 Use \`semantic_snapshot\` before choosing tap or type actions. Prefer selectors from accessibility identifiers, resource ids, labels, or exact text before coordinates. Export redacted traces before sharing artifacts.
 
+## Draft From Trace
+
+\`\`\`bash
+zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
+zmr validate --json .zmr/discovered/surface-smoke.json
+\`\`\`
+
+Treat draft output as a reviewable starting point. It should contain only \`launch\`, \`snapshot\`, and conservative \`assertVisible\` checks; do not commit it until a human has reviewed and rerun it.
+
 ## Failure Triage
 
 \`\`\`bash

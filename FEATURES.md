@@ -41,7 +41,10 @@ state, and writes deterministic traces. It does not embed an LLM.
 - TypeScript, Python, Go, Rust, Swift, and Kotlin reference clients.
 - Machine-readable CLI output for `zmr version --json`, `zmr schemas --json`,
   `zmr inspect --json`, `zmr doctor --json`, `zmr devices --json`,
-  `zmr validate --json`, `zmr run --json`, and `zmr explain --json`.
+  `zmr draft --json`, `zmr validate --json`, `zmr run --json`, and
+  `zmr explain --json`.
+- `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable
+  surface-smoke scenario with conservative `assertVisible` checks.
 - Public JSON Schemas for scenarios, snapshots, semantic snapshots, action
   results, trace events, protocol messages, setup diagnostics, and release
   manifests.
@@ -58,6 +61,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 - Wait and retry behavior around transient observation failures.
 - Import helper for a documented subset of common mobile-flow YAML commands
   into native `.zmr/*.json` scenarios.
+- Trace-backed draft helper for generating reviewable surface-smoke scenarios
+  from observed UI state without tapping or crawling.
 
 ## Traces And Diagnostics
 
@@ -99,7 +104,7 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 ## Current Limitations
 
-- Current release status is `0.1.6`, a public developer preview rather than
+- Current release status is `0.1.7`, a public developer preview rather than
   a production-stable `1.0.0`.
 - Physical iOS log capture is still simulator-first. Physical iOS screenshots
   are available when the XCTest/XCUIAutomation shim is configured.

@@ -94,6 +94,7 @@ zmr version --json
 zmr schemas --json
 zmr devices --json
 zmr inspect --json
+zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
 zmr init --app --json --dir . --app-id com.example.mobiletest
 zmr validate --json .zmr/login-smoke.json
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke
@@ -117,6 +118,20 @@ zmr inspect --json --dir .
 config status, generated agent instructions, configured platform scenarios, and
 recommended next commands. It does not launch devices or write tests.
 
+After a live session has produced semantic snapshot artifacts, agents can ask
+ZMR to draft a conservative surface-smoke scenario from the trace:
+
+```bash
+zmr draft --from-trace traces/zmr-agent \
+  --out .zmr/discovered/surface-smoke.json \
+  --json
+zmr validate --json .zmr/discovered/surface-smoke.json
+```
+
+`zmr draft` is offline and review-first. It writes `launch`, `snapshot`, and
+`assertVisible` steps from stable visible selectors. It does not crawl the app,
+tap controls, type into fields, discover credentials, or commit tests.
+
 ```bash
 zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
@@ -132,8 +147,8 @@ The MCP server exposes mobile-specific tools such as `semantic_snapshot`, `tap`,
 
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
-through MCP and JSON-RPC today; a built-in autonomous crawler is not shipped in
-this preview.
+through MCP, JSON-RPC, trace events, and offline draft generation today; a
+built-in autonomous crawler is not shipped in this preview.
 
 ## Optional Protocol Clients
 
@@ -167,7 +182,7 @@ and [docs/client-installation.md](docs/client-installation.md).
 | iOS physical device | Supported, validate locally | `devicectl` lifecycle plus app-local XCTest/XCUIAutomation shim; run pilots on your own app/device before relying on it in CI |
 | Cloud device farms | Not included | ZMR is focused on local and self-managed device targets in this preview |
 
-Current release: `0.1.6` developer preview. Protocol version:
+Current release: `0.1.7` developer preview. Protocol version:
 `2026-04-28`.
 
 ## Documentation

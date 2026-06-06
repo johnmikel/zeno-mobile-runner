@@ -93,13 +93,15 @@ require_grep 'zmr validate --json' README.md
 require_grep 'zmr devices --json' README.md
 require_grep 'zmr schemas --json' README.md
 require_grep 'zmr inspect --json' README.md
+require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
+require_grep 'It does not crawl the app' README.md
 require_grep 'zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact' README.md
 require_grep '## Optional Protocol Clients' README.md
 require_grep 'TypeScript and Python are the most common starting points' README.md
 require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' README.md
 require_grep 'physical iOS devices use `devicectl`' README.md
 require_grep 'iOS physical device' README.md
-require_grep 'Current release: `0.1.6` developer preview' README.md
+require_grep 'Current release: `0.1.7` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
@@ -127,12 +129,13 @@ require_not_grep 'Zig Mobile Runner' README.md
 require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
 require_grep 'zmr inspect --json' FEATURES.md
+require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
-require_grep 'Current release status is `0.1.6`' FEATURES.md
+require_grep 'Current release status is `0.1.7`' FEATURES.md
 require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
-require_grep '0.1.6' CHANGELOG.md
+require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
 require_grep 'Expo' docs/frameworks.md
@@ -152,6 +155,8 @@ require_grep 'Agentic Standard' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
+require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md
+require_grep 'Treat `zmr draft` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr explore --goal' docs/agent-discovery.md
 require_grep 'human review before committing generated tests' docs/agent-discovery.md
 
@@ -169,6 +174,7 @@ require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md
 require_grep 'Agent-Led Discovery' docs/ai-agents.md
+require_grep 'zmr draft --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep 'agent-discovery.md' docs/ai-agents.md
 require_grep 'zmr-mobile-testing' skills/zmr-mobile-testing/SKILL.md
 
@@ -192,6 +198,8 @@ require_grep 'Expo dev-client scenario' docs/npm.md
 require_grep 'zmr version --json' docs/protocol.md
 require_grep 'zmr schemas --json' docs/protocol.md
 require_grep 'zmr inspect --json' docs/protocol.md
+require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
+require_grep 'schemas/draft-output.schema.json' docs/protocol.md
 require_grep 'zmr devices --json' docs/protocol.md
 require_grep 'zmr validate <scenario.json> --json' docs/protocol.md
 require_grep 'zmr explain' docs/troubleshooting.md

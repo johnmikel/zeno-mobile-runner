@@ -2,7 +2,7 @@
 
 ZMR exposes newline-delimited JSON-RPC 2.0 over stdio or localhost TCP in v1. Each request is one JSON object followed by `\n`. Each response is one JSON object followed by `\n`.
 
-Current runner version: `0.1.6`.
+Current runner version: `0.1.7`.
 
 Current protocol version: `2026-04-28`.
 
@@ -25,6 +25,7 @@ Public schemas:
 - `schemas/explain-output.schema.json`
 - `schemas/run-output.schema.json`
 - `schemas/inspect-output.schema.json`
+- `schemas/draft-output.schema.json`
 - `schemas/release-manifest.schema.json`
 - `schemas/release-readiness-output.schema.json`
 - `schemas/schemas-output.schema.json`
@@ -44,7 +45,19 @@ and protocol versions. The response is covered by
 `schemas/inspect-output.schema.json`:
 
 ```json
-{"ok":true,"status":"ready","schemaVersion":1,"runnerVersion":"0.1.6","protocolVersion":"2026-04-28","dir":".","configPath":".zmr/config.json","configExists":true,"agentInstructionsPath":".zmr/AGENTS.md","agentInstructionsExists":true,"platforms":[{"name":"android","enabled":true,"defaultDevice":"emulator-5554","smokeScenario":".zmr/android-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-android"},{"name":"ios","enabled":true,"defaultDevice":"booted","smokeScenario":".zmr/ios-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-ios"}],"recommendedCommands":["zmr doctor --strict --json --config .zmr/config.json","zmr schemas --json","zmr validate --json .zmr/android-smoke.json","zmr validate --json .zmr/ios-smoke.json","zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent","zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent"],"claimsPolicy":["verify runs with trace evidence before making readiness claims","do not claim Flutter widget-tree inspection"],"limitations":["inspect is read-only and does not launch devices","autonomous crawling is not shipped; generate or edit scenarios for human review"]}
+{"ok":true,"status":"ready","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","dir":".","configPath":".zmr/config.json","configExists":true,"agentInstructionsPath":".zmr/AGENTS.md","agentInstructionsExists":true,"platforms":[{"name":"android","enabled":true,"defaultDevice":"emulator-5554","smokeScenario":".zmr/android-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-android"},{"name":"ios","enabled":true,"defaultDevice":"booted","smokeScenario":".zmr/ios-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-ios"}],"recommendedCommands":["zmr doctor --strict --json --config .zmr/config.json","zmr schemas --json","zmr validate --json .zmr/android-smoke.json","zmr validate --json .zmr/ios-smoke.json","zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent","zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent"],"claimsPolicy":["verify runs with trace evidence before making readiness claims","do not claim Flutter widget-tree inspection"],"limitations":["inspect is read-only and does not launch devices","autonomous crawling is not shipped; generate or edit scenarios for human review"]}
+```
+
+`zmr draft --from-trace <trace-dir> --out <scenario.json> --json` reads the
+trace manifest and latest semantic snapshot artifact, then writes a reviewable
+surface-smoke scenario. The generated scenario starts with `launch` and
+`snapshot`, then adds `assertVisible` steps for a small set of visible stable
+selectors. It does not start a device session, crawl the app, tap controls, type
+into fields, or commit files. The response is covered by
+`schemas/draft-output.schema.json`:
+
+```json
+{"ok":true,"mode":"draft","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/surface-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":4,"warnings":["draft requires human review before commit"],"nextCommands":["zmr validate --json .zmr/discovered/surface-smoke.json","zmr run .zmr/discovered/surface-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr-release-readiness --json` checks one or more repeated app/device evidence
@@ -144,7 +157,7 @@ installers, setup scripts, and generated clients. The response is covered by
 `schemas/version-output.schema.json`:
 
 ```json
-{"name":"zmr","version":"0.1.6","protocolVersion":"2026-04-28","minimumCompatibleProtocolVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"}
+{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","minimumCompatibleProtocolVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"}
 ```
 
 ## Capabilities Output Contract
@@ -156,7 +169,7 @@ and method inventory for JSON-RPC clients. The result object is covered by
 iOS simulator, or physical iOS workflows are available.
 
 ```json
-{"name":"zmr","version":"0.1.6","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","observe.snapshot","observe.semanticSnapshot"]}
+{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","observe.snapshot","observe.semanticSnapshot"]}
 ```
 
 ## Doctor Output Contract
@@ -358,7 +371,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.6","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","trace.events","trace.export"]}}
+{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","trace.events","trace.export"]}}
 ```
 
 ### `trace.events`

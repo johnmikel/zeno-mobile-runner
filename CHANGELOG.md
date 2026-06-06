@@ -13,6 +13,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
   without dropping to JSON-RPC.
 - Added MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and
   `swipe` tools so MCP agents can run full app lifecycle and gesture flows.
+- Added MCP `open_link`, unscoped `type`, and `press_back` trace events so
+  trace-backed discovery sees full simple action sessions from MCP agents.
 - Added `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` for
   trace-backed, review-first scenario drafting. The command reads the latest
   semantic snapshot artifact and writes a conservative surface-smoke scenario

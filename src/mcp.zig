@@ -178,6 +178,7 @@ fn callTool(
             try runner.typeTextSelector(device, wanted, text, live_trace, .{});
         } else {
             try device.typeText(text);
+            if (live_trace) |tw| try rpc_trace.recordSimplePayload(tw, "ui.type", "text", text);
         }
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
         return;
@@ -222,12 +223,15 @@ fn callTool(
 
     if (std.mem.eql(u8, tool_name, "press_back")) {
         try device.pressBack();
+        if (live_trace) |tw| try tw.recordEvent("ui.pressBack", "{\"status\":\"ok\"}");
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
         return;
     }
 
     if (std.mem.eql(u8, tool_name, "open_link")) {
-        try device.openLink(try requiredParamString(arguments, "url"));
+        const url = try requiredParamString(arguments, "url");
+        try device.openLink(url);
+        if (live_trace) |tw| try runner_events.recordActionStatus(tw, "app.openLink", "ok", null, url);
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
         return;
     }

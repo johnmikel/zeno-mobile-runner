@@ -12,6 +12,14 @@ class ZmrRpcException(
     val publicCode: String? = null
 ) : RuntimeException(message)
 
+data class TraceDiscoverOptions(
+    val includeActions: Boolean = false,
+    val validate: Boolean = false,
+    val force: Boolean = false,
+    val name: String? = null,
+    val appId: String? = null
+)
+
 class ZmrClient(
     private val command: List<String> = listOf("zmr", "serve", "--transport", "stdio")
 ) : Closeable {
@@ -29,6 +37,19 @@ class ZmrClient(
     fun assertHealthy(timeoutMs: Long? = null): String {
         val params = timeoutMs?.let { "{\"timeoutMs\":$it}" } ?: "{}"
         return call("assert.healthy", params)
+    }
+
+    fun validateScenario(path: String): String =
+        call("scenario.validate", """{"path":"${escapeJson(path)}"}""")
+
+    fun discoverTrace(out: String, options: TraceDiscoverOptions = TraceDiscoverOptions()): String {
+        val fields = mutableListOf(""""out":"${escapeJson(out)}"""")
+        if (options.includeActions) fields.add(""""includeActions":true""")
+        if (options.validate) fields.add(""""validate":true""")
+        if (options.force) fields.add(""""force":true""")
+        options.name?.let { fields.add(""""name":"${escapeJson(it)}"""") }
+        options.appId?.let { fields.add(""""appId":"${escapeJson(it)}"""") }
+        return call("trace.discover", "{${fields.joinToString(",")}}")
     }
 
     @Synchronized
@@ -65,3 +86,6 @@ private fun extractNumber(json: String, key: String): Int? {
     val pattern = """"$key"\s*:\s*(-?[0-9]+)""".toRegex()
     return pattern.find(json)?.groupValues?.get(1)?.toIntOrNull()
 }
+
+private fun escapeJson(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"")

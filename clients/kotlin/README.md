@@ -30,6 +30,17 @@ gradle -p clients/kotlin runFakeSession \
 implementation(files("path/to/zeno-mobile-runner/clients/kotlin/build/libs/zmr-client-0.1.7.jar"))
 ```
 
+```kotlin
+val client = ZmrClient(listOf("zmr", "serve", "--transport", "stdio", "--config", ".zmr/config.json"))
+val out = ".zmr/discovered/kotlin-agent.json"
+val discovered = client.discoverTrace(
+    out,
+    TraceDiscoverOptions(includeActions = true, validate = true, force = true)
+)
+val validation = client.validateScenario(out)
+client.close()
+```
+
 The Kotlin client is host-side. It is useful for Android teams that want test
 or agent tooling in Kotlin, but it still controls the app through the local
 `zmr` binary rather than running inside the app process.

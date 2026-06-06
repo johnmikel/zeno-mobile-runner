@@ -115,7 +115,7 @@ require_grep 'TypeScript and Python are the most common starting points' README.
 require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' README.md
 require_grep 'Go and Rust' README.md
 require_grep 'scenario validation helpers for' README.md
-require_grep 'Swift includes lightweight discovery and validation' README.md
+require_grep 'Swift and Kotlin include lightweight discovery and' README.md
 require_grep 'physical iOS devices use `devicectl`' README.md
 require_grep 'iOS physical device' README.md
 require_grep 'Current release: `0.1.7` developer preview' README.md
@@ -169,6 +169,7 @@ require_grep 'release workflows to retain generated run evidence' CHANGELOG.md
 require_grep 'Go `DiscoverTrace()` and `ValidateScenario()` helpers' CHANGELOG.md
 require_grep 'Rust `discover_trace()` and `validate_scenario()` helpers' CHANGELOG.md
 require_grep 'Swift `discoverTrace()` and `validateScenario()` helpers' CHANGELOG.md
+require_grep 'Kotlin `discoverTrace()` and `validateScenario()` helpers' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md

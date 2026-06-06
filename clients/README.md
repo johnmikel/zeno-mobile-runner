@@ -21,9 +21,8 @@ surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
 scenario validation, trace event polling, trace discovery, and trace export.
 The Go and Rust clients also include typed scenario validation and trace
-discovery helpers. Swift includes lightweight validation and discovery helpers
-for macOS host-side agents. Kotlin remains a smaller reference client for teams
-that want to embed the protocol shape in that ecosystem.
+discovery helpers. Swift and Kotlin include lightweight validation and
+discovery helpers for host-side agents in those ecosystems.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.
@@ -161,6 +160,15 @@ Runtime: `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt`
 ```bash
 git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zeno-mobile-runner
 gradle -p vendor/zeno-mobile-runner/clients/kotlin build
+```
+
+```kotlin
+val out = ".zmr/discovered/kotlin-agent.json"
+val discovered = client.discoverTrace(
+    out,
+    TraceDiscoverOptions(includeActions = true, validate = true, force = true)
+)
+val validation = client.validateScenario(out)
 ```
 
 Kotlin is useful for Android teams that want host-side orchestration in Kotlin.

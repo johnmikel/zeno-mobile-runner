@@ -44,7 +44,7 @@ even when normal page text is also present.
 | Go | `clients/go/zmr/client.go` | Normal Go package inside a module, including `DiscoverTrace` and `ValidateScenario` helpers |
 | Rust | `clients/rust/src/lib.rs` | Cargo library crate convention, including `discover_trace` and `validate_scenario` helpers |
 | Swift | `clients/swift/Sources/ZMRClient/ZMRClient.swift` | SwiftPM package for macOS host-side tools, including `discoverTrace` and `validateScenario` helpers |
-| Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt` | Gradle/Kotlin source package for JVM host-side tools |
+| Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt` | Gradle/Kotlin source package for JVM host-side tools, including `discoverTrace` and `validateScenario` helpers |
 
 Rust has `src/lib.rs` because Cargo expects a library crate there. The other
 clients do have equivalent entry points; they are just idiomatic for their

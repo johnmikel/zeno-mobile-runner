@@ -45,6 +45,7 @@ required = [
     "bash tests/go-client-test.sh",
     "bash tests/rust-client-test.sh",
     "if command -v swift >/dev/null 2>&1; then swift test --package-path clients/swift; else echo 'skip swift test: swift not found'; fi",
+    "bash tests/kotlin-client-static-test.sh",
     "if command -v gradle >/dev/null 2>&1; then gradle -p clients/kotlin test; else echo 'skip kotlin test: gradle not found'; fi",
     "bash tests/public-safety-test.sh",
     "node --test tests/viewer-parser.test.mjs",

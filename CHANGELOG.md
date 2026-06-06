@@ -35,6 +35,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added Swift `discoverTrace()` and `validateScenario()` helpers so macOS
   host-side agents can use the same trace-to-test and validation loop without
   raw JSON-RPC calls.
+- Added Kotlin `discoverTrace()` and `validateScenario()` helpers plus an
+  always-run source parity test so Kotlin host-side agents keep the same
+  trace-to-test and validation entry points even on machines without Gradle.
 - Added a trace-backed discovery handoff to traced `zmr run --json`
   `nextCommands`, so agents can generate a reviewable replay scenario directly
   from a run summary.

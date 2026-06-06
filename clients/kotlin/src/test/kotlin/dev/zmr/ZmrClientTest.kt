@@ -19,6 +19,25 @@ class ZmrClientTest {
 
             val snapshot = client.snapshot()
             assertTrue(snapshot.contains("\"activePackage\":\"com.example.mobiletest\""))
+
+            val discovered = client.discoverTrace(
+                ".zmr/discovered/kotlin-client.json",
+                TraceDiscoverOptions(
+                    includeActions = true,
+                    validate = true,
+                    force = true,
+                    name = "Kotlin discovery",
+                    appId = "com.example.kotlin"
+                )
+            )
+            assertTrue(discovered.contains("\"mode\":\"discover\""))
+            assertTrue(discovered.contains("\"out\":\".zmr/discovered/kotlin-client.json\""))
+            assertTrue(discovered.contains("\"appId\":\"com.example.kotlin\""))
+            assertTrue(discovered.contains("\"validated\":true"))
+
+            val validation = client.validateScenario(".zmr/discovered/kotlin-client.json")
+            assertTrue(validation.contains("\"ok\":true"))
+            assertTrue(validation.contains("\"path\":\".zmr/discovered/kotlin-client.json\""))
         }
     }
 

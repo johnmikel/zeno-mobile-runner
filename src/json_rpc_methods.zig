@@ -18,7 +18,7 @@ pub fn dispatchMethod(
     live_trace: ?*trace.TraceWriter,
 ) !void {
     if (try dispatchCoreMethod(allocator, device, method, id, writer)) return;
-    if (try dispatchAppMethod(device, method, params, id, writer)) return;
+    if (try dispatchAppMethod(device, method, params, id, writer, live_trace)) return;
     if (try dispatchObserveMethod(device, method, id, writer, live_trace)) return;
     if (try dispatchUiMethod(allocator, device, method, params, id, writer, live_trace)) return;
     if (try dispatchWaitMethod(allocator, device, method, params, id, writer, live_trace)) return;
@@ -65,35 +65,51 @@ fn dispatchAppMethod(
     params: ?std.json.Value,
     id: ?std.json.Value,
     writer: anytype,
+    live_trace: ?*trace.TraceWriter,
 ) !bool {
     if (std.mem.eql(u8, method, "app.install")) {
         const path = try params_parser.requiredString(params, "path");
         try device.install(path);
+        if (live_trace) |tw| try rpc_trace.recordSimplePayload(tw, "app.install", "path", path);
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
     if (std.mem.eql(u8, method, "app.launch")) {
         try device.launch();
+        if (live_trace) |tw| try tw.recordEvent("app.launch", "{\"status\":\"ok\"}");
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
     if (std.mem.eql(u8, method, "app.stop")) {
         try device.stop();
+        if (live_trace) |tw| try tw.recordEvent("app.stop", "{\"status\":\"ok\"}");
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
     if (std.mem.eql(u8, method, "app.clearState")) {
         try device.clearState();
+        if (live_trace) |tw| try tw.recordEvent("app.clearState", "{\"status\":\"ok\"}");
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
     if (std.mem.eql(u8, method, "app.openLink")) {
         const url = try params_parser.requiredString(params, "url");
         try device.openLink(url);
+        if (live_trace) |tw| try recordAppOpenLink(tw, url);
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
     return false;
+}
+
+fn recordAppOpenLink(tw: *trace.TraceWriter, url: []const u8) !void {
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(tw.allocator);
+    const writer = payload.writer(tw.allocator);
+    try writer.writeAll("{\"status\":\"ok\",\"url\":");
+    try trace.writeJsonString(writer, url);
+    try writer.writeAll("}");
+    try tw.recordEvent("app.openLink", payload.items);
 }
 
 fn dispatchObserveMethod(

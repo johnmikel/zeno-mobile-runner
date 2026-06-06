@@ -420,6 +420,9 @@ fn selectNodeSelector(node: std.json.ObjectMap) ?DraftSelector {
             if (nonEmptyString(value.object, "text")) |actual| return .{ .kind = .text, .value = actual };
         }
     }
+    if (nonEmptyString(node, "resourceId")) |actual| return .{ .kind = .resource_id, .value = actual };
+    if (nonEmptyString(node, "contentDesc")) |actual| return .{ .kind = .content_desc, .value = actual };
+    if (nonEmptyString(node, "text")) |actual| return .{ .kind = .text, .value = actual };
     return null;
 }
 

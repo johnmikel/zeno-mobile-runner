@@ -138,9 +138,12 @@ test "json rpc live trace records session events and exports a bundle" {
     const writer = out.writer(allocator);
 
     try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session.create\",\"params\":{}}", writer, &live_trace);
-    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"app.openLink\",\"params\":{\"url\":\"exampleapp://live\"}}", writer, &live_trace);
-    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"observe.snapshot\",\"params\":{}}", writer, &live_trace);
-    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"trace.export\",\"params\":{\"out\":\"zig-cache-test-rpc-live-trace.zmrtrace\",\"redact\":true,\"omitScreenshots\":true}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"app.launch\",\"params\":{}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"app.openLink\",\"params\":{\"url\":\"exampleapp://live\"}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"app.clearState\",\"params\":{}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"app.stop\",\"params\":{}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"observe.snapshot\",\"params\":{}}", writer, &live_trace);
+    try json_rpc.dispatchLineWithTrace(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"trace.export\",\"params\":{\"out\":\"zig-cache-test-rpc-live-trace.zmrtrace\",\"redact\":true,\"omitScreenshots\":true}}", writer, &live_trace);
 
     const events_path = try std.fs.path.join(allocator, &.{ trace_dir, "events.jsonl" });
     defer allocator.free(events_path);
@@ -149,6 +152,11 @@ test "json rpc live trace records session events and exports a bundle" {
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"rpc.request\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"method\":\"app.openLink\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.launch\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.openLink\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"url\":\"exampleapp://live\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.clearState\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.stop\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"trace.export\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"out\":\"zig-cache-test-rpc-live-trace.zmrtrace\"") != null);

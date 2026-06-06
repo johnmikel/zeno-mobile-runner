@@ -42,6 +42,7 @@ required = [
     "bash tests/workflow-readiness-test.sh",
     "bash tests/demo-script-test.sh",
     "bash tests/mcp-server-test.sh",
+    "bash tests/rpc-draft-test.sh",
     "node --test tests/npm-package.test.mjs",
     "bash tests/go-client-test.sh",
     "bash tests/rust-client-test.sh",

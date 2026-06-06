@@ -17,6 +17,7 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     assert.equal(capabilities.protocolVersion, "2026-04-28");
     assert.ok(capabilities.methods.includes("observe.snapshot"));
     assert.ok(capabilities.methods.includes("assert.healthy"));
+    assert.ok(capabilities.methods.includes("scenario.validate"));
     assert.ok(capabilities.methods.includes("trace.discover"));
     assert.equal(capabilities.iosPreview, false);
     assert.equal(capabilities.platformSupport.ios.status, "supported");
@@ -61,6 +62,10 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     assert.equal(discovered.mode, "discover");
     assert.equal(discovered.out, ".zmr/discovered/client.json");
     assert.equal(discovered.validated, true);
+
+    const validation = await client.validateScenario(".zmr/discovered/client.json");
+    assert.equal(validation.ok, true);
+    assert.equal(validation.name, "Client discovery");
   } finally {
     await client.close();
   }

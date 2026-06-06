@@ -61,7 +61,17 @@ ZMR as the deterministic mobile control plane.
    runnable by ZMR. It is still review-first: it does not crawl, invent missing
    actions, discover credentials, or commit the scenario.
 
-8. Use the lower-level draft primitive when you want separate surface and
+8. After editing a generated scenario, validate it in-band with JSON-RPC:
+
+   ```json
+   {"jsonrpc":"2.0","id":8,"method":"scenario.validate","params":{"path":".zmr/discovered/replay-smoke.json"}}
+   ```
+
+   MCP agents can call `scenario_validate` with the same `path` argument. The
+   result matches `zmr validate --json`, including field paths and source
+   locations for invalid files.
+
+9. Use the lower-level draft primitive when you want separate surface and
    replay files. For a conservative surface-smoke scenario:
 
    ```bash
@@ -87,16 +97,16 @@ ZMR as the deterministic mobile control plane.
    hiding, and selector scrolls. Unsupported events stay out of the scenario and
    are reported as warnings.
 
-9. Edit the draft or discovery output into a candidate flow, for example
+10. Edit the draft or discovery output into a candidate flow, for example
    `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
    and understood.
-10. Validate the candidate scenario:
+11. Validate the candidate scenario:
 
    ```bash
    zmr validate --json .zmr/discovered/login-smoke.json
    ```
 
-11. Re-run it deterministically:
+12. Re-run it deterministically:
 
    ```bash
    zmr run .zmr/discovered/login-smoke.json \
@@ -106,7 +116,7 @@ ZMR as the deterministic mobile control plane.
      --json
    ```
 
-12. Export a redacted bundle before sharing artifacts:
+13. Export a redacted bundle before sharing artifacts:
 
     ```bash
     zmr export traces/zmr-login-smoke \

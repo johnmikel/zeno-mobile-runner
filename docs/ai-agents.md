@@ -42,8 +42,9 @@ Recommended flow:
 6. Poll `trace.events` during long runs.
 7. Call `trace.discover` when you want a reviewable scenario candidate from
    the active trace.
-8. Call `trace.export` with `redact: true` before sharing artifacts.
-9. Call `session.close`.
+8. Call `scenario.validate` after editing generated scenario files.
+9. Call `trace.export` with `redact: true` before sharing artifacts.
+10. Call `session.close`.
 
 Do not parse screenshots or terminal text when the same fact is available from
 snapshot nodes, action results, CLI JSON, or trace events.
@@ -70,6 +71,7 @@ The MCP server exposes mobile-specific tools:
   recommended actions
 - `tap`, `type`, `press_back`, and `open_link`
 - `wait_visible`
+- `scenario_validate`
 - `trace_events`, `trace_discover`, and `trace_export`
 
 Prefer `semantic_snapshot` for action planning. It avoids forcing an agent to
@@ -81,8 +83,9 @@ Agents can use ZMR to discover flows and draft scenarios by looping over
 `observe.semanticSnapshot`, one typed action, trace events, and scenario
 validation. After a session has produced trace artifacts, call JSON-RPC
 `trace.discover` or MCP `trace_discover` to create and validate a reviewable
-starting point without leaving the live agent session. The CLI command is the
-offline equivalent:
+starting point without leaving the live agent session. Use JSON-RPC
+`scenario.validate` or MCP `scenario_validate` after edits. The CLI command is
+the offline equivalent:
 
 ```bash
 zmr discover --from-trace traces/zmr-agent \

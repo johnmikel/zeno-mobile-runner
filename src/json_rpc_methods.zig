@@ -1,5 +1,6 @@
 const std = @import("std");
 const bundle = @import("bundle.zig");
+const cli_output = @import("cli_output.zig");
 const observation = @import("json_rpc_observation.zig");
 const params_parser = @import("json_rpc_params.zig");
 const protocol = @import("json_rpc_protocol.zig");
@@ -7,6 +8,7 @@ const rpc_trace = @import("json_rpc_trace.zig");
 const runner = @import("runner.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
+const validation = @import("validation.zig");
 
 pub fn dispatchMethod(
     allocator: std.mem.Allocator,
@@ -23,6 +25,7 @@ pub fn dispatchMethod(
     if (try dispatchUiMethod(allocator, device, method, params, id, writer, live_trace)) return;
     if (try dispatchWaitMethod(allocator, device, method, params, id, writer, live_trace)) return;
     if (try dispatchAssertMethod(allocator, device, method, params, id, writer, live_trace)) return;
+    if (try dispatchScenarioMethod(allocator, method, params, id, writer)) return;
     if (try dispatchTraceMethod(allocator, method, params, id, writer, live_trace)) return;
 
     try protocol.writeError(writer, id, -32601, "method not found");
@@ -293,6 +296,26 @@ fn dispatchAssertMethod(
     if (std.mem.eql(u8, method, "assert.healthy")) {
         if (!try runner.assertHealthy(device, try params_parser.optionalU64(params, "timeoutMs", 0), live_trace, .{})) return error.AssertionFailed;
         try protocol.writeResultRaw(writer, id, "true");
+        return true;
+    }
+    return false;
+}
+
+fn dispatchScenarioMethod(
+    allocator: std.mem.Allocator,
+    method: []const u8,
+    params: ?std.json.Value,
+    id: ?std.json.Value,
+    writer: anytype,
+) !bool {
+    if (std.mem.eql(u8, method, "scenario.validate")) {
+        const path = try params_parser.requiredString(params, "path");
+        var result = try validation.validateFile(allocator, path);
+        defer result.deinit(allocator);
+        var payload = std.ArrayList(u8).empty;
+        defer payload.deinit(allocator);
+        try cli_output.writeValidationJson(payload.writer(allocator), path, result);
+        try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
         return true;
     }
     return false;

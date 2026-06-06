@@ -26,9 +26,11 @@ with ZmrClient(
         validate=True,
         force=True,
     )
+    validation = zmr.validate_scenario(discovered["out"])
     print(snapshot["nodes"])
     print(len(events["events"]))
     print(discovered["out"])
+    print(validation["ok"])
     zmr.export_trace("traces/agent-session-redacted.zmrtrace", redact=True, omit_screenshots=True)
 ```
 

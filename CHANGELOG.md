@@ -21,8 +21,12 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added JSON-RPC `trace.discover` and MCP `trace_discover` so live agents can
   generate the same trace-backed scenario candidate without shelling out to the
   CLI after a session.
+- Added JSON-RPC `scenario.validate` and MCP `scenario_validate` so agents can
+  validate generated or edited scenario files in-band before running them.
 - Added TypeScript `discoverTrace()` and Python `discover_trace()` helpers for
   the new JSON-RPC discovery method.
+- Added TypeScript `validateScenario()` and Python `validate_scenario()`
+  helpers for in-band scenario validation.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

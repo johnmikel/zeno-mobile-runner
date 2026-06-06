@@ -160,6 +160,9 @@ class ZmrClient:
             params["timeoutMs"] = timeout_ms
         return self.request("assert.healthy", params)
 
+    def validate_scenario(self, path):
+        return self.request("scenario.validate", {"path": path})
+
     def export_trace(self, out, redact=False, omit_screenshots=False):
         return self.request(
             "trace.export",

@@ -21,6 +21,7 @@ Then it sends JSON-RPC methods such as:
 - `wait.until`
 - `assert.visible`
 - `assert.healthy`
+- `scenario.validate`
 - `trace.events`
 - `trace.discover`
 - `trace.export`

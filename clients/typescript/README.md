@@ -27,9 +27,11 @@ try {
     validate: true,
     force: true,
   });
+  const validation = await zmr.validateScenario(discovered.out);
   console.log(snapshot.nodes);
   console.log(events.events.length);
   console.log(discovered.out);
+  console.log(validation.ok);
   await zmr.exportTrace("traces/agent-session-redacted.zmrtrace", { redact: true, omitScreenshots: true });
 } finally {
   await zmr.close();

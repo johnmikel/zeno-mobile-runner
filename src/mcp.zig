@@ -1,4 +1,5 @@
 const std = @import("std");
+const cli_output = @import("cli_output.zig");
 const errors = @import("errors.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
 const mcp_trace = @import("mcp_trace.zig");
@@ -6,6 +7,7 @@ const runner = @import("runner.zig");
 const selector = @import("selector.zig");
 const semantic = @import("semantic.zig");
 const trace = @import("trace.zig");
+const validation = @import("validation.zig");
 
 pub fn serveStdioWithTrace(allocator: std.mem.Allocator, device: anytype, live_trace: ?*trace.TraceWriter) !void {
     var stdin = std.fs.File.stdin().deprecatedReader();
@@ -171,6 +173,17 @@ fn callTool(
         try writer.writeAll(",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"visible\\\":");
         try writer.writeAll(if (visible) "true" else "false");
         try writer.writeAll("}\"}]}}\n");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "scenario_validate")) {
+        const path = try requiredParamString(arguments, "path");
+        var result = try validation.validateFile(allocator, path);
+        defer result.deinit(allocator);
+        var payload = std.ArrayList(u8).empty;
+        defer payload.deinit(allocator);
+        try cli_output.writeValidationJson(payload.writer(allocator), path, result);
+        try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
         return;
     }
 

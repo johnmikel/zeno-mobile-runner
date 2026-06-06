@@ -38,8 +38,8 @@ state, and writes deterministic traces. It does not embed an LLM.
   trace export.
 - `runner.capabilities`, `device.list`, `session.create`,
   `observe.snapshot`, `observe.semanticSnapshot`, UI actions, waits,
-  assertions, live trace events, trace-backed discovery, and redacted trace
-  export.
+  assertions, scenario validation, live trace events, trace-backed discovery,
+  and redacted trace export.
 - TypeScript, Python, Go, Rust, Swift, and Kotlin reference clients.
 - Machine-readable CLI output for `zmr version --json`, `zmr schemas --json`,
   `zmr inspect --json`, `zmr doctor --json`, `zmr devices --json`,

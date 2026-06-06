@@ -146,6 +146,10 @@ export class ZmrClient {
     return this.request("assert.healthy", options);
   }
 
+  validateScenario(path) {
+    return this.request("scenario.validate", { path });
+  }
+
   exportTrace(out, options = {}) {
     return this.request("trace.export", { out, ...options });
   }

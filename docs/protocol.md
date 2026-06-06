@@ -193,7 +193,7 @@ and method inventory for JSON-RPC clients. The result object is covered by
 iOS simulator, or physical iOS workflows are available.
 
 ```json
-{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","trace.events","trace.discover","trace.export"]}
+{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.discover","trace.export"]}
 ```
 
 ## Doctor Output Contract
@@ -355,6 +355,7 @@ zmr mcp --config .zmr/config.json --trace-dir traces/mcp-agent-session
 - `assert.visible`
 - `assert.notVisible`
 - `assert.healthy`
+- `scenario.validate`
 - `trace.events`
 - `trace.discover`
 - `trace.export`
@@ -396,7 +397,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","trace.events","trace.discover","trace.export"]}}
+{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.discover","trace.export"]}}
 ```
 
 ### `trace.events`
@@ -421,6 +422,24 @@ Response:
 `limit` defaults to `100` and is capped at `1000`. `latestSeq` is the current
 server-side event counter; `nextSeq` is the last returned event and can be
 passed back as `afterSeq`.
+
+### `scenario.validate`
+
+Validates a ZMR scenario file and returns the same structured payload as
+`zmr validate --json`, including field paths and source locations for invalid
+files.
+
+Request:
+
+```json
+{"jsonrpc":"2.0","id":23,"method":"scenario.validate","params":{"path":".zmr/discovered/agent-smoke.json"}}
+```
+
+Response:
+
+```json
+{"jsonrpc":"2.0","id":23,"result":{"ok":true,"path":".zmr/discovered/agent-smoke.json","name":"agent smoke","appId":"com.example.mobiletest","stepCount":4,"nextCommands":["zmr run .zmr/discovered/agent-smoke.json --json --trace-dir traces/zmr-run"]}}
+```
 
 ### `trace.discover`
 
@@ -505,8 +524,8 @@ zmr mcp --config .zmr/config.json --trace-dir traces/mcp-agent
 ```
 
 Core tools are `snapshot`, `semantic_snapshot`, `tap`, `type`, `press_back`,
-`open_link`, `wait_visible`, `trace_events`, `trace_discover`, and
-`trace_export`. The MCP
+`open_link`, `wait_visible`, `scenario_validate`, `trace_events`,
+`trace_discover`, and `trace_export`. The MCP
 protocol handshake is intentionally standard, while the tool names and payloads
 are versioned with the ZMR runner and public schemas.
 
@@ -544,6 +563,12 @@ Request:
 `trace_discover` mirrors JSON-RPC `trace.discover` for MCP agents. Required
 argument: `out`. Optional arguments: `includeActions`, `validate`, `force`,
 `name`, and `appId`. The tool response text is the same discover JSON payload.
+
+### MCP `scenario_validate`
+
+`scenario_validate` mirrors JSON-RPC `scenario.validate` for MCP agents.
+Required argument: `path`. The tool response text is the same validation JSON
+payload returned by `zmr validate --json`.
 
 ### `trace.export`
 

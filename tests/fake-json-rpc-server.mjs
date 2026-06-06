@@ -50,6 +50,7 @@ rl.on("line", (line) => {
         "assert.visible",
         "assert.notVisible",
         "assert.healthy",
+        "scenario.validate",
         "trace.events",
         "trace.discover",
         "trace.export",
@@ -171,6 +172,15 @@ rl.on("line", (line) => {
         `zmr validate --json ${request.params?.out ?? ".zmr/discovered/client.json"}`,
         `zmr run ${request.params?.out ?? ".zmr/discovered/client.json"} --json --trace-dir traces/client`,
       ],
+    };
+  } else if (method === "scenario.validate") {
+    result = {
+      ok: true,
+      path: request.params?.path ?? ".zmr/discovered/client.json",
+      name: request.params?.path?.includes("python") ? "Python discovery" : "Client discovery",
+      appId: "com.example.mobiletest",
+      stepCount: 4,
+      nextCommands: [`zmr run ${request.params?.path ?? ".zmr/discovered/client.json"} --json --trace-dir traces/zmr-run`],
     };
   } else {
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, error: { code: -32601, message: "method not found" } }) + "\n");

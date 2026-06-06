@@ -138,6 +138,7 @@ export interface ZmrClient {
   assertVisible(selector: Selector, options?: { timeoutMs?: number }): Promise<boolean>;
   assertNotVisible(selector: Selector, options?: { timeoutMs?: number }): Promise<boolean>;
   assertHealthy(options?: { timeoutMs?: number }): Promise<boolean>;
+  validateScenario(path: string): Promise<Record<string, unknown>>;
   exportTrace(out: string, options?: { redact?: boolean; omitScreenshots?: boolean }): Promise<Record<string, unknown>>;
   traceEvents(afterSeq?: number, options?: { limit?: number }): Promise<Record<string, unknown>>;
   discoverTrace(out: string, options?: TraceDiscoverOptions): Promise<Record<string, unknown>>;

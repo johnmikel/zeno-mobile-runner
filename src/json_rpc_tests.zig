@@ -247,6 +247,48 @@ test "json rpc trace discover writes validated scenario from live trace" {
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Discover Home\"}") != null);
 }
 
+test "json rpc scenario validate returns cli validation json" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-rpc-scenario-validate";
+    const valid_path = dir ++ "/valid.json";
+    const invalid_path = dir ++ "/invalid.json";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+    try std.fs.cwd().writeFile(.{
+        .sub_path = valid_path,
+        .data = "{\"name\":\"RPC validation\",\"appId\":\"com.example.mobiletest\",\"steps\":[{\"action\":\"launch\"}]}\n",
+    });
+    try std.fs.cwd().writeFile(.{
+        .sub_path = invalid_path,
+        .data = "{\"name\":\"Bad\",\"steps\":[{\"action\":\"tap\"}]}\n",
+    });
+
+    const snapshots = try allocator.alloc(types.ObservationSnapshot, 0);
+    defer allocator.free(snapshots);
+    var fake = fake_device.FakeDevice.init(allocator, snapshots);
+    defer fake.deinit();
+
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+    const writer = out.writer(allocator);
+
+    try json_rpc.dispatchLine(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"scenario.validate\",\"params\":{\"path\":\"zig-cache-test-rpc-scenario-validate/valid.json\"}}", writer);
+    try json_rpc.dispatchLine(allocator, &fake, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"scenario.validate\",\"params\":{\"path\":\"zig-cache-test-rpc-scenario-validate/invalid.json\"}}", writer);
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"id\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"path\":\"zig-cache-test-rpc-scenario-validate/valid.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"name\":\"RPC validation\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"appId\":\"com.example.mobiletest\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"stepCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"nextCommands\":[\"zmr run zig-cache-test-rpc-scenario-validate/valid.json --json --trace-dir traces/zmr-run\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"id\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ok\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"errorCode\":\"selector.invalid\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"fieldPath\":\"$.steps[].selector\"") != null);
+}
+
 test "json rpc protocol fixtures match exact core session responses" {
     const allocator = std.testing.allocator;
 

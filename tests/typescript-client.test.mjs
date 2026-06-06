@@ -18,6 +18,7 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     assert.ok(capabilities.methods.includes("observe.snapshot"));
     assert.ok(capabilities.methods.includes("assert.healthy"));
     assert.ok(capabilities.methods.includes("scenario.validate"));
+    assert.ok(capabilities.methods.includes("trace.explain"));
     assert.ok(capabilities.methods.includes("trace.discover"));
     assert.equal(capabilities.iosPreview, false);
     assert.equal(capabilities.platformSupport.ios.status, "supported");
@@ -52,6 +53,15 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     const events = await client.traceEvents(0, { limit: 10 });
     assert.equal(events.nextSeq, 2);
     assert.equal(events.events[0].kind, "rpc.request");
+
+    const explanation = await client.explainTrace();
+    assert.equal(explanation.traceDir, "traces/client");
+    assert.equal(explanation.scenario, "client session");
+    assert.equal(explanation.status, "failed");
+    assert.equal(explanation.error, "WaitTimeout");
+    assert.equal(explanation.diagnostic.kind, "wait.visible");
+    assert.deepEqual(explanation.diagnostic.visibleTexts, ["Home", "Retry"]);
+    assert.ok(explanation.nextCommands.includes("zmr explain traces/client --json"));
 
     const discovered = await client.discoverTrace(".zmr/discovered/client.json", {
       includeActions: true,

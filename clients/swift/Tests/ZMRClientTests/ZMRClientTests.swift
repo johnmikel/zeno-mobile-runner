@@ -15,6 +15,7 @@ final class ZMRClientTests: XCTestCase {
         XCTAssertEqual(capabilities["protocolVersion"] as? String, "2026-04-28")
         let methods = capabilities["methods"] as? [String]
         XCTAssertEqual(methods?.contains("assert.healthy"), true)
+        XCTAssertEqual(methods?.contains("trace.explain"), true)
 
         XCTAssertEqual(try client.assertHealthy(timeoutMs: 1000), true)
         let snapshot = try client.snapshot()
@@ -39,6 +40,16 @@ final class ZMRClientTests: XCTestCase {
         XCTAssertEqual(replay?["stepCount"] as? Int, 1)
         let discoveredValidation = discovered["validation"] as? [String: Any]
         XCTAssertEqual(discoveredValidation?["ok"] as? Bool, true)
+
+        let explanation = try client.explainTrace()
+        XCTAssertEqual(explanation["traceDir"] as? String, "traces/client")
+        XCTAssertEqual(explanation["scenario"] as? String, "client session")
+        XCTAssertEqual(explanation["status"] as? String, "failed")
+        XCTAssertEqual(explanation["error"] as? String, "WaitTimeout")
+        let diagnostic = explanation["diagnostic"] as? [String: Any]
+        XCTAssertEqual(diagnostic?["kind"] as? String, "wait.visible")
+        XCTAssertEqual(diagnostic?["visibleTexts"] as? [String], ["Home", "Retry"])
+        XCTAssertTrue((explanation["nextCommands"] as? [String])?.contains("zmr explain traces/client --json") == true)
 
         let validation = try client.validateScenario(path: ".zmr/discovered/swift-client.json")
         XCTAssertEqual(validation["ok"] as? Bool, true)

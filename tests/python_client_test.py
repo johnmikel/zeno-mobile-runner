@@ -24,6 +24,7 @@ class PythonClientTest(unittest.TestCase):
             self.assertIn("observe.snapshot", capabilities["methods"])
             self.assertIn("assert.healthy", capabilities["methods"])
             self.assertIn("scenario.validate", capabilities["methods"])
+            self.assertIn("trace.explain", capabilities["methods"])
             self.assertIn("trace.discover", capabilities["methods"])
             self.assertFalse(capabilities["iosPreview"])
             self.assertEqual(capabilities["platformSupport"]["ios"]["status"], "supported")
@@ -56,6 +57,15 @@ class PythonClientTest(unittest.TestCase):
             events = client.trace_events(0, limit=10)
             self.assertEqual(events["nextSeq"], 2)
             self.assertEqual(events["events"][0]["kind"], "rpc.request")
+
+            explanation = client.explain_trace()
+            self.assertEqual(explanation["traceDir"], "traces/client")
+            self.assertEqual(explanation["scenario"], "client session")
+            self.assertEqual(explanation["status"], "failed")
+            self.assertEqual(explanation["error"], "WaitTimeout")
+            self.assertEqual(explanation["diagnostic"]["kind"], "wait.visible")
+            self.assertEqual(explanation["diagnostic"]["visibleTexts"], ["Home", "Retry"])
+            self.assertIn("zmr explain traces/client --json", explanation["nextCommands"])
 
             discovered = client.discover_trace(
                 ".zmr/discovered/python-client.json",

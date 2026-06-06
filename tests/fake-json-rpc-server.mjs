@@ -52,6 +52,7 @@ rl.on("line", (line) => {
         "assert.healthy",
         "scenario.validate",
         "trace.events",
+        "trace.explain",
         "trace.discover",
         "trace.export",
       ],
@@ -149,6 +150,31 @@ rl.on("line", (line) => {
       events: [
         { seq: 1, timestampMs: 1, kind: "rpc.request", payload: { method: "session.create", id: 1 } },
         { seq: 2, timestampMs: 2, kind: "rpc.response", payload: { method: "session.create", id: 1 } },
+      ],
+    };
+  } else if (method === "trace.explain") {
+    result = {
+      ok: true,
+      traceDir: "traces/client",
+      scenario: "client session",
+      status: "failed",
+      appId: "com.example.mobiletest",
+      durationMs: 100,
+      eventCount: 4,
+      snapshotCount: 1,
+      failedStepIndex: 2,
+      error: "WaitTimeout",
+      diagnostic: {
+        kind: "wait.visible",
+        status: "timeout",
+        snapshotId: "snapshot-7",
+        visibleTexts: ["Home", "Retry"],
+      },
+      lastEvent: "scenario.end",
+      nextCommands: [
+        "zmr report traces/client --out traces/client/report.html --junit traces/client/junit.xml",
+        "zmr explain traces/client --json",
+        "zmr export traces/client --out traces/client.zmrtrace --redact",
       ],
     };
   } else if (method === "trace.discover") {

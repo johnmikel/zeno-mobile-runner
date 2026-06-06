@@ -198,6 +198,7 @@ require_grep 'MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and' C
 require_grep 'MCP `open_link`, unscoped `type`, and `press_back` trace events' CHANGELOG.md
 require_grep 'MCP `trace_events` cursor metadata' CHANGELOG.md
 require_grep 'JSON-RPC `trace.explain` and MCP `trace_explain`' CHANGELOG.md
+require_grep 'TypeScript, Python, Go, Rust, Swift, and Kotlin trace explanation helpers' CHANGELOG.md
 require_grep '`trace.discover` records a `trace.discover` event' CHANGELOG.md
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
 require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
@@ -250,10 +251,17 @@ require_grep 'zmr explore --goal' docs/agent-discovery.md
 require_grep 'human review before committing generated tests' docs/agent-discovery.md
 require_grep 'DiscoverTrace' docs/clients.md
 require_grep 'ValidateScenario' docs/clients.md
+require_grep 'ExplainTrace' docs/clients.md
 require_grep 'discover_trace' docs/clients.md
 require_grep 'validate_scenario' docs/clients.md
+require_grep 'explain_trace' docs/clients.md
 require_grep 'discoverTrace' docs/clients.md
 require_grep 'validateScenario' docs/clients.md
+require_grep 'explainTrace' docs/clients.md
+require_grep 'trace.explain' docs/clients.md
+require_grep 'explainTrace' clients/README.md
+require_grep 'explain_trace' clients/README.md
+require_grep 'ExplainTrace' clients/README.md
 
 require_grep 'ZMR scenarios are JSON' docs/scenario-authoring.md
 require_grep 'resource ids or accessibility identifiers' docs/scenario-authoring.md

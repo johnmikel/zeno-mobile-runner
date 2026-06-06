@@ -40,14 +40,20 @@ func TestClientDrivesFakeSession(t *testing.T) {
 		t.Fatalf("unexpected iOS platform support: %+v", iosSupport)
 	}
 	foundAssertHealthy := false
+	foundTraceExplain := false
 	for _, method := range capabilities.Methods {
 		if method == "assert.healthy" {
 			foundAssertHealthy = true
-			break
+		}
+		if method == "trace.explain" {
+			foundTraceExplain = true
 		}
 	}
 	if !foundAssertHealthy {
 		t.Fatalf("capabilities missing assert.healthy: %+v", capabilities.Methods)
+	}
+	if !foundTraceExplain {
+		t.Fatalf("capabilities missing trace.explain: %+v", capabilities.Methods)
 	}
 
 	session, err := client.CreateSession(ctx)
@@ -164,6 +170,14 @@ func TestClientDrivesFakeSession(t *testing.T) {
 	}
 	if events.NextSeq != 2 || len(events.Events) == 0 || events.Events[0]["kind"] != "rpc.request" {
 		t.Fatalf("unexpected events: %+v", events)
+	}
+
+	explanation, err := client.ExplainTrace(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explanation.TraceDir != "traces/client" || explanation.Scenario != "client session" || explanation.Status != "failed" || explanation.Error != "WaitTimeout" || explanation.Diagnostic == nil || explanation.Diagnostic.Kind != "wait.visible" || len(explanation.Diagnostic.VisibleTexts) != 2 || explanation.Diagnostic.VisibleTexts[0] != "Home" || len(explanation.NextCommands) == 0 {
+		t.Fatalf("unexpected explanation: %+v", explanation)
 	}
 
 	discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-client.json", TraceDiscoverOptions{

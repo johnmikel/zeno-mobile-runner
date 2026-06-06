@@ -12,6 +12,7 @@ defer client.Close()
 
 snapshot, err := client.Snapshot(ctx)
 healthy, err := client.AssertHealthy(ctx, 1000)
+explanation, err := client.ExplainTrace(ctx)
 discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-agent.json", zmr.TraceDiscoverOptions{
     IncludeActions: true,
     Validate: true,

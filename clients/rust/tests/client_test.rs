@@ -25,6 +25,10 @@ fn client_drives_fake_session() {
         .methods
         .iter()
         .any(|method| method == "assert.healthy"));
+    assert!(capabilities
+        .methods
+        .iter()
+        .any(|method| method == "trace.explain"));
     assert!(!capabilities.ios_preview);
     let ios_support = capabilities.platform_support.get("ios").unwrap();
     assert_eq!(ios_support.status, "supported");
@@ -101,6 +105,19 @@ fn client_drives_fake_session() {
     let events = client.trace_events(0, Some(10)).unwrap();
     assert_eq!(events.next_seq, 2);
     assert_eq!(events.events[0]["kind"], "rpc.request");
+
+    let explanation = client.explain_trace().unwrap();
+    assert_eq!(explanation.trace_dir, "traces/client");
+    assert_eq!(explanation.scenario, "client session");
+    assert_eq!(explanation.status, "failed");
+    assert_eq!(explanation.error.as_deref(), Some("WaitTimeout"));
+    let diagnostic = explanation.diagnostic.as_ref().unwrap();
+    assert_eq!(diagnostic.kind, "wait.visible");
+    assert_eq!(diagnostic.visible_texts, vec!["Home", "Retry"]);
+    assert!(explanation
+        .next_commands
+        .iter()
+        .any(|command| command == "zmr explain traces/client --json"));
 
     let discovered = client
         .discover_trace(

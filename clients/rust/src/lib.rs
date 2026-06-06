@@ -205,6 +205,64 @@ pub struct TraceEvents {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TraceDiagnostic {
+    pub kind: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default, rename = "snapshotId")]
+    pub snapshot_id: Option<String>,
+    #[serde(default, rename = "artifactStatus")]
+    pub artifact_status: Option<String>,
+    #[serde(default, rename = "semanticStatus")]
+    pub semantic_status: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default, rename = "screenshotArtifact")]
+    pub screenshot_artifact: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default, rename = "activePackage")]
+    pub active_package: Option<String>,
+    #[serde(default, rename = "activeActivity")]
+    pub active_activity: Option<String>,
+    #[serde(default, rename = "visibleTexts")]
+    pub visible_texts: Vec<String>,
+    #[serde(default, rename = "nearestTextMatches")]
+    pub nearest_text_matches: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TraceExplain {
+    pub ok: bool,
+    #[serde(rename = "traceDir")]
+    pub trace_dir: String,
+    pub scenario: String,
+    pub status: String,
+    #[serde(default, rename = "appId")]
+    pub app_id: Option<String>,
+    #[serde(default, rename = "durationMs")]
+    pub duration_ms: Option<i64>,
+    #[serde(default, rename = "eventCount")]
+    pub event_count: Option<i64>,
+    #[serde(default, rename = "snapshotCount")]
+    pub snapshot_count: Option<i64>,
+    #[serde(default, rename = "partialFailureCount")]
+    pub partial_failure_count: Option<i64>,
+    #[serde(default, rename = "failedStepIndex")]
+    pub failed_step_index: Option<i64>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub diagnostic: Option<TraceDiagnostic>,
+    #[serde(default, rename = "partialFailure")]
+    pub partial_failure: Option<TraceDiagnostic>,
+    #[serde(default, rename = "lastEvent")]
+    pub last_event: Option<String>,
+    #[serde(default, rename = "nextCommands")]
+    pub next_commands: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ValidationResult {
     pub ok: bool,
     pub path: String,
@@ -524,6 +582,10 @@ impl Client {
             params["limit"] = json!(limit);
         }
         self.request("trace.events", params)
+    }
+
+    pub fn explain_trace(&mut self) -> Result<TraceExplain, Error> {
+        self.request("trace.explain", json!({}))
     }
 
     pub fn discover_trace(

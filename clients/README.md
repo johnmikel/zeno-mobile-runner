@@ -19,10 +19,12 @@ actions instead of raw platform hierarchy classes.
 The TypeScript and Python clients expose the broadest app-facing control
 surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
-scenario validation, trace event polling, trace discovery, and trace export.
+scenario validation, trace event polling, trace explanation, trace discovery,
+and trace export.
 The Go and Rust clients also include typed scenario validation and trace
-discovery helpers. Swift and Kotlin include lightweight validation and
-discovery helpers for host-side agents in those ecosystems.
+explanation/discovery helpers. Swift and Kotlin include lightweight trace
+explanation, validation, and discovery helpers for host-side agents in those
+ecosystems.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.
@@ -65,6 +67,7 @@ from zmr_client import ZmrClient
 
 with ZmrClient("zmr", ["serve", "--transport", "stdio", "--config", ".zmr/config.json"]) as zmr:
     snapshot = zmr.snapshot()
+    explanation = zmr.explain_trace()
 ```
 
 ## Go
@@ -86,6 +89,7 @@ go run ./clients/go/examples/fake-session \
 client, err := zmr.Start(ctx, "zmr", "serve", "--transport", "stdio", "--config", ".zmr/config.json")
 discovered, err := client.DiscoverTrace(ctx, ".zmr/discovered/go-agent.json", zmr.TraceDiscoverOptions{IncludeActions: true, Validate: true, Force: true})
 validation, err := client.ValidateScenario(ctx, discovered.Out)
+explanation, err := client.ExplainTrace(ctx)
 ```
 
 ## Rust
@@ -121,6 +125,7 @@ let discovered = client.discover_trace(".zmr/discovered/rust-agent.json", zmr_cl
     ..Default::default()
 })?;
 let validation = client.validate_scenario(&discovered.out)?;
+let explanation = client.explain_trace()?;
 ```
 
 ## Swift
@@ -147,6 +152,7 @@ let discovered = try client.discoverTrace(
     options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
 )
 let validation = try client.validateScenario(path: out)
+let explanation = try client.explainTrace()
 client.close()
 ```
 
@@ -169,6 +175,7 @@ val discovered = client.discoverTrace(
     TraceDiscoverOptions(includeActions = true, validate = true, force = true)
 )
 val validation = client.validateScenario(out)
+val explanation = client.explainTrace()
 ```
 
 Kotlin is useful for Android teams that want host-side orchestration in Kotlin.

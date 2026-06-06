@@ -179,6 +179,9 @@ class ZmrClient:
             params["limit"] = limit
         return self.request("trace.events", params)
 
+    def explain_trace(self):
+        return self.request("trace.explain")
+
     def discover_trace(self, out, include_actions=False, validate=False, force=False, name=None, app_id=None):
         params = {
             "out": out,

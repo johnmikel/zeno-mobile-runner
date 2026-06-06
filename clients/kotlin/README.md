@@ -38,6 +38,7 @@ val discovered = client.discoverTrace(
     TraceDiscoverOptions(includeActions = true, validate = true, force = true)
 )
 val validation = client.validateScenario(out)
+val explanation = client.explainTrace()
 client.close()
 ```
 

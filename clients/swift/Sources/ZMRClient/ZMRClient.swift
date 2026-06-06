@@ -150,6 +150,13 @@ public final class ZMRClient {
         return result
     }
 
+    public func explainTrace() throws -> [String: Any] {
+        guard let result = try call("trace.explain", params: [:]) as? [String: Any] else {
+            throw ZMRError.invalidResponse
+        }
+        return result
+    }
+
     private func readLineData() throws -> Data {
         var data = Data()
         while true {

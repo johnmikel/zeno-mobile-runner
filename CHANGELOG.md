@@ -20,6 +20,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added JSON-RPC `trace.explain` and MCP `trace_explain` so live agents can
   get the same failure summary, diagnostics, and next commands as
   `zmr explain --json` without leaving the session.
+- Added TypeScript, Python, Go, Rust, Swift, and Kotlin trace explanation helpers
+  so reference clients can call JSON-RPC `trace.explain` directly.
 - Added trace discovery auditing: `trace.discover` records a `trace.discover` event
   for JSON-RPC and MCP agent sessions so generated scenario candidates are
   visible in the trace.

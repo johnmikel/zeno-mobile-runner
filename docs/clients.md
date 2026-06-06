@@ -23,6 +23,7 @@ Then it sends JSON-RPC methods such as:
 - `assert.healthy`
 - `scenario.validate`
 - `trace.events`
+- `trace.explain`
 - `trace.discover`
 - `trace.export`
 
@@ -39,12 +40,12 @@ even when normal page text is also present.
 
 | Language | Files | Why it looks this way |
 | --- | --- | --- |
-| TypeScript | `clients/typescript/index.mjs`, `index.d.ts` | ESM runtime plus type declarations, no build step required |
-| Python | `clients/python/zmr_client.py`, `pyproject.toml` | Standard-library importable module that can be vendored or pip-installed from source |
-| Go | `clients/go/zmr/client.go` | Normal Go package inside a module, including `DiscoverTrace` and `ValidateScenario` helpers |
-| Rust | `clients/rust/src/lib.rs` | Cargo library crate convention, including `discover_trace` and `validate_scenario` helpers |
-| Swift | `clients/swift/Sources/ZMRClient/ZMRClient.swift` | SwiftPM package for macOS host-side tools, including `discoverTrace` and `validateScenario` helpers |
-| Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt` | Gradle/Kotlin source package for JVM host-side tools, including `discoverTrace` and `validateScenario` helpers |
+| TypeScript | `clients/typescript/index.mjs`, `index.d.ts` | ESM runtime plus type declarations, including `explainTrace`, `discoverTrace`, and `validateScenario` helpers |
+| Python | `clients/python/zmr_client.py`, `pyproject.toml` | Standard-library importable module with `explain_trace`, `discover_trace`, and `validate_scenario` helpers |
+| Go | `clients/go/zmr/client.go` | Normal Go package inside a module, including `ExplainTrace`, `DiscoverTrace`, and `ValidateScenario` helpers |
+| Rust | `clients/rust/src/lib.rs` | Cargo library crate convention, including `explain_trace`, `discover_trace`, and `validate_scenario` helpers |
+| Swift | `clients/swift/Sources/ZMRClient/ZMRClient.swift` | SwiftPM package for macOS host-side tools, including `explainTrace`, `discoverTrace`, and `validateScenario` helpers |
+| Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt` | Gradle/Kotlin source package for JVM host-side tools, including `explainTrace`, `discoverTrace`, and `validateScenario` helpers |
 
 Rust has `src/lib.rs` because Cargo expects a library crate there. The other
 clients do have equivalent entry points; they are just idiomatic for their

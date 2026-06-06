@@ -25,6 +25,7 @@ let discovered = try client.discoverTrace(
     options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
 )
 let validation = try client.validateScenario(path: out)
+let explanation = try client.explainTrace()
 client.close()
 ```
 

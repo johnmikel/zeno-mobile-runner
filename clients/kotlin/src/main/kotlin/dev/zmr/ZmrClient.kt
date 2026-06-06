@@ -42,6 +42,8 @@ class ZmrClient(
     fun validateScenario(path: String): String =
         call("scenario.validate", """{"path":"${escapeJson(path)}"}""")
 
+    fun explainTrace(): String = call("trace.explain")
+
     fun discoverTrace(out: String, options: TraceDiscoverOptions = TraceDiscoverOptions()): String {
         val fields = mutableListOf(""""out":"${escapeJson(out)}"""")
         if (options.includeActions) fields.add(""""includeActions":true""")

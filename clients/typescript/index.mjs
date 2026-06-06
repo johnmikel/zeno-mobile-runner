@@ -158,6 +158,10 @@ export class ZmrClient {
     return this.request("trace.events", { afterSeq, ...options });
   }
 
+  explainTrace() {
+    return this.request("trace.explain", {});
+  }
+
   discoverTrace(out, options = {}) {
     return this.request("trace.discover", { out, ...options });
   }

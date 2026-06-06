@@ -10,6 +10,7 @@ let mut client = zmr_client::Client::start(
 )?;
 let snapshot = client.snapshot()?;
 let healthy = client.assert_healthy(Some(1000))?;
+let explanation = client.explain_trace()?;
 let discovered = client.discover_trace(
     ".zmr/discovered/rust-agent.json",
     zmr_client::TraceDiscoverOptions {

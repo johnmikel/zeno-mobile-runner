@@ -134,6 +134,39 @@ type TraceEvents struct {
 	Events    []map[string]interface{} `json:"events"`
 }
 
+type TraceDiagnostic struct {
+	Kind               string   `json:"kind"`
+	Status             string   `json:"status,omitempty"`
+	SnapshotID         string   `json:"snapshotId,omitempty"`
+	ArtifactStatus     string   `json:"artifactStatus,omitempty"`
+	SemanticStatus     string   `json:"semanticStatus,omitempty"`
+	Error              string   `json:"error,omitempty"`
+	ScreenshotArtifact string   `json:"screenshotArtifact,omitempty"`
+	Source             string   `json:"source,omitempty"`
+	ActivePackage      string   `json:"activePackage,omitempty"`
+	ActiveActivity     string   `json:"activeActivity,omitempty"`
+	VisibleTexts       []string `json:"visibleTexts,omitempty"`
+	NearestTextMatches []string `json:"nearestTextMatches,omitempty"`
+}
+
+type TraceExplain struct {
+	OK                  bool             `json:"ok"`
+	TraceDir            string           `json:"traceDir"`
+	Scenario            string           `json:"scenario"`
+	Status              string           `json:"status"`
+	AppID               string           `json:"appId,omitempty"`
+	DurationMS          int64            `json:"durationMs,omitempty"`
+	EventCount          int64            `json:"eventCount,omitempty"`
+	SnapshotCount       int64            `json:"snapshotCount,omitempty"`
+	PartialFailureCount int64            `json:"partialFailureCount,omitempty"`
+	FailedStepIndex     int64            `json:"failedStepIndex,omitempty"`
+	Error               string           `json:"error,omitempty"`
+	Diagnostic          *TraceDiagnostic `json:"diagnostic,omitempty"`
+	PartialFailure      *TraceDiagnostic `json:"partialFailure,omitempty"`
+	LastEvent           string           `json:"lastEvent,omitempty"`
+	NextCommands        []string         `json:"nextCommands"`
+}
+
 type TraceExport struct {
 	TraceDir        string `json:"traceDir"`
 	Out             string `json:"out"`
@@ -483,6 +516,12 @@ func (c *Client) TraceEvents(ctx context.Context, afterSeq int64, limit int64) (
 		params["limit"] = limit
 	}
 	err := c.Request(ctx, "trace.events", params, &out)
+	return out, err
+}
+
+func (c *Client) ExplainTrace(ctx context.Context) (TraceExplain, error) {
+	var out TraceExplain
+	err := c.Request(ctx, "trace.explain", map[string]interface{}{}, &out)
 	return out, err
 }
 

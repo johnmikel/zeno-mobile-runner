@@ -13,6 +13,7 @@ class ZmrClientTest {
             val capabilities = client.call("runner.capabilities")
             assertTrue(capabilities.contains("\"protocolVersion\":\"2026-04-28\""))
             assertTrue(capabilities.contains("\"assert.healthy\""))
+            assertTrue(capabilities.contains("\"trace.explain\""))
 
             val healthy = client.assertHealthy(timeoutMs = 1000)
             assertTrue(healthy.contains("\"result\":true"))
@@ -34,6 +35,15 @@ class ZmrClientTest {
             assertTrue(discovered.contains("\"out\":\".zmr/discovered/kotlin-client.json\""))
             assertTrue(discovered.contains("\"appId\":\"com.example.kotlin\""))
             assertTrue(discovered.contains("\"validated\":true"))
+
+            val explanation = client.explainTrace()
+            assertTrue(explanation.contains("\"traceDir\":\"traces/client\""))
+            assertTrue(explanation.contains("\"scenario\":\"client session\""))
+            assertTrue(explanation.contains("\"status\":\"failed\""))
+            assertTrue(explanation.contains("\"error\":\"WaitTimeout\""))
+            assertTrue(explanation.contains("\"kind\":\"wait.visible\""))
+            assertTrue(explanation.contains("\"visibleTexts\":[\"Home\",\"Retry\"]"))
+            assertTrue(explanation.contains("zmr explain traces/client --json"))
 
             val validation = client.validateScenario(".zmr/discovered/kotlin-client.json")
             assertTrue(validation.contains("\"ok\":true"))

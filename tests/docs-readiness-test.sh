@@ -235,6 +235,10 @@ require_grep 'pilot wrapper run that produced both `report.html` and `junit.xml`
 require_grep 'CI runs retain `traces/`, `zig-cache/coverage/`, and `zig-out/bin/zmr` for 14' docs/production-readiness.md
 require_grep 'workflow artifact for 30 days' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
+require_grep 'npm login --auth-type=web' docs/npm.md
+require_grep 'npm whoami' docs/npm.md
+require_grep 'npm publish ./dist/zeno-mobile-runner-<version>.tgz --access public' docs/npm.md
+require_grep 'If npm returns `E403`' docs/npm.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'trace-backed, not an unbounded crawler' docs/agent-discovery.md
 require_grep 'zmr explore --from-trace traces/zmr-agent' docs/agent-discovery.md

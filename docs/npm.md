@@ -361,6 +361,40 @@ Trusted publishing requires a current npm runtime. The tag workflow uses Node
 24 so the npm CLI can exchange the GitHub Actions OIDC identity for publish
 authorization.
 
+### Manual publish with passkey or 2FA
+
+Use trusted publishing for normal tagged releases. If you need to publish a
+verified local tarball manually, authenticate first:
+
+```bash
+npm login --auth-type=web
+npm whoami
+```
+
+The browser/passkey step must finish before publishing. If `npm whoami` returns
+`E401 Unauthorized`, the local machine is not authenticated and `npm publish`
+will fail.
+
+Build and verify the package before publishing:
+
+```bash
+./scripts/ci-gate.sh
+npm pack --dry-run --json
+npm run pack:npm
+```
+
+Publish the generated tarball from `dist/`:
+
+```bash
+npm publish ./dist/zeno-mobile-runner-<version>.tgz --access public
+```
+
+If npm returns `E403` with a two-factor authentication message, the account or
+organization requires either a current interactive 2FA challenge or a granular
+automation token configured to bypass 2FA. For local passkey accounts, rerun
+`npm login --auth-type=web`, complete the passkey challenge in the browser, and
+confirm `npm whoami` before retrying the same `npm publish` command.
+
 ## Node API
 
 ```js

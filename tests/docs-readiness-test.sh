@@ -105,6 +105,7 @@ require_grep 'It does not crawl the app' README.md
 require_grep 'Unsupported or underspecified events are' README.md
 require_grep 'skipped with warnings instead of guessed' README.md
 require_grep 'redacted from the trace are also skipped' README.md
+require_grep 'Native selector wait traces include timeout context' README.md
 require_grep 'zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact' README.md
 require_grep 'For traced runs, `zmr run --json` returns executable `nextCommands`' README.md
 require_grep 'When an agent should produce the reviewable scenario in the same command' README.md
@@ -151,6 +152,7 @@ require_grep 'zmr run --discover-out <scenario.json> --json' FEATURES.md
 require_grep 'replay` coverage metadata' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
+require_grep 'Native selector wait traces include timeout context' FEATURES.md
 require_grep 'zmr report --junit <report.xml>' FEATURES.md
 require_grep 'Android and iOS pilot wrappers emit `junit.xml`' FEATURES.md
 require_grep 'HTML/JUnit report scripts' FEATURES.md
@@ -174,6 +176,7 @@ require_grep 'coordinate-complete `ui.swipe` trace replay' CHANGELOG.md
 require_grep 'traced `pressBack` replay parity' CHANGELOG.md
 require_grep 'direction and timeout preserving `scrollUntilVisible` trace replay' CHANGELOG.md
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
+require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md

@@ -11,9 +11,25 @@ pub fn record(
     selectors: []const selector.Selector,
     snap: types.ObservationSnapshot,
 ) !void {
+    try recordWithOptions(tw, kind, status, strategy, selectors, snap, .{});
+}
+
+pub const DiagnosticOptions = struct {
+    timeout_ms: ?u64 = null,
+};
+
+pub fn recordWithOptions(
+    tw: *trace.TraceWriter,
+    kind: []const u8,
+    status: []const u8,
+    strategy: ?[]const u8,
+    selectors: []const selector.Selector,
+    snap: types.ObservationSnapshot,
+    options: DiagnosticOptions,
+) !void {
     var payload = std.ArrayList(u8).empty;
     defer payload.deinit(tw.allocator);
-    try writeSelectorDiagnosticJson(payload.writer(tw.allocator), status, strategy, selectors, snap);
+    try writeSelectorDiagnosticJsonWithOptions(payload.writer(tw.allocator), status, strategy, selectors, snap, options);
     try tw.recordEvent(kind, payload.items);
 }
 
@@ -24,10 +40,24 @@ pub fn writeSelectorDiagnosticJson(
     selectors: []const selector.Selector,
     snap: types.ObservationSnapshot,
 ) !void {
+    try writeSelectorDiagnosticJsonWithOptions(writer, status, strategy, selectors, snap, .{});
+}
+
+pub fn writeSelectorDiagnosticJsonWithOptions(
+    writer: anytype,
+    status: []const u8,
+    strategy: ?[]const u8,
+    selectors: []const selector.Selector,
+    snap: types.ObservationSnapshot,
+    options: DiagnosticOptions,
+) !void {
     try writer.print("{{\"status\":\"{s}\"", .{status});
     if (strategy) |value| {
         try writer.writeAll(",\"strategy\":");
         try trace.writeJsonString(writer, value);
+    }
+    if (options.timeout_ms) |timeout_ms| {
+        try writer.print(",\"timeoutMs\":{d}", .{timeout_ms});
     }
     try writer.print(",\"snapshotId\":\"{s}\",\"selectors\":[", .{snap.id});
     for (selectors, 0..) |wanted, index| {

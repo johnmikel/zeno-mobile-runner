@@ -272,6 +272,9 @@ test "runner uses native selector queries for waits when a device exposes them" 
     const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.visible\",\"payload\":{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":{\"text\":\"Ready\"},\"timeoutMs\":1000}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.notVisible\",\"payload\":{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":{\"id\":\"gone\"},\"timeoutMs\":1000}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.any\",\"payload\":{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"matchedIndex\":1,\"selector\":{\"text\":\"Ready\"},\"timeoutMs\":1000}") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"matchedIndex\":1") != null);
 }
 
@@ -328,6 +331,7 @@ test "native selector wait timeouts include final snapshot diagnostics" {
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"snapshotId\":\"native-timeout-final\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"timeoutMs\":0") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"visibleTexts\":[\"Expo Dev Menu\"]") != null);
 }
 

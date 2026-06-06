@@ -20,11 +20,11 @@ pub fn waitUntilVisible(
     while (true) {
         if (try nativeVisibleBySelector(device, wanted)) |visible| {
             if (visible) {
-                if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.visible", wanted, null);
+                if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.visible", wanted, null, timeout_ms);
                 return true;
             }
             if (std.time.milliTimestamp() >= deadline) {
-                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.visible", &[_]selector.Selector{wanted});
+                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.visible", &[_]selector.Selector{wanted}, timeout_ms);
                 return false;
             }
             try sleepMs(options.poll_ms);
@@ -68,11 +68,11 @@ pub fn waitUntilNotVisible(
     while (true) {
         if (try nativeVisibleBySelector(device, wanted)) |visible| {
             if (!visible) {
-                if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.notVisible", wanted, null);
+                if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.notVisible", wanted, null, timeout_ms);
                 return true;
             }
             if (std.time.milliTimestamp() >= deadline) {
-                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.notVisible", &[_]selector.Selector{wanted});
+                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.notVisible", &[_]selector.Selector{wanted}, timeout_ms);
                 return false;
             }
             try sleepMs(options.poll_ms);
@@ -118,7 +118,7 @@ pub fn waitUntilAnyVisible(
         for (selectors, 0..) |wanted, index| {
             if (try nativeVisibleBySelector(device, wanted)) |visible| {
                 if (visible) {
-                    if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.any", wanted, index);
+                    if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.any", wanted, index, timeout_ms);
                     return index;
                 }
             } else {
@@ -128,7 +128,7 @@ pub fn waitUntilAnyVisible(
         }
         if (all_native) {
             if (std.time.milliTimestamp() >= deadline) {
-                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.any", selectors);
+                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.any", selectors, timeout_ms);
                 return null;
             }
             try sleepMs(options.poll_ms);

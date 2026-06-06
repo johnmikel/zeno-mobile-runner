@@ -13,21 +13,21 @@ pub fn eventString(allocator: std.mem.Allocator, value: []const u8) ![]const u8 
     return try buffer.toOwnedSlice(allocator);
 }
 
-pub fn recordNativeWait(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector, matched_index: ?usize) !void {
+pub fn recordNativeWait(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector, matched_index: ?usize, timeout_ms: u64) !void {
     var payload = std.ArrayList(u8).empty;
     defer payload.deinit(tw.allocator);
     try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\"");
     if (matched_index) |index| try payload.writer(tw.allocator).print(",\"matchedIndex\":{d}", .{index});
     try payload.writer(tw.allocator).writeAll(",\"selector\":");
     try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-    try payload.writer(tw.allocator).writeAll("}");
+    try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
     try tw.recordEvent(kind, payload.items);
 }
 
-pub fn recordNativeWaitTimeout(tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector) !void {
+pub fn recordNativeWaitTimeout(tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
     var payload = std.ArrayList(u8).empty;
     defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).writeAll("{\"status\":\"timeout\",\"strategy\":\"nativeSelector\",\"selectors\":[");
+    try payload.writer(tw.allocator).print("{{\"status\":\"timeout\",\"strategy\":\"nativeSelector\",\"timeoutMs\":{d},\"selectors\":[", .{timeout_ms});
     for (selectors, 0..) |wanted, index| {
         if (index > 0) try payload.writer(tw.allocator).writeAll(",");
         try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
@@ -36,13 +36,13 @@ pub fn recordNativeWaitTimeout(tw: *trace.TraceWriter, kind: []const u8, selecto
     try tw.recordEvent(kind, payload.items);
 }
 
-pub fn recordNativeWaitTimeoutWithDiagnostics(device: anytype, tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector) !void {
+pub fn recordNativeWaitTimeoutWithDiagnostics(device: anytype, tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
     var snap = device.snapshot(tw) catch {
-        try recordNativeWaitTimeout(tw, kind, selectors);
+        try recordNativeWaitTimeout(tw, kind, selectors, timeout_ms);
         return;
     };
     defer snap.deinit(device.allocator);
-    try recordDiagnosticWithStrategy(tw, kind, "timeout", "nativeSelector", selectors, snap);
+    try recordDiagnosticWithStrategyAndTimeout(tw, kind, "timeout", "nativeSelector", selectors, snap, timeout_ms);
 }
 
 pub fn recordSelectorEvent(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector) !void {
@@ -167,6 +167,18 @@ pub fn recordDiagnosticWithStrategy(
     snap: types.ObservationSnapshot,
 ) !void {
     try runner_diagnostics.record(tw, kind, status, strategy, selectors, snap);
+}
+
+pub fn recordDiagnosticWithStrategyAndTimeout(
+    tw: *trace.TraceWriter,
+    kind: []const u8,
+    status: []const u8,
+    strategy: ?[]const u8,
+    selectors: []const selector.Selector,
+    snap: types.ObservationSnapshot,
+    timeout_ms: u64,
+) !void {
+    try runner_diagnostics.recordWithOptions(tw, kind, status, strategy, selectors, snap, .{ .timeout_ms = timeout_ms });
 }
 
 pub fn writeSelectorDiagnosticJson(

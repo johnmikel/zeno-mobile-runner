@@ -16,6 +16,18 @@ git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zen
 
 Then depend on the `ZMRClient` product from `clients/swift`.
 
+```swift
+let client = ZMRClient(arguments: ["serve", "--transport", "stdio", "--config", ".zmr/config.json"])
+try client.start()
+let out = ".zmr/discovered/swift-agent.json"
+let discovered = try client.discoverTrace(
+    out: out,
+    options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
+)
+let validation = try client.validateScenario(path: out)
+client.close()
+```
+
 Run the package test from this directory:
 
 ```bash

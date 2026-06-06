@@ -21,8 +21,9 @@ surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
 scenario validation, trace event polling, trace discovery, and trace export.
 The Go and Rust clients also include typed scenario validation and trace
-discovery helpers. Swift and Kotlin remain smaller reference clients for teams
-that want to embed the protocol shape in those host-side ecosystems.
+discovery helpers. Swift includes lightweight validation and discovery helpers
+for macOS host-side agents. Kotlin remains a smaller reference client for teams
+that want to embed the protocol shape in that ecosystem.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.
@@ -136,6 +137,18 @@ git submodule add https://github.com/johnmikel/zeno-mobile-runner.git vendor/zen
 
 ```swift
 .package(path: "vendor/zeno-mobile-runner/clients/swift")
+```
+
+```swift
+let client = ZMRClient(arguments: ["serve", "--transport", "stdio", "--config", ".zmr/config.json"])
+try client.start()
+let out = ".zmr/discovered/swift-agent.json"
+let discovered = try client.discoverTrace(
+    out: out,
+    options: TraceDiscoverOptions(includeActions: true, validate: true, force: true)
+)
+let validation = try client.validateScenario(path: out)
+client.close()
 ```
 
 Swift is useful for macOS host-side automation next to iOS app code. It is not

@@ -6,6 +6,28 @@ public enum ZMRError: Error {
     case rpcError([String: Any])
 }
 
+public struct TraceDiscoverOptions {
+    public var includeActions: Bool
+    public var validate: Bool
+    public var force: Bool
+    public var name: String?
+    public var appId: String?
+
+    public init(
+        includeActions: Bool = false,
+        validate: Bool = false,
+        force: Bool = false,
+        name: String? = nil,
+        appId: String? = nil
+    ) {
+        self.includeActions = includeActions
+        self.validate = validate
+        self.force = force
+        self.name = name
+        self.appId = appId
+    }
+}
+
 public final class ZMRClient {
     private let process: Process
     private let input: FileHandle
@@ -93,6 +115,36 @@ public final class ZMRClient {
             params["timeoutMs"] = timeoutMs
         }
         guard let result = try call("assert.healthy", params: params) as? Bool else {
+            throw ZMRError.invalidResponse
+        }
+        return result
+    }
+
+    public func validateScenario(path: String) throws -> [String: Any] {
+        guard let result = try call("scenario.validate", params: ["path": path]) as? [String: Any] else {
+            throw ZMRError.invalidResponse
+        }
+        return result
+    }
+
+    public func discoverTrace(out: String, options: TraceDiscoverOptions = TraceDiscoverOptions()) throws -> [String: Any] {
+        var params: [String: Any] = ["out": out]
+        if options.includeActions {
+            params["includeActions"] = true
+        }
+        if options.validate {
+            params["validate"] = true
+        }
+        if options.force {
+            params["force"] = true
+        }
+        if let name = options.name {
+            params["name"] = name
+        }
+        if let appId = options.appId {
+            params["appId"] = appId
+        }
+        guard let result = try call("trace.discover", params: params) as? [String: Any] else {
             throw ZMRError.invalidResponse
         }
         return result

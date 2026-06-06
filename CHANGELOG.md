@@ -52,6 +52,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   without guessing missing coordinates.
 - Added traced `pressBack` replay parity for `zmr run`, so generated replay
   scenarios preserve back-navigation steps from ordinary scenario runs.
+- Added direction and timeout preserving `scrollUntilVisible` trace replay so
+  generated scenarios keep the original scroll intent from traced runs and
+  live agent sessions.
 - Added `zmr report --junit <report.xml>` so trace directories and benchmark
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
 - Updated generated app report and reliability scripts to write `junit.xml`

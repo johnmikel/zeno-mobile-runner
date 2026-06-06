@@ -113,8 +113,9 @@ ZMR as the deterministic mobile control plane.
 
    Replay drafts include only supported events with stable replay data, such as
    launch, deep links, selector taps, selector text entry, waits, back, keyboard
-   hiding, coordinate-complete swipes, and selector scrolls. Unsupported events
-   stay out of the scenario and are reported as warnings.
+   hiding, coordinate-complete swipes, and direction/timeout-preserving selector
+   scrolls. Unsupported events stay out of the scenario and are reported as
+   warnings.
 
 12. Edit the draft or discovery output into a candidate flow, for example
    `.zmr/discovered/login-smoke.json`, by copying only steps that were observed

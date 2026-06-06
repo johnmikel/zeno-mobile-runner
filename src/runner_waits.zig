@@ -233,7 +233,10 @@ pub fn scrollUntilVisible(
                 defer payload.deinit(tw.allocator);
                 try payload.writer(tw.allocator).print("{{\"status\":\"ok\",\"target\":\"{s}\",\"selector\":", .{node.stable_id});
                 try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                try payload.writer(tw.allocator).writeAll("}");
+                try payload.writer(tw.allocator).print(",\"direction\":\"{s}\",\"timeoutMs\":{d}}}", .{
+                    if (direction == .down) "down" else "up",
+                    timeout_ms,
+                });
                 try tw.recordEvent("ui.scrollUntilVisible", payload.items);
             }
             return true;

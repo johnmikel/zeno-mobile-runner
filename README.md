@@ -186,7 +186,8 @@ zmr validate --json .zmr/discovered/replay-smoke.json
 
 Replay drafts only use trace events with enough stable data to reproduce them,
 such as launch, deep links, selector taps, selector text entry, waits, back,
-keyboard hiding, coordinate-complete swipes, and selector scrolls.
+keyboard hiding, coordinate-complete swipes, and direction/timeout-preserving
+selector scrolls.
 Unsupported or underspecified events are skipped with warnings instead of guessed.
 Text entry events whose text was redacted from the trace are also skipped.
 

@@ -342,7 +342,7 @@ fn replayStepJson(
     if (std.mem.eql(u8, kind, "ui.scrollUntilVisible")) {
         const selector_value = payload.get("selector") orelse return try warnMissingReplayField(allocator, owned, kind);
         if (selector_value != .object) return try warnMissingReplayField(allocator, owned, kind);
-        return try actionWithSelector(allocator, owned, "scrollUntilVisible", selector_value);
+        return try actionWithScrollUntilVisible(allocator, owned, selector_value, optionalScrollDirection(payload), optionalUsize(payload, "timeoutMs"));
     }
     if (std.mem.eql(u8, kind, "assert.healthy")) {
         return try ownString(allocator, owned, "{\"action\":\"assertHealthy\"}");
@@ -698,6 +698,27 @@ fn actionWithSwipe(
     return try ownBytes(allocator, owned, buffer.items);
 }
 
+fn actionWithScrollUntilVisible(
+    allocator: std.mem.Allocator,
+    owned: *OwnedDraft,
+    selector_value: std.json.Value,
+    direction: ?[]const u8,
+    timeout_ms: ?usize,
+) ![]const u8 {
+    var buffer = std.ArrayList(u8).empty;
+    defer buffer.deinit(allocator);
+    const writer = buffer.writer(allocator);
+    try writer.writeAll("{\"action\":\"scrollUntilVisible\",\"selector\":");
+    try writeJsonValue(writer, selector_value);
+    if (direction) |actual| {
+        try writer.writeAll(",\"direction\":");
+        try trace.writeJsonString(writer, actual);
+    }
+    if (timeout_ms) |actual| try writer.print(",\"timeoutMs\":{d}", .{actual});
+    try writer.writeAll("}");
+    return try ownBytes(allocator, owned, buffer.items);
+}
+
 fn warnMissingReplayField(
     allocator: std.mem.Allocator,
     owned: *OwnedDraft,
@@ -813,6 +834,12 @@ fn optionalString(object: std.json.ObjectMap, key: []const u8) ?[]const u8 {
         .string => |actual| if (actual.len > 0) actual else null,
         else => null,
     };
+}
+
+fn optionalScrollDirection(object: std.json.ObjectMap) ?[]const u8 {
+    const value = optionalString(object, "direction") orelse return null;
+    if (std.mem.eql(u8, value, "down") or std.mem.eql(u8, value, "up")) return value;
+    return null;
 }
 
 fn nonEmptyString(object: std.json.ObjectMap, key: []const u8) ?[]const u8 {

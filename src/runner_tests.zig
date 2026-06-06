@@ -347,6 +347,8 @@ test "runner assertion traces preserve replay metadata" {
         for (snapshots.items) |snap| snap.deinit(allocator);
         snapshots.deinit(allocator);
     }
+    try appendTextSnapshot(allocator, &snapshots, "assert-visible", "Assert Me", .{});
+    try appendTextSnapshot(allocator, &snapshots, "assert-not-visible", "Home", .{});
     try appendTextSnapshot(allocator, &snapshots, "assert-none-visible", "Home", .{});
     try appendTextSnapshot(allocator, &snapshots, "assert-healthy", "Still healthy", .{});
 
@@ -360,6 +362,8 @@ test "runner assertion traces preserve replay metadata" {
         \\{
         \\  "name": "assertion replay metadata",
         \\  "steps": [
+        \\    {"action": "assertVisible", "selector": {"text": "Assert Me"}, "timeoutMs": 3456},
+        \\    {"action": "assertNotVisible", "selector": {"text": "Missing Toast"}, "timeoutMs": 4567},
         \\    {"action": "assertNoneVisible", "selectors": [{"textContains": "Crash"}, {"textContains": "Fatal"}], "timeoutMs": 1234},
         \\    {"action": "assertHealthy", "timeoutMs": 2345}
         \\  ]
@@ -374,6 +378,8 @@ test "runner assertion traces preserve replay metadata" {
     defer allocator.free(events_path);
     const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.visible\",\"payload\":{\"status\":\"ok\",\"target\":\"node-assert-visible\",\"selector\":{\"text\":\"Assert Me\"},\"timeoutMs\":3456}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.notVisible\",\"payload\":{\"status\":\"ok\",\"selector\":{\"text\":\"Missing Toast\"},\"timeoutMs\":4567}") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.noneVisible\",\"payload\":{\"status\":\"ok\",\"selectors\":[{\"textContains\":\"Crash\"},{\"textContains\":\"Fatal\"}],\"timeoutMs\":1234}") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\",\"payload\":{\"status\":\"ok\",\"timeoutMs\":2345}") != null);
 }

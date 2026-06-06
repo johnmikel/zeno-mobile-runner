@@ -188,7 +188,8 @@ Replay drafts only use trace events with enough stable data to reproduce them,
 such as launch, deep links, selector taps, selector text entry,
 selector/timeout-preserving waits, back, keyboard hiding, coordinate-complete
 swipes, direction/timeout-preserving selector scrolls, `assertNoneVisible`
-selector arrays, and timed `assertHealthy` checks.
+selector arrays, selector/timeout-preserving `assertVisible` and
+`assertNotVisible`, and timed `assertHealthy` checks.
 Native selector wait traces include timeout context for successful waits and
 timeout diagnostics.
 Unsupported or underspecified events are skipped with warnings instead of guessed.

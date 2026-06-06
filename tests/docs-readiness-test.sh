@@ -106,6 +106,7 @@ require_grep 'Unsupported or underspecified events are' README.md
 require_grep 'skipped with warnings instead of guessed' README.md
 require_grep 'redacted from the trace are also skipped' README.md
 require_grep 'timed `assertHealthy` checks' README.md
+require_grep 'selector/timeout-preserving `assertVisible` and' README.md
 require_grep 'Native selector wait traces include timeout context' README.md
 require_grep 'zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact' README.md
 require_grep 'For traced runs, `zmr run --json` returns executable `nextCommands`' README.md
@@ -154,7 +155,8 @@ require_grep 'replay` coverage metadata' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
 require_grep 'Native selector wait traces include timeout context' FEATURES.md
-require_grep 'Assertion replay preserves `assertNoneVisible` selector arrays' FEATURES.md
+require_grep 'Assertion replay preserves `assertVisible` and `assertNotVisible` selectors' FEATURES.md
+require_grep '`assertNoneVisible` selector arrays, and `assertHealthy`' FEATURES.md
 require_grep 'zmr report --junit <report.xml>' FEATURES.md
 require_grep 'Android and iOS pilot wrappers emit `junit.xml`' FEATURES.md
 require_grep 'HTML/JUnit report scripts' FEATURES.md
@@ -180,6 +182,8 @@ require_grep 'direction and timeout preserving `scrollUntilVisible` trace replay
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
 require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
 require_grep 'replay metadata for successful `assertNoneVisible`' CHANGELOG.md
+require_grep 'selector and timeout preserving `assertVisible` and `assertNotVisible`' CHANGELOG.md
+require_grep 'assertion intent distinct from waits' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -214,6 +218,7 @@ require_grep '`nextCommands`; traced run' docs/agent-discovery.md
 require_grep '--discover-out .zmr/discovered/replay-smoke.json' docs/agent-discovery.md
 require_grep '`replay` coverage metadata' docs/agent-discovery.md
 require_grep 'coordinate-complete swipes' docs/agent-discovery.md
+require_grep 'selector/timeout-preserving' docs/agent-discovery.md
 require_grep 'timed `assertHealthy` checks' docs/agent-discovery.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discovery.md
@@ -252,7 +257,8 @@ require_grep '--discover-out .zmr/discovered/<name>.json' docs/ai-agents.md
 require_grep '`replay` coverage metadata' docs/ai-agents.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep '--include-actions' docs/ai-agents.md
-require_grep 'selector arrays for `assertNoneVisible`' docs/ai-agents.md
+require_grep 'selector and timeout data for `assertVisible` and `assertNotVisible`' docs/ai-agents.md
+require_grep 'arrays for `assertNoneVisible`' docs/ai-agents.md
 require_grep 'agent-discovery.md' docs/ai-agents.md
 require_grep 'zmr-mobile-testing' skills/zmr-mobile-testing/SKILL.md
 
@@ -284,6 +290,7 @@ require_grep 'zmr run <scenario.json> --trace-dir <trace-dir> --discover-out' do
 require_grep '"replay":{"enabled":true' docs/protocol.md
 require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
 require_grep 'zmr draft --include-actions' docs/protocol.md
+require_grep 'selector/timeout-preserving `assertVisible` and `assertNotVisible`' docs/protocol.md
 require_grep '`assertNoneVisible` selector arrays plus timed `assertHealthy` checks' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md
 require_grep 'schemas/discover-output.schema.json' docs/protocol.md

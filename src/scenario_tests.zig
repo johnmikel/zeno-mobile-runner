@@ -67,8 +67,8 @@ test "parse all simple action variants" {
         \\    {"action": "typeText", "text": "hello"},
         \\    {"action": "swipe", "x1": 1, "y1": 2, "x2": 3, "y2": 4},
         \\    {"action": "waitNotVisible", "selector": {"text": "Gone"}},
-        \\    {"action": "assertVisible", "selector": {"contentDesc": "Visible"}},
-        \\    {"action": "assertNotVisible", "selector": {"className": "android.widget.Toast"}},
+        \\    {"action": "assertVisible", "selector": {"contentDesc": "Visible"}, "timeoutMs": 1234},
+        \\    {"action": "assertNotVisible", "selector": {"className": "android.widget.Toast"}, "timeoutMs": 2345},
         \\    {"action": "scrollUntilVisible", "selector": {"text": "Target"}, "direction": "up"}
         \\  ]
         \\}
@@ -86,8 +86,10 @@ test "parse all simple action variants" {
     try std.testing.expectEqualStrings("hello", parsed.steps[7].type_text.text);
     try std.testing.expectEqual(@as(u32, 300), parsed.steps[8].swipe.duration_ms);
     try std.testing.expectEqualStrings("Gone", parsed.steps[9].wait_not_visible.selector.text.?);
-    try std.testing.expectEqualStrings("Visible", parsed.steps[10].assert_visible.content_desc.?);
-    try std.testing.expectEqualStrings("android.widget.Toast", parsed.steps[11].assert_not_visible.class_name.?);
+    try std.testing.expectEqualStrings("Visible", parsed.steps[10].assert_visible.selector.content_desc.?);
+    try std.testing.expectEqual(@as(?u64, 1234), parsed.steps[10].assert_visible.timeout_ms);
+    try std.testing.expectEqualStrings("android.widget.Toast", parsed.steps[11].assert_not_visible.selector.class_name.?);
+    try std.testing.expectEqual(@as(?u64, 2345), parsed.steps[11].assert_not_visible.timeout_ms);
     try std.testing.expectEqual(ScrollDirection.up, parsed.steps[12].scroll_until_visible.direction);
 }
 

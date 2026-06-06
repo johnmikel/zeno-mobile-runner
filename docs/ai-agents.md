@@ -125,8 +125,9 @@ zmr validate --json .zmr/discovered/replay-smoke.json
 
 Unsupported or underspecified events are skipped with warnings instead of being
 guessed. Supported replay steps preserve selector and timeout data for waits,
-selector arrays for `assertNoneVisible`, and timeouts for `assertHealthy` when
-the trace records them. See [Agent Discovery](agent-discovery.md) for the
+selector and timeout data for `assertVisible` and `assertNotVisible`, selector
+arrays for `assertNoneVisible`, and timeouts for `assertHealthy` when the trace
+records them. See [Agent Discovery](agent-discovery.md) for the
 recommended reviewable loop.
 
 ZMR does not ship a built-in autonomous crawler or test writer in this developer

@@ -64,6 +64,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added replay metadata for successful `assertNoneVisible` and timed
   `assertHealthy` trace events, so generated replay scenarios preserve
   assertion intent instead of dropping those checks.
+- Added selector and timeout preserving `assertVisible` and `assertNotVisible`
+  replay so trace-backed discovery keeps assertion intent distinct from waits.
 - Added `zmr report --junit <report.xml>` so trace directories and benchmark
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
 - Updated generated app report and reliability scripts to write `junit.xml`

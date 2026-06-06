@@ -25,6 +25,15 @@ pub const WaitAny = struct {
     }
 };
 
+pub const VisibilityAssertion = struct {
+    selector: selector.Selector,
+    timeout_ms: ?u64 = null,
+
+    pub fn deinit(self: VisibilityAssertion, allocator: std.mem.Allocator) void {
+        self.selector.deinit(allocator);
+    }
+};
+
 pub const TypeText = struct {
     selector: ?selector.Selector = null,
     text: []const u8,
@@ -105,8 +114,8 @@ pub const Step = union(enum) {
     wait_visible: WaitVisible,
     wait_not_visible: WaitVisible,
     wait_any: WaitAny,
-    assert_visible: selector.Selector,
-    assert_not_visible: selector.Selector,
+    assert_visible: VisibilityAssertion,
+    assert_not_visible: VisibilityAssertion,
     assert_none_visible: WaitAny,
     assert_healthy_timeout_ms: u64,
     optional: *Step,
@@ -265,8 +274,22 @@ fn parseRawStep(allocator: std.mem.Allocator, object: std.json.ObjectMap) anyerr
             .timeout_ms = try fields.optionalU64(object, "timeoutMs", 5000),
         } };
     }
-    if (std.mem.eql(u8, action, "assertVisible")) return .{ .assert_visible = try fields.parseSelectorField(allocator, object) };
-    if (std.mem.eql(u8, action, "assertNotVisible")) return .{ .assert_not_visible = try fields.parseSelectorField(allocator, object) };
+    if (std.mem.eql(u8, action, "assertVisible")) {
+        const wanted = try fields.parseSelectorField(allocator, object);
+        errdefer wanted.deinit(allocator);
+        return .{ .assert_visible = .{
+            .selector = wanted,
+            .timeout_ms = try optionalTimeoutMs(object),
+        } };
+    }
+    if (std.mem.eql(u8, action, "assertNotVisible")) {
+        const wanted = try fields.parseSelectorField(allocator, object);
+        errdefer wanted.deinit(allocator);
+        return .{ .assert_not_visible = .{
+            .selector = wanted,
+            .timeout_ms = try optionalTimeoutMs(object),
+        } };
+    }
     if (std.mem.eql(u8, action, "assertHealthy")) return .{ .assert_healthy_timeout_ms = try fields.optionalU64(object, "timeoutMs", 0) };
     if (std.mem.eql(u8, action, "assertNoneVisible")) {
         const selectors = try fields.parseSelectorArrayField(allocator, object);
@@ -343,4 +366,9 @@ fn optionalDirection(object: std.json.ObjectMap, key: []const u8, default_value:
     if (std.mem.eql(u8, value.string, "down")) return .down;
     if (std.mem.eql(u8, value.string, "up")) return .up;
     return error.UnknownScrollDirection;
+}
+
+fn optionalTimeoutMs(object: std.json.ObjectMap) !?u64 {
+    if (object.get("timeoutMs") == null) return null;
+    return try fields.optionalU64(object, "timeoutMs", 0);
 }

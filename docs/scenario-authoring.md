@@ -71,6 +71,9 @@ The importer supports the common subset needed for smoke scenarios:
 generated JSON before committing it; native `.zmr/*.json` scenarios remain the
 runtime contract for agents and CI.
 
+`assertVisible` and `assertNotVisible` accept the same `timeoutMs` field as
+waits when a scenario needs assertion-specific timing.
+
 ## Example Templates
 
 The example directory includes templates for common app flows:

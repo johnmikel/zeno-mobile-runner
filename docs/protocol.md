@@ -81,6 +81,7 @@ drafts currently include app launch, deep links, selector taps, selector text
 entry, selector erase, selector/timeout-preserving visible/not-visible waits,
 matched wait-any events as `waitVisible`, back, keyboard hiding,
 coordinate-complete swipes, direction/timeout-preserving selector scrolls, and
+selector/timeout-preserving `assertVisible` and `assertNotVisible`,
 `assertNoneVisible` selector arrays plus timed `assertHealthy` checks. Events
 without enough replay data, failed events, diagnostics, underspecified swipes,
 and control events are skipped with warnings rather than guessed. Text entry

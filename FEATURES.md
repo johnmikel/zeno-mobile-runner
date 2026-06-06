@@ -60,8 +60,9 @@ state, and writes deterministic traces. It does not embed an LLM.
   Wait replay preserves selectors and timeouts when the trace records them.
   Native selector wait traces include timeout context for successful waits and
   timeout diagnostics.
-  Assertion replay preserves `assertNoneVisible` selector arrays and
-  `assertHealthy` timeouts when the trace records them.
+  Assertion replay preserves `assertVisible` and `assertNotVisible` selectors
+  and timeouts, `assertNoneVisible` selector arrays, and `assertHealthy`
+  timeouts when the trace records them.
   Selector scroll replay preserves direction and timeout when the trace records
   them.
 - Draft and discover JSON include `replay` coverage metadata so agents can

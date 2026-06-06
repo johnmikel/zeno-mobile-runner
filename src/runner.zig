@@ -124,11 +124,11 @@ pub fn executeStep(
         .wait_any => |wait| {
             if (try waitUntilAnyVisible(device, wait.selectors, wait.timeout_ms, writer, options) == null) return error.WaitTimeout;
         },
-        .assert_visible => |wanted| {
-            if (!try waitUntilVisible(device, wanted, options.default_timeout_ms, writer, options)) return error.AssertionFailed;
+        .assert_visible => |assertion| {
+            if (!try assertVisible(device, assertion.selector, assertion.timeout_ms orelse options.default_timeout_ms, writer, options)) return error.AssertionFailed;
         },
-        .assert_not_visible => |wanted| {
-            if (!try waitUntilNotVisible(device, wanted, options.default_timeout_ms, writer, options)) return error.AssertionFailed;
+        .assert_not_visible => |assertion| {
+            if (!try assertNotVisible(device, assertion.selector, assertion.timeout_ms orelse options.default_timeout_ms, writer, options)) return error.AssertionFailed;
         },
         .assert_none_visible => |assertion| {
             if (!try assertNoneVisible(device, assertion.selectors, assertion.timeout_ms, writer, options)) return error.AssertionFailed;
@@ -231,6 +231,26 @@ pub fn waitUntilAnyVisible(
     options: RunOptions,
 ) !?usize {
     return try runner_waits.waitUntilAnyVisible(device, selectors, timeout_ms, writer, options);
+}
+
+pub fn assertVisible(
+    device: anytype,
+    wanted: selector.Selector,
+    timeout_ms: u64,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+) !bool {
+    return try runner_waits.assertVisible(device, wanted, timeout_ms, writer, options);
+}
+
+pub fn assertNotVisible(
+    device: anytype,
+    wanted: selector.Selector,
+    timeout_ms: u64,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+) !bool {
+    return try runner_waits.assertNotVisible(device, wanted, timeout_ms, writer, options);
 }
 
 pub fn assertNoneVisible(

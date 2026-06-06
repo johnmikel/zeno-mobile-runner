@@ -282,14 +282,14 @@ fn dispatchAssertMethod(
     if (std.mem.eql(u8, method, "assert.visible")) {
         const wanted = try params_parser.selectorParam(allocator, params);
         defer wanted.deinit(allocator);
-        if (!try runner.waitUntilVisible(device, wanted, try params_parser.optionalU64(params, "timeoutMs", 5000), live_trace, .{})) return error.AssertionFailed;
+        if (!try runner.assertVisible(device, wanted, try params_parser.optionalU64(params, "timeoutMs", 5000), live_trace, .{})) return error.AssertionFailed;
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
     if (std.mem.eql(u8, method, "assert.notVisible")) {
         const wanted = try params_parser.selectorParam(allocator, params);
         defer wanted.deinit(allocator);
-        if (!try runner.waitUntilNotVisible(device, wanted, try params_parser.optionalU64(params, "timeoutMs", 5000), live_trace, .{})) return error.AssertionFailed;
+        if (!try runner.assertNotVisible(device, wanted, try params_parser.optionalU64(params, "timeoutMs", 5000), live_trace, .{})) return error.AssertionFailed;
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }

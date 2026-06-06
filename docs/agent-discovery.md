@@ -114,9 +114,10 @@ ZMR as the deterministic mobile control plane.
    Replay drafts include only supported events with stable replay data, such as
    launch, deep links, selector taps, selector text entry, back, keyboard hiding,
    coordinate-complete swipes, selector/timeout-preserving waits, and
-   direction/timeout-preserving selector scrolls, `assertNoneVisible` selector
-   arrays, and timed `assertHealthy` checks. Native selector wait traces also
-   retain timeout context for successful waits and timeout diagnostics.
+   direction/timeout-preserving selector scrolls, selector/timeout-preserving
+   `assertVisible` and `assertNotVisible`, `assertNoneVisible` selector arrays,
+   and timed `assertHealthy` checks. Native selector wait traces also retain
+   timeout context for successful waits and timeout diagnostics.
    Unsupported events stay out of the scenario and are reported as warnings.
 
 12. Edit the draft or discovery output into a candidate flow, for example

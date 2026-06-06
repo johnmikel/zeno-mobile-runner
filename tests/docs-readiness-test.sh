@@ -163,6 +163,8 @@ require_grep 'Agentic Standard' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
+require_grep 'trace.discover' docs/agent-discovery.md
+require_grep 'trace_discover' docs/agent-discovery.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md
@@ -183,6 +185,8 @@ require_grep 'AI Agent Guide' docs/ai-agents.md
 require_grep 'runner.capabilities' docs/ai-agents.md
 require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
+require_grep 'trace.discover' docs/ai-agents.md
+require_grep 'trace_discover' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md
 require_grep 'Agent-Led Discovery' docs/ai-agents.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/ai-agents.md

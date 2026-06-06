@@ -31,6 +31,14 @@ pub fn requiredString(params: ?std.json.Value, key: []const u8) ![]const u8 {
     return try json_fields.requiredString(params, key, error.MissingParam, error.ParamMustBeString);
 }
 
+pub fn optionalString(params: ?std.json.Value, key: []const u8) !?[]const u8 {
+    const value = field(params, key) orelse return null;
+    return switch (value) {
+        .string => |actual| actual,
+        else => error.ParamMustBeString,
+    };
+}
+
 pub fn requiredI32(params: ?std.json.Value, key: []const u8) !i32 {
     return try json_fields.requiredI32(params, key, error.MissingParam, error.ParamMustBeInteger);
 }

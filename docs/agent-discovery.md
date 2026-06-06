@@ -1,10 +1,10 @@
 # Agent Discovery
 
 ZMR supports agent-led discovery today through its JSON-RPC and MCP interfaces,
-trace events, semantic snapshot artifacts, and offline scenario drafting. An
-external agent can observe the app, choose typed actions, inspect trace events,
-draft a small repeatable scenario from the trace, and then edit it as it learns
-a flow.
+trace events, semantic snapshot artifacts, in-band trace discovery, and offline
+scenario drafting. An external agent can observe the app, choose typed actions,
+inspect trace events, draft a small repeatable scenario from the trace, and
+then edit it as it learns a flow.
 
 ZMR does not include a built-in autonomous crawler or fully autonomous test
 writer in this developer preview. Keep the planning loop in the agent, and keep
@@ -37,7 +37,16 @@ ZMR as the deterministic mobile control plane.
 5. Choose one typed action, such as `ui.tap`, `ui.type`, `app.openLink`, or
    `wait.until`.
 6. Observe again and inspect `trace.events`.
-7. Generate a reviewable scenario candidate from the trace:
+7. Generate a reviewable scenario candidate from the trace. JSON-RPC agents can
+   call `trace.discover`:
+
+   ```json
+   {"jsonrpc":"2.0","id":7,"method":"trace.discover","params":{"out":".zmr/discovered/replay-smoke.json","includeActions":true,"validate":true,"force":true}}
+   ```
+
+   MCP agents can call `trace_discover` with the same `out`,
+   `includeActions`, `validate`, and `force` arguments. The offline CLI
+   equivalent is:
 
    ```bash
    zmr discover --from-trace traces/zmr-agent \

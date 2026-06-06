@@ -99,6 +99,14 @@ export interface Capabilities {
   methods: string[];
 }
 
+export interface TraceDiscoverOptions {
+  includeActions?: boolean;
+  validate?: boolean;
+  force?: boolean;
+  name?: string;
+  appId?: string;
+}
+
 export interface DeviceInfo {
   serial: string;
   state: string;
@@ -132,6 +140,7 @@ export interface ZmrClient {
   assertHealthy(options?: { timeoutMs?: number }): Promise<boolean>;
   exportTrace(out: string, options?: { redact?: boolean; omitScreenshots?: boolean }): Promise<Record<string, unknown>>;
   traceEvents(afterSeq?: number, options?: { limit?: number }): Promise<Record<string, unknown>>;
+  discoverTrace(out: string, options?: TraceDiscoverOptions): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
 

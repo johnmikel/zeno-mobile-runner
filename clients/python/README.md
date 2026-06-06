@@ -20,8 +20,15 @@ with ZmrClient(
     zmr.wait_until({"text": "E2E auth probe"}, timeout_ms=30000)
     snapshot = zmr.snapshot()
     events = zmr.trace_events(0, limit=100)
+    discovered = zmr.discover_trace(
+        ".zmr/discovered/agent-session.json",
+        include_actions=True,
+        validate=True,
+        force=True,
+    )
     print(snapshot["nodes"])
     print(len(events["events"]))
+    print(discovered["out"])
     zmr.export_trace("traces/agent-session-redacted.zmrtrace", redact=True, omit_screenshots=True)
 ```
 

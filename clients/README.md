@@ -19,9 +19,9 @@ actions instead of raw platform hierarchy classes.
 The TypeScript and Python clients expose the broadest app-facing control
 surface: session lifecycle, app launch/stop/link/state, snapshot and semantic
 snapshot, tap/type/erase/hide-keyboard/swipe/back/scroll, waits, assertions,
-trace event polling, and trace export. The Go, Rust, Swift, and Kotlin clients
-show the same protocol shape in other host languages and are useful starting
-points for custom integration work.
+trace event polling, trace discovery, and trace export. The Go, Rust, Swift,
+and Kotlin clients show the same protocol shape in other host languages and
+are useful starting points for custom integration work.
 Use the `assertHealthy`/`assert_healthy` helper after launches, links, and major
 navigation steps to catch native crash overlays and development-client failures
 without hand-maintaining negative selectors in every client.

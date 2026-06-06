@@ -179,12 +179,13 @@ zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
 The MCP server exposes mobile-specific tools such as `semantic_snapshot`, `tap`,
-`type`, `wait_visible`, `trace_events`, and `trace_export`.
+`type`, `wait_visible`, `trace_events`, `trace_discover`, and `trace_export`.
 
 For agent-led discovery and test authoring, see
 [docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
-through MCP, JSON-RPC, trace events, offline surface drafts, and replay drafts
-today; a built-in autonomous crawler is not shipped in this preview.
+through MCP, JSON-RPC, trace events, in-band trace discovery, offline surface
+drafts, and replay drafts today; a built-in autonomous crawler is not shipped
+in this preview.
 
 ## Optional Protocol Clients
 

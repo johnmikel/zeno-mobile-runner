@@ -1,5 +1,6 @@
 const std = @import("std");
 const bundle = @import("bundle.zig");
+const cli_discover = @import("cli_discover.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
 const trace = @import("trace.zig");
 
@@ -80,4 +81,40 @@ pub fn writeExportToolResult(
     try trace.writeJsonString(payload_writer, out_path);
     try payload_writer.print(",\"redacted\":{},\"omitScreenshots\":{}}}", .{ redact, omit_screenshots });
     try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+}
+
+pub fn writeDiscoverToolResult(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    id: ?std.json.Value,
+    live_trace: ?*trace.TraceWriter,
+    out_path: []const u8,
+    include_actions: bool,
+    validate: bool,
+    force: bool,
+    name: ?[]const u8,
+    app_id: ?[]const u8,
+) !void {
+    const tw = live_trace orelse {
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":false,\"mode\":\"discover\",\"traceDir\":null,\"message\":\"start zmr mcp with --trace-dir to enable live trace discovery\"}");
+        return;
+    };
+
+    try tw.flushManifest();
+    var discovered = try cli_discover.discoverFromTrace(allocator, .{
+        .from_trace = tw.root_dir,
+        .out_path = out_path,
+        .name = name,
+        .app_id = app_id,
+        .include_actions = include_actions,
+        .validate = validate,
+        .force = force,
+        .json = true,
+    });
+    defer discovered.deinit(allocator);
+
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(allocator);
+    try cli_discover.writeJson(payload.writer(allocator), discovered.summary, discovered.validation);
+    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
 }

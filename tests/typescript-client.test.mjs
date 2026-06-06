@@ -17,6 +17,7 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     assert.equal(capabilities.protocolVersion, "2026-04-28");
     assert.ok(capabilities.methods.includes("observe.snapshot"));
     assert.ok(capabilities.methods.includes("assert.healthy"));
+    assert.ok(capabilities.methods.includes("trace.discover"));
     assert.equal(capabilities.iosPreview, false);
     assert.equal(capabilities.platformSupport.ios.status, "supported");
     assert.deepEqual(capabilities.platformSupport.ios.deviceTypes, ["simulator", "physical"]);
@@ -50,6 +51,16 @@ test("typescript reference client drives a stdio JSON-RPC session", async () => 
     const events = await client.traceEvents(0, { limit: 10 });
     assert.equal(events.nextSeq, 2);
     assert.equal(events.events[0].kind, "rpc.request");
+
+    const discovered = await client.discoverTrace(".zmr/discovered/client.json", {
+      includeActions: true,
+      validate: true,
+      force: true,
+      name: "Client discovery",
+    });
+    assert.equal(discovered.mode, "discover");
+    assert.equal(discovered.out, ".zmr/discovered/client.json");
+    assert.equal(discovered.validated, true);
   } finally {
     await client.close();
   }

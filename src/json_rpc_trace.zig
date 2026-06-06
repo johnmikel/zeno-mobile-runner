@@ -1,4 +1,5 @@
 const std = @import("std");
+const cli_discover = @import("cli_discover.zig");
 const protocol = @import("json_rpc_protocol.zig");
 const trace = @import("trace.zig");
 
@@ -70,4 +71,40 @@ pub fn recordSimplePayload(tw: *trace.TraceWriter, kind: []const u8, key: []cons
     try trace.writeJsonString(writer, value);
     try writer.writeAll("}");
     try tw.recordEvent(kind, payload.items);
+}
+
+pub fn writeDiscoverResult(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    id: ?std.json.Value,
+    live_trace: ?*trace.TraceWriter,
+    out_path: []const u8,
+    include_actions: bool,
+    validate: bool,
+    force: bool,
+    name: ?[]const u8,
+    app_id: ?[]const u8,
+) !void {
+    const tw = live_trace orelse {
+        try protocol.writeResultRaw(writer, id, "{\"ok\":false,\"mode\":\"discover\",\"traceDir\":null,\"message\":\"start zmr serve with --trace-dir to enable live trace discovery\"}");
+        return;
+    };
+
+    try tw.flushManifest();
+    var discovered = try cli_discover.discoverFromTrace(allocator, .{
+        .from_trace = tw.root_dir,
+        .out_path = out_path,
+        .name = name,
+        .app_id = app_id,
+        .include_actions = include_actions,
+        .validate = validate,
+        .force = force,
+        .json = true,
+    });
+    defer discovered.deinit(allocator);
+
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(allocator);
+    try cli_discover.writeJson(payload.writer(allocator), discovered.summary, discovered.validation);
+    try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
 }

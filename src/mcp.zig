@@ -179,6 +179,22 @@ fn callTool(
         return;
     }
 
+    if (std.mem.eql(u8, tool_name, "trace_discover")) {
+        try mcp_trace.writeDiscoverToolResult(
+            allocator,
+            writer,
+            id,
+            live_trace,
+            try requiredParamString(arguments, "out"),
+            try optionalParamBool(arguments, "includeActions", false),
+            try optionalParamBool(arguments, "validate", false),
+            try optionalParamBool(arguments, "force", false),
+            optionalParamString(arguments, "name"),
+            optionalParamString(arguments, "appId"),
+        );
+        return;
+    }
+
     if (std.mem.eql(u8, tool_name, "trace_export")) {
         const out_path = try requiredParamString(arguments, "out");
         const omit_screenshots = try optionalParamBool(arguments, "omitScreenshots", false);

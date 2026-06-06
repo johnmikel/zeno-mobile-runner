@@ -649,6 +649,9 @@ fn isControlEvent(kind: []const u8) bool {
         std.mem.eql(u8, kind, "observe.semanticSnapshot") or
         std.mem.eql(u8, kind, "observe.snapshot.semanticExtraction") or
         std.mem.eql(u8, kind, "observe.retry") or
+        std.mem.eql(u8, kind, "rpc.request") or
+        std.mem.eql(u8, kind, "rpc.response") or
+        std.mem.eql(u8, kind, "rpc.error") or
         std.mem.eql(u8, kind, "trace.export");
 }
 

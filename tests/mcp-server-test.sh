@@ -26,7 +26,7 @@ assert rows[0]["result"]["protocolVersion"] == "2024-11-05"
 assert rows[0]["result"]["serverInfo"]["name"] == "zmr"
 
 tool_names = [tool["name"] for tool in rows[1]["result"]["tools"]]
-for expected in ["snapshot", "semantic_snapshot", "tap", "type", "press_back", "open_link", "wait_visible", "trace_export"]:
+for expected in ["snapshot", "semantic_snapshot", "tap", "type", "press_back", "open_link", "wait_visible", "trace_events", "trace_discover", "trace_export"]:
     assert expected in tool_names, expected
 
 semantic_text = rows[2]["result"]["content"][0]["text"]

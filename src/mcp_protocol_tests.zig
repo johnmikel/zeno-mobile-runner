@@ -17,6 +17,7 @@ test "mcp protocol writes initialize and tool list responses" {
     try mcp_protocol.writeToolListResult(tools.writer(allocator), .{ .integer = 2 });
 
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"semantic_snapshot\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"trace_discover\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"trace_export\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"inputSchema\"") != null);
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, tools.items, "\n"));

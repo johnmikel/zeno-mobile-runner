@@ -18,6 +18,11 @@ All notable changes to Zeno Mobile Runner are tracked here.
   for agents. It reuses the review-first draft engine, can validate the
   generated scenario before returning, and reports `mode: "discover"` for
   tooling.
+- Added JSON-RPC `trace.discover` and MCP `trace_discover` so live agents can
+  generate the same trace-backed scenario candidate without shelling out to the
+  CLI after a session.
+- Added TypeScript `discoverTrace()` and Python `discover_trace()` helpers for
+  the new JSON-RPC discovery method.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

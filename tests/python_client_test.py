@@ -23,6 +23,7 @@ class PythonClientTest(unittest.TestCase):
             self.assertEqual(capabilities["protocolVersion"], "2026-04-28")
             self.assertIn("observe.snapshot", capabilities["methods"])
             self.assertIn("assert.healthy", capabilities["methods"])
+            self.assertIn("trace.discover", capabilities["methods"])
             self.assertFalse(capabilities["iosPreview"])
             self.assertEqual(capabilities["platformSupport"]["ios"]["status"], "supported")
             self.assertEqual(capabilities["platformSupport"]["ios"]["deviceTypes"], ["simulator", "physical"])
@@ -54,6 +55,17 @@ class PythonClientTest(unittest.TestCase):
             events = client.trace_events(0, limit=10)
             self.assertEqual(events["nextSeq"], 2)
             self.assertEqual(events["events"][0]["kind"], "rpc.request")
+
+            discovered = client.discover_trace(
+                ".zmr/discovered/python-client.json",
+                include_actions=True,
+                validate=True,
+                force=True,
+                name="Python discovery",
+            )
+            self.assertEqual(discovered["mode"], "discover")
+            self.assertEqual(discovered["out"], ".zmr/discovered/python-client.json")
+            self.assertTrue(discovered["validated"])
         finally:
             client.close()
 

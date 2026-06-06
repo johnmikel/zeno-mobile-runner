@@ -176,6 +176,19 @@ class ZmrClient:
             params["limit"] = limit
         return self.request("trace.events", params)
 
+    def discover_trace(self, out, include_actions=False, validate=False, force=False, name=None, app_id=None):
+        params = {
+            "out": out,
+            "includeActions": include_actions,
+            "validate": validate,
+            "force": force,
+        }
+        if name is not None:
+            params["name"] = name
+        if app_id is not None:
+            params["appId"] = app_id
+        return self.request("trace.discover", params)
+
     def close(self):
         if self._closed:
             return

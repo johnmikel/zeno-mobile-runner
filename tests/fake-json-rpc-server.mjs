@@ -51,6 +51,7 @@ rl.on("line", (line) => {
         "assert.notVisible",
         "assert.healthy",
         "trace.events",
+        "trace.discover",
         "trace.export",
       ],
     };
@@ -147,6 +148,28 @@ rl.on("line", (line) => {
       events: [
         { seq: 1, timestampMs: 1, kind: "rpc.request", payload: { method: "session.create", id: 1 } },
         { seq: 2, timestampMs: 2, kind: "rpc.response", payload: { method: "session.create", id: 1 } },
+      ],
+    };
+  } else if (method === "trace.discover") {
+    result = {
+      ok: true,
+      mode: "discover",
+      schemaVersion: 1,
+      runnerVersion: "0.1.7",
+      protocolVersion: "2026-04-28",
+      out: request.params?.out ?? ".zmr/discovered/client.json",
+      traceDir: "traces/client",
+      sourceSnapshot: "traces/client/artifacts/snapshot-1.json",
+      name: request.params?.name ?? "Client discovery",
+      appId: request.params?.appId ?? "com.example.mobiletest",
+      selectorCount: 1,
+      stepCount: 4,
+      warnings: ["draft requires human review before commit"],
+      validated: Boolean(request.params?.validate),
+      validation: request.params?.validate ? { ok: true, path: request.params?.out ?? ".zmr/discovered/client.json", name: request.params?.name ?? "Client discovery", appId: request.params?.appId ?? "com.example.mobiletest", stepCount: 4 } : null,
+      nextCommands: [
+        `zmr validate --json ${request.params?.out ?? ".zmr/discovered/client.json"}`,
+        `zmr run ${request.params?.out ?? ".zmr/discovered/client.json"} --json --trace-dir traces/client`,
       ],
     };
   } else {

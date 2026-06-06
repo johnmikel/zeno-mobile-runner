@@ -1,6 +1,7 @@
 const std = @import("std");
 const mcp_trace = @import("mcp_trace.zig");
 const trace = @import("trace.zig");
+const types = @import("types.zig");
 
 test "mcp trace events tool emits filtered text payload" {
     const allocator = std.testing.allocator;
@@ -58,6 +59,51 @@ test "mcp trace export tool reports no-trace fallback and redacted export payloa
     try std.testing.expect(std.mem.indexOf(u8, exported_text, "\"omitScreenshots\":true") != null);
 }
 
+test "mcp trace discover tool writes validated scenario text payload" {
+    const allocator = std.testing.allocator;
+    const trace_dir = "zig-cache-test-mcp-trace-discover";
+    const out_path = trace_dir ++ "/discovered.json";
+    std.fs.cwd().deleteTree(trace_dir) catch {};
+    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+
+    var no_trace = std.ArrayList(u8).empty;
+    defer no_trace.deinit(allocator);
+    try mcp_trace.writeDiscoverToolResult(allocator, no_trace.writer(allocator), .{ .integer = 6 }, null, out_path, true, true, true, null, null);
+    const no_trace_text = try toolText(allocator, no_trace.items);
+    defer allocator.free(no_trace_text);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"ok\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
+
+    var tw = try trace.TraceWriter.init(allocator, trace_dir);
+    defer tw.deinit();
+    try tw.startManifest("mcp discover", "com.example.mobiletest");
+    try tw.recordEvent("app.launch", "{\"status\":\"ok\"}");
+    try tw.recordEvent("app.openLink", "{\"status\":\"ok\",\"url\":\"exampleapp://discover-mcp\"}");
+    var snapshot = try makeTraceSnapshot(allocator, "snapshot-1", "Discover MCP");
+    defer snapshot.deinit(allocator);
+    const snapshot_path = try tw.writeSnapshot(snapshot);
+    defer allocator.free(snapshot_path);
+    tw.snapshot_count = 1;
+    try tw.recordEvent("observe.semanticSnapshot", "{\"status\":\"ok\"}");
+
+    var discovered = std.ArrayList(u8).empty;
+    defer discovered.deinit(allocator);
+    try mcp_trace.writeDiscoverToolResult(allocator, discovered.writer(allocator), .{ .integer = 7 }, &tw, out_path, true, true, true, "MCP discovered", null);
+
+    try std.testing.expect(std.mem.indexOf(u8, discovered.items, "\"id\":7") != null);
+    const discovered_text = try toolText(allocator, discovered.items);
+    defer allocator.free(discovered_text);
+    try std.testing.expect(std.mem.indexOf(u8, discovered_text, "\"mode\":\"discover\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, discovered_text, "\"validated\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, discovered_text, "\"validation\":{\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, discovered_text, "unsupported trace action was skipped: rpc.request") == null);
+
+    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    defer allocator.free(scenario);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://discover-mcp\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Discover MCP\"}") != null);
+}
+
 fn toolText(allocator: std.mem.Allocator, response: []const u8) ![]const u8 {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, response, .{});
     defer parsed.deinit();
@@ -66,4 +112,20 @@ fn toolText(allocator: std.mem.Allocator, response: []const u8) ![]const u8 {
     const first = content.array.items[0];
     const text = first.object.get("text").?;
     return try allocator.dupe(u8, text.string);
+}
+
+fn makeTraceSnapshot(allocator: std.mem.Allocator, id: []const u8, text: []const u8) !types.ObservationSnapshot {
+    const nodes = try allocator.alloc(types.UiNode, 1);
+    nodes[0] = .{
+        .stable_id = try std.fmt.allocPrint(allocator, "node-{s}", .{id}),
+        .class_name = try allocator.dupe(u8, "android.widget.TextView"),
+        .text = try allocator.dupe(u8, text),
+        .bounds = .{ .x = 10, .y = 20, .width = 100, .height = 40 },
+    };
+    return .{
+        .id = try allocator.dupe(u8, id),
+        .timestamp_ms = 1,
+        .viewport = .{ .width = 1080, .height = 2400 },
+        .nodes = nodes,
+    };
 }

@@ -312,6 +312,21 @@ fn dispatchTraceMethod(
         try rpc_trace.writeEventsResult(allocator, writer, id, live_trace, after_seq, limit);
         return true;
     }
+    if (std.mem.eql(u8, method, "trace.discover")) {
+        try rpc_trace.writeDiscoverResult(
+            allocator,
+            writer,
+            id,
+            live_trace,
+            try params_parser.requiredString(params, "out"),
+            try params_parser.optionalBool(params, "includeActions", false),
+            try params_parser.optionalBool(params, "validate", false),
+            try params_parser.optionalBool(params, "force", false),
+            try params_parser.optionalString(params, "name"),
+            try params_parser.optionalString(params, "appId"),
+        );
+        return true;
+    }
     if (std.mem.eql(u8, method, "trace.export")) {
         const tw = live_trace orelse {
             try protocol.writeTraceDisabledResult(writer, id);

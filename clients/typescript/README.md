@@ -22,8 +22,14 @@ try {
   await zmr.waitUntil({ text: "E2E auth probe" }, { timeoutMs: 30000 });
   const snapshot = await zmr.snapshot();
   const events = await zmr.traceEvents(0, { limit: 100 });
+  const discovered = await zmr.discoverTrace(".zmr/discovered/agent-session.json", {
+    includeActions: true,
+    validate: true,
+    force: true,
+  });
   console.log(snapshot.nodes);
   console.log(events.events.length);
+  console.log(discovered.out);
   await zmr.exportTrace("traces/agent-session-redacted.zmrtrace", { redact: true, omitScreenshots: true });
 } finally {
   await zmr.close();

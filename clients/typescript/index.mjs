@@ -154,6 +154,10 @@ export class ZmrClient {
     return this.request("trace.events", { afterSeq, ...options });
   }
 
+  discoverTrace(out, options = {}) {
+    return this.request("trace.discover", { out, ...options });
+  }
+
   async close() {
     if (this.#closed) return;
     this.#closed = true;

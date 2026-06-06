@@ -22,6 +22,7 @@ Then it sends JSON-RPC methods such as:
 - `assert.visible`
 - `assert.healthy`
 - `trace.events`
+- `trace.discover`
 - `trace.export`
 
 Use clients when an AI agent, service, or test harness wants to drive ZMR

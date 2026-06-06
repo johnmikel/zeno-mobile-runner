@@ -93,7 +93,8 @@ screenscraping or guessing:
 - `zmr schemas --json` exposes machine-readable contracts.
 - `zmr validate --json` catches scenario mistakes before device runs.
 - `zmr serve` exposes JSON-RPC for long-running sessions.
-- `zmr mcp` exposes MCP tools for semantic snapshots and typed actions.
+- `zmr mcp` exposes MCP tools for semantic snapshots, typed actions, and
+  assertion-grade checks.
 - `zmr explain --json` summarizes failed traces.
 - `zmr report --junit` emits CI-compatible test results from trace and
   benchmark evidence.

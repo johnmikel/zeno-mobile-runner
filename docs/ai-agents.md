@@ -79,6 +79,7 @@ The MCP server exposes mobile-specific tools:
   recommended actions
 - `tap`, `type`, `press_back`, and `open_link`
 - `wait_visible`
+- `assert_visible`, `assert_not_visible`, and `assert_healthy`
 - `scenario_validate`
 - `trace_events`, `trace_discover`, and `trace_export`
 

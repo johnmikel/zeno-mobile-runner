@@ -176,6 +176,31 @@ fn callTool(
         return;
     }
 
+    if (std.mem.eql(u8, tool_name, "assert_visible")) {
+        const wanted = try parseArgumentsSelector(allocator, arguments);
+        defer wanted.deinit(allocator);
+        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
+        if (!try runner.assertVisible(device, wanted, timeout_ms, live_trace, .{})) return error.AssertionFailed;
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "assert_not_visible")) {
+        const wanted = try parseArgumentsSelector(allocator, arguments);
+        defer wanted.deinit(allocator);
+        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
+        if (!try runner.assertNotVisible(device, wanted, timeout_ms, live_trace, .{})) return error.AssertionFailed;
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "assert_healthy")) {
+        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 0);
+        if (!try runner.assertHealthy(device, timeout_ms, live_trace, .{})) return error.AssertionFailed;
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
     if (std.mem.eql(u8, tool_name, "scenario_validate")) {
         const path = try requiredParamString(arguments, "path");
         var result = try validation.validateFile(allocator, path);

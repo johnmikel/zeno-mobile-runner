@@ -131,6 +131,9 @@ require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
 require_grep 'skills/zmr-mobile-testing/SKILL.md' README.md
+require_grep 'assert_visible' README.md
+require_grep 'assert_not_visible' README.md
+require_grep 'assert_healthy' README.md
 
 require_not_grep 'registry package is pending publish' README.md
 require_not_grep 'Available after the npm registry package is published' README.md
@@ -148,6 +151,7 @@ require_not_grep 'Zig Mobile Runner' README.md
 
 require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
+require_grep 'waits, assertions, trace polling' FEATURES.md
 require_grep 'zmr inspect --json' FEATURES.md
 require_grep 'zmr discover --from-trace' FEATURES.md
 require_grep 'zmr run --discover-out <scenario.json> --json' FEATURES.md
@@ -202,6 +206,7 @@ require_grep 'Product Gates Before 1.0' docs/production-readiness.md
 require_grep 'Release supply chain' docs/production-readiness.md
 require_grep 'trusted publisher must be configured' docs/production-readiness.md
 require_grep 'Agentic Standard' docs/production-readiness.md
+require_grep 'assertion-grade checks' docs/production-readiness.md
 require_grep 'zmr report --junit' docs/production-readiness.md
 require_grep 'pilot wrapper run that produced both `report.html` and `junit.xml`' docs/production-readiness.md
 require_grep 'CI runs retain `traces/`, `zig-cache/coverage/`, and `zig-out/bin/zmr` for 14' docs/production-readiness.md
@@ -246,6 +251,9 @@ require_grep 'AI Agent Guide' docs/ai-agents.md
 require_grep 'runner.capabilities' docs/ai-agents.md
 require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
+require_grep 'assert_visible' docs/ai-agents.md
+require_grep 'assert_not_visible' docs/ai-agents.md
+require_grep 'assert_healthy' docs/ai-agents.md
 require_grep 'scenario.validate' docs/ai-agents.md
 require_grep 'scenario_validate' docs/ai-agents.md
 require_grep 'trace.discover' docs/ai-agents.md
@@ -290,6 +298,9 @@ require_grep 'zmr run <scenario.json> --trace-dir <trace-dir> --discover-out' do
 require_grep '"replay":{"enabled":true' docs/protocol.md
 require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
 require_grep 'zmr draft --include-actions' docs/protocol.md
+require_grep 'assert_visible' docs/protocol.md
+require_grep 'assert_not_visible' docs/protocol.md
+require_grep 'assert_healthy' docs/protocol.md
 require_grep 'selector/timeout-preserving `assertVisible` and `assertNotVisible`' docs/protocol.md
 require_grep '`assertNoneVisible` selector arrays plus timed `assertHealthy` checks' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md

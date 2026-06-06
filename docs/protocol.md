@@ -545,10 +545,10 @@ zmr mcp --config .zmr/config.json --trace-dir traces/mcp-agent
 ```
 
 Core tools are `snapshot`, `semantic_snapshot`, `tap`, `type`, `press_back`,
-`open_link`, `wait_visible`, `scenario_validate`, `trace_events`,
-`trace_discover`, and `trace_export`. The MCP
-protocol handshake is intentionally standard, while the tool names and payloads
-are versioned with the ZMR runner and public schemas.
+`open_link`, `wait_visible`, `assert_visible`, `assert_not_visible`,
+`assert_healthy`, `scenario_validate`, `trace_events`, `trace_discover`, and
+`trace_export`. The MCP protocol handshake is intentionally standard, while the
+tool names and payloads are versioned with the ZMR runner and public schemas.
 
 ### `ui.tap`
 

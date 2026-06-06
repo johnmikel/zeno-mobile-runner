@@ -35,8 +35,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 - JSON-RPC v1 over newline-delimited stdio or localhost TCP.
 - MCP stdio server with mobile-native tools for AI agents, including semantic
-  snapshots, selector actions, waits, trace polling, trace discovery, and
-  trace export.
+  snapshots, selector actions, waits, assertions, trace polling, trace
+  discovery, and trace export.
 - `runner.capabilities`, `device.list`, `session.create`,
   `observe.snapshot`, `observe.semanticSnapshot`, UI actions, waits,
   assertions, scenario validation, live trace events, trace-backed discovery,

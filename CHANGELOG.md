@@ -6,6 +6,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Added
 
+- Added MCP `assert_visible`, `assert_not_visible`, and `assert_healthy` tools
+  so MCP agents can use assertion-grade checks without dropping to JSON-RPC.
 - Added `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` for
   trace-backed, review-first scenario drafting. The command reads the latest
   semantic snapshot artifact and writes a conservative surface-smoke scenario

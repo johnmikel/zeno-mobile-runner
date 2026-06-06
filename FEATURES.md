@@ -41,8 +41,10 @@ state, and writes deterministic traces. It does not embed an LLM.
 - TypeScript, Python, Go, Rust, Swift, and Kotlin reference clients.
 - Machine-readable CLI output for `zmr version --json`, `zmr schemas --json`,
   `zmr inspect --json`, `zmr doctor --json`, `zmr devices --json`,
-  `zmr draft --json`, `zmr validate --json`, `zmr run --json`, and
-  `zmr explain --json`.
+  `zmr discover --json`, `zmr draft --json`, `zmr validate --json`,
+  `zmr run --json`, and `zmr explain --json`.
+- `zmr discover --from-trace` turns a traced agent session into a reviewable
+  scenario candidate and can validate the generated scenario before returning.
 - `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable
   surface-smoke scenario with conservative `assertVisible` checks.
 - `zmr draft --include-actions` can turn supported successful trace actions

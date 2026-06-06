@@ -37,7 +37,23 @@ ZMR as the deterministic mobile control plane.
 5. Choose one typed action, such as `ui.tap`, `ui.type`, `app.openLink`, or
    `wait.until`.
 6. Observe again and inspect `trace.events`.
-7. Draft a reviewable surface-smoke scenario from the trace:
+7. Generate a reviewable scenario candidate from the trace:
+
+   ```bash
+   zmr discover --from-trace traces/zmr-agent \
+     --out .zmr/discovered/replay-smoke.json \
+     --include-actions \
+     --validate \
+     --json
+   ```
+
+   `zmr discover` writes a scenario from trace evidence and, with
+   `--validate`, immediately proves that the generated file is syntactically
+   runnable by ZMR. It is still review-first: it does not crawl, invent missing
+   actions, discover credentials, or commit the scenario.
+
+8. Use the lower-level draft primitive when you want separate surface and
+   replay files. For a conservative surface-smoke scenario:
 
    ```bash
    zmr draft --from-trace traces/zmr-agent \
@@ -62,16 +78,16 @@ ZMR as the deterministic mobile control plane.
    hiding, and selector scrolls. Unsupported events stay out of the scenario and
    are reported as warnings.
 
-8. Edit the draft into a candidate flow, for example
+9. Edit the draft or discovery output into a candidate flow, for example
    `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
    and understood.
-9. Validate the candidate scenario:
+10. Validate the candidate scenario:
 
    ```bash
    zmr validate --json .zmr/discovered/login-smoke.json
    ```
 
-10. Re-run it deterministically:
+11. Re-run it deterministically:
 
    ```bash
    zmr run .zmr/discovered/login-smoke.json \
@@ -81,7 +97,7 @@ ZMR as the deterministic mobile control plane.
      --json
    ```
 
-11. Export a redacted bundle before sharing artifacts:
+12. Export a redacted bundle before sharing artifacts:
 
     ```bash
     zmr export traces/zmr-login-smoke \
@@ -97,6 +113,8 @@ ZMR as the deterministic mobile control plane.
 - Prefer accessibility identifiers, resource ids, stable labels, and exact text
   over coordinates.
 - Require human review before committing generated tests.
+- Treat `zmr discover` output as a starting point, not as a production-ready
+  flow.
 - Treat `zmr draft` output as a starting point, not as a production-ready flow.
 - Use `--include-actions` only after reviewing the trace events that produced
   the replay draft.
@@ -104,12 +122,12 @@ ZMR as the deterministic mobile control plane.
 
 ## Future Shape
 
-A future command could wrap this loop:
+A future command could add goal-driven exploration on top of this loop:
 
 ```bash
 zmr explore --goal "find the login flow" --out .zmr/discovered/login-smoke.json
 ```
 
-That command is not shipped today. The safer product direction is to make
+That command is not shipped today. The current product direction is to keep
 scenario discovery explicit, reviewable, and trace-backed before it becomes a
-one-command workflow.
+goal-driven crawler.

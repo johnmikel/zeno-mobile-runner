@@ -13,7 +13,14 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added `zmr draft --include-actions` so agent sessions can turn supported
   successful trace actions into reviewable replay drafts while unsupported
   events are skipped with warnings instead of guessed.
+- Added `zmr discover --from-trace <trace-dir> --out <scenario.json>
+  --include-actions --validate --json` as the first-class trace-to-test handoff
+  for agents. It reuses the review-first draft engine, can validate the
+  generated scenario before returning, and reports `mode: "discover"` for
+  tooling.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
+  --json`.
+- Added `schemas/discover-output.schema.json` and included it in `zmr schemas
   --json`.
 
 ## 0.1.6 (2026-06-05)

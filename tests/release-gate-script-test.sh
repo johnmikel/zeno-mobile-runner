@@ -54,6 +54,7 @@ required = [
     "zig build-exe src/main.zig -target aarch64-macos.15.0 -O Debug -femit-bin=zig-out/bin/zmr",
     "bash tests/version-json-test.sh",
     "bash tests/schemas-json-test.sh",
+    "bash tests/discover-json-test.sh",
     "bash tests/devices-json-test.sh",
     "bash tests/cli-error-test.sh",
     "bash tests/validate-json-test.sh",

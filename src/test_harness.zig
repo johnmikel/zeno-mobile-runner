@@ -11,6 +11,8 @@ const bundle_tar = @import("bundle_tar.zig");
 const bundle_redaction_tests = @import("bundle_redaction_tests.zig");
 const bundle_tests = @import("bundle_tests.zig");
 const cli_devices = @import("cli_devices.zig");
+const cli_discover = @import("cli_discover.zig");
+const cli_discover_tests = @import("cli_discover_tests.zig");
 const cli_doctor = @import("cli_doctor.zig");
 const cli_doctor_tests = @import("cli_doctor_tests.zig");
 const cli_draft = @import("cli_draft.zig");
@@ -136,6 +138,8 @@ test {
     _ = bundle_redaction_tests;
     _ = bundle_tests;
     _ = cli_devices;
+    _ = cli_discover;
+    _ = cli_discover_tests;
     _ = cli_doctor;
     _ = cli_doctor_tests;
     _ = cli_draft;

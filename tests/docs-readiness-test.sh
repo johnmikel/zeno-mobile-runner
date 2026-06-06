@@ -93,6 +93,8 @@ require_grep 'zmr validate --json' README.md
 require_grep 'zmr devices --json' README.md
 require_grep 'zmr schemas --json' README.md
 require_grep 'zmr inspect --json' README.md
+require_grep 'zmr discover --from-trace traces/zmr-agent' README.md
+require_grep 'zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json' README.md
 require_grep 'It does not crawl the app' README.md
@@ -133,6 +135,7 @@ require_not_grep 'Zig Mobile Runner' README.md
 require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
 require_grep 'zmr inspect --json' FEATURES.md
+require_grep 'zmr discover --from-trace' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
@@ -160,6 +163,8 @@ require_grep 'Agentic Standard' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
+require_grep 'zmr discover --from-trace traces/zmr-agent' docs/agent-discovery.md
+require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep '--include-actions' docs/agent-discovery.md
 require_grep 'Treat `zmr draft` output as a starting point' docs/agent-discovery.md
@@ -180,6 +185,7 @@ require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md
 require_grep 'Agent-Led Discovery' docs/ai-agents.md
+require_grep 'zmr discover --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep '--include-actions' docs/ai-agents.md
 require_grep 'agent-discovery.md' docs/ai-agents.md
@@ -205,9 +211,11 @@ require_grep 'Expo dev-client scenario' docs/npm.md
 require_grep 'zmr version --json' docs/protocol.md
 require_grep 'zmr schemas --json' docs/protocol.md
 require_grep 'zmr inspect --json' docs/protocol.md
+require_grep 'zmr discover --from-trace <trace-dir> --out <scenario.json> --validate --json' docs/protocol.md
 require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
 require_grep 'zmr draft --include-actions' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md
+require_grep 'schemas/discover-output.schema.json' docs/protocol.md
 require_grep 'schemas/draft-output.schema.json' docs/protocol.md
 require_grep 'zmr devices --json' docs/protocol.md
 require_grep 'zmr validate <scenario.json> --json' docs/protocol.md

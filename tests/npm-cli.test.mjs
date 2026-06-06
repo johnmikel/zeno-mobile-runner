@@ -54,6 +54,8 @@ test("init command creates app-local scenario and npm script snippets", () => {
     assert.match(agentInstructions, /Do not claim production readiness from smoke runs alone/);
     assert.match(agentInstructions, /zmr mcp --config \.zmr\/config\.json --trace-dir traces\/zmr-agent/);
     assert.match(agentInstructions, /Use `semantic_snapshot` before choosing tap or type actions/);
+    assert.match(agentInstructions, /zmr discover --from-trace traces\/zmr-agent --out \.zmr\/discovered\/replay-smoke\.json --include-actions --validate --json/);
+    assert.match(agentInstructions, /Treat discover output as a reviewable starting point/);
     assert.match(agentInstructions, /zmr draft --from-trace traces\/zmr-agent --out \.zmr\/discovered\/surface-smoke\.json --json/);
     assert.match(agentInstructions, /Treat draft output as a reviewable starting point/);
     assert.match(agentInstructions, /## App Commands/);
@@ -525,6 +527,7 @@ test("wizard checks necessities, scaffolds scenarios, and patches package script
     assert.match(agentInstructions, /npm run zmr:matrix/);
     assert.match(agentInstructions, /npm run zmr:pilot/);
     assert.match(agentInstructions, /npm run zmr:readiness/);
+    assert.match(agentInstructions, /zmr discover --from-trace traces\/zmr-agent --out \.zmr\/discovered\/replay-smoke\.json --include-actions --validate --json/);
     assert.doesNotMatch(agentInstructions, /zmr run \.zmr\/android-smoke\.json --device emulator-5554/);
     assert.doesNotMatch(agentInstructions, /zmr explain traces\/zmr-agent --json/);
     assert.match(fs.readFileSync(path.join(tmp, ".gitignore"), "utf8"), /^traces\/$/m);
@@ -566,6 +569,7 @@ test("wizard without package-json emits direct agent commands and next steps", (
     assert.match(agentInstructions, /zmr-benchmark --zmr \.zmr\/android-smoke\.json --device emulator-5554 --app-id com\.example\.demo/);
     assert.match(agentInstructions, /zmr-benchmark --zmr \.zmr\/ios-smoke\.json --platform ios --device booted --app-id com\.example\.demo/);
     assert.match(agentInstructions, /zmr-pilot-gate --android --ios --android-app-root \. --android-app-id com\.example\.demo/);
+    assert.match(agentInstructions, /zmr discover --from-trace traces\/zmr-agent --out \.zmr\/discovered\/replay-smoke\.json --include-actions --validate --json/);
     assert.doesNotMatch(agentInstructions, /npm run zmr:/);
     assert.match(result.stdout, /zmr run \.zmr\/android-smoke\.json --device emulator-5554 --trace-dir traces\/zmr-android/);
     assert.match(result.stdout, /zmr run \.zmr\/ios-smoke\.json --platform ios --device booted --trace-dir traces\/zmr-ios/);

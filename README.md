@@ -94,6 +94,7 @@ zmr version --json
 zmr schemas --json
 zmr devices --json
 zmr inspect --json
+zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json
 zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
 zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json
 zmr init --app --json --dir . --app-id com.example.mobiletest
@@ -119,8 +120,24 @@ zmr inspect --json --dir .
 config status, generated agent instructions, configured platform scenarios, and
 recommended next commands. It does not launch devices or write tests.
 
-After a live session has produced semantic snapshot artifacts, agents can ask
-ZMR to draft a conservative surface-smoke scenario from the trace:
+After a live session has produced trace artifacts, agents can ask ZMR to turn
+the trace into a validated, reviewable scenario candidate:
+
+```bash
+zmr discover --from-trace traces/zmr-agent \
+  --out .zmr/discovered/replay-smoke.json \
+  --include-actions \
+  --validate \
+  --json
+```
+
+`zmr discover` is offline and review-first. It writes a scenario from stable
+trace evidence, optionally validates it immediately, and returns next commands
+for deterministic reruns. It does not crawl the app, discover credentials, or
+commit tests.
+
+For the lower-level draft primitive, agents can still ask ZMR to write a
+conservative surface-smoke scenario from the latest snapshot:
 
 ```bash
 zmr draft --from-trace traces/zmr-agent \
@@ -129,9 +146,9 @@ zmr draft --from-trace traces/zmr-agent \
 zmr validate --json .zmr/discovered/surface-smoke.json
 ```
 
-`zmr draft` is offline and review-first. It writes `launch`, `snapshot`, and
-`assertVisible` steps from stable visible selectors. It does not crawl the app,
-tap controls, type into fields, discover credentials, or commit tests.
+`zmr draft` writes `launch`, `snapshot`, and `assertVisible` steps from stable
+visible selectors. It does not tap controls or type into fields unless
+`--include-actions` is explicitly requested.
 
 When the trace was produced by an agent or JSON-RPC/MCP session that took typed
 actions, add `--include-actions` to replay successful supported actions before

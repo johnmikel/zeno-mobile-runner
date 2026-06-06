@@ -68,6 +68,8 @@ This creates:
 `.zmr/AGENTS.md` gives AI agents an app-local operating note with strict
 doctor/validate commands, schema discovery, direct `zmr run` smoke commands,
 JSON-RPC and MCP startup commands, selector guidance, the exact
+`zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json`
+trace-to-test command,
 `zmr explain traces/zmr-agent --json` failure-triage command, the exact
 `zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact`
 redacted trace export command.

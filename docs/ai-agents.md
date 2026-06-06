@@ -77,21 +77,26 @@ infer intent from platform-specific Android/UI Automator or XCTest class names.
 
 Agents can use ZMR to discover flows and draft scenarios by looping over
 `observe.semanticSnapshot`, one typed action, trace events, and scenario
-validation. After a session has produced semantic snapshot artifacts, use the
-offline draft command to create a reviewable starting point:
+validation. After a session has produced trace artifacts, use the offline
+discover command to create and validate a reviewable starting point:
 
 ```bash
-zmr draft --from-trace traces/zmr-agent \
-  --out .zmr/discovered/surface-smoke.json \
+zmr discover --from-trace traces/zmr-agent \
+  --out .zmr/discovered/replay-smoke.json \
+  --include-actions \
+  --validate \
   --json
-zmr validate --json .zmr/discovered/surface-smoke.json
 ```
 
-`zmr draft` writes `launch`, `snapshot`, and conservative `assertVisible`
-checks only. It does not tap, type, crawl, discover credentials, or commit
-tests by default. For traces produced by an agent session with successful typed
-actions, add `--include-actions` to generate a replay draft from supported
-events before the final snapshot assertions:
+`zmr discover` is review-first. It writes from trace evidence, validates the
+generated scenario when asked, and returns next commands for deterministic
+reruns. It does not crawl, discover credentials, or commit tests.
+
+Use `zmr draft` when you want the lower-level split workflow. It writes
+`launch`, `snapshot`, and conservative `assertVisible` checks by default. For
+traces produced by an agent session with successful typed actions, add
+`--include-actions` to generate a replay draft from supported events before the
+final snapshot assertions:
 
 ```bash
 zmr draft --from-trace traces/zmr-agent \

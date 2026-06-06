@@ -326,6 +326,8 @@ test("agent helper module owns generated AI-agent quick-start instructions", asy
   assert.doesNotMatch(instructions, /zmr run \.zmr\/android-smoke\.json --device emulator-5554/);
   assert.doesNotMatch(instructions, /zmr explain traces\/zmr-agent --json/);
   assert.match(instructions, /Use `semantic_snapshot` before choosing tap or type actions/);
+  assert.match(instructions, /zmr discover --from-trace traces\/zmr-agent --out \.zmr\/discovered\/replay-smoke\.json --include-actions --validate --json/);
+  assert.match(instructions, /Treat discover output as a reviewable starting point/);
   assert.match(instructions, /zmr draft --from-trace traces\/zmr-agent --out \.zmr\/discovered\/surface-smoke\.json --json/);
   assert.match(instructions, /Treat draft output as a reviewable starting point/);
   assert.match(instructions, /Do not claim production readiness from a single-platform setup/);

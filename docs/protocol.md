@@ -25,6 +25,7 @@ Public schemas:
 - `schemas/explain-output.schema.json`
 - `schemas/run-output.schema.json`
 - `schemas/inspect-output.schema.json`
+- `schemas/discover-output.schema.json`
 - `schemas/draft-output.schema.json`
 - `schemas/release-manifest.schema.json`
 - `schemas/release-readiness-output.schema.json`
@@ -48,7 +49,21 @@ and protocol versions. The response is covered by
 {"ok":true,"status":"ready","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","dir":".","configPath":".zmr/config.json","configExists":true,"agentInstructionsPath":".zmr/AGENTS.md","agentInstructionsExists":true,"platforms":[{"name":"android","enabled":true,"defaultDevice":"emulator-5554","smokeScenario":".zmr/android-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-android"},{"name":"ios","enabled":true,"defaultDevice":"booted","smokeScenario":".zmr/ios-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-ios"}],"recommendedCommands":["zmr doctor --strict --json --config .zmr/config.json","zmr schemas --json","zmr validate --json .zmr/android-smoke.json","zmr validate --json .zmr/ios-smoke.json","zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent","zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent"],"claimsPolicy":["verify runs with trace evidence before making readiness claims","do not claim Flutter widget-tree inspection"],"limitations":["inspect is read-only and does not launch devices","autonomous crawling is not shipped; generate or edit scenarios for human review"]}
 ```
 
-`zmr draft --from-trace <trace-dir> --out <scenario.json> --json` reads the
+`zmr discover --from-trace <trace-dir> --out <scenario.json> --validate --json`
+is the public trace-to-test handoff for agents. It reads the trace manifest and
+latest snapshot artifact, writes a reviewable scenario, and optionally validates
+that generated scenario before returning. With `--include-actions`, it replays
+only successful supported trace actions that contain stable replay data. It is
+offline and review-first: it does not start a device session, crawl the app,
+invent credentials, or commit files. The response is covered by
+`schemas/discover-output.schema.json`:
+
+```json
+{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/replay-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/replay-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/replay-smoke.json","zmr run .zmr/discovered/replay-smoke.json --json --trace-dir traces/zmr-agent"]}
+```
+
+`zmr draft --from-trace <trace-dir> --out <scenario.json> --json` is the lower
+level scenario-writing primitive used by `discover`. It reads the
 trace manifest and latest semantic snapshot artifact, then writes a reviewable
 surface-smoke scenario. The generated scenario starts with `launch` and
 `snapshot`, then adds `assertVisible` steps for a small set of visible stable

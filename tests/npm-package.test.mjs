@@ -568,6 +568,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.doesNotMatch(tarList.stdout, /package\/scripts\/notarize-macos-release\.sh/);
     assert.match(tarList.stdout, /package\/schemas\/release-manifest\.schema\.json/);
     assert.match(tarList.stdout, /package\/schemas\/inspect-output\.schema\.json/);
+    assert.match(tarList.stdout, /package\/schemas\/discover-output\.schema\.json/);
     assert.match(tarList.stdout, /package\/schemas\/draft-output\.schema\.json/);
     assert.match(tarList.stdout, /package\/clients\/README\.md/);
     assert.match(tarList.stdout, /package\/skills\/zmr-mobile-testing\/SKILL\.md/);

@@ -139,7 +139,7 @@ test "draft from trace can replay successful supported actions" {
     try std.fs.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
-        \\{"schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":9,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
+        \\{"schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":12,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });
@@ -155,7 +155,9 @@ test "draft from trace can replay successful supported actions" {
         \\{"seq":7,"timestampMs":7,"kind":"ui.type","payload":{"status":"ok","selector":{"text":"Password"},"text":"[REDACTED:secret]"}}
         \\{"seq":8,"timestampMs":8,"kind":"ui.swipe","payload":{"status":"ok","x1":10,"y1":20,"x2":10,"y2":200,"durationMs":450}}
         \\{"seq":9,"timestampMs":9,"kind":"ui.scrollUntilVisible","payload":{"status":"ok","target":"invite-card","selector":{"text":"Invite"},"direction":"up","timeoutMs":7000}}
-        \\{"seq":10,"timestampMs":10,"kind":"scenario.end","payload":{"value":"agent session","status":"passed"}}
+        \\{"seq":10,"timestampMs":10,"kind":"assert.noneVisible","payload":{"status":"ok","selectors":[{"textContains":"Crash"},{"textContains":"Fatal"}],"timeoutMs":2500}}
+        \\{"seq":11,"timestampMs":11,"kind":"assert.healthy","payload":{"status":"ok","timeoutMs":3000}}
+        \\{"seq":12,"timestampMs":12,"kind":"scenario.end","payload":{"value":"agent session","status":"passed"}}
         \\
         ,
     });
@@ -200,10 +202,10 @@ test "draft from trace can replay successful supported actions" {
     defer result.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 1), result.summary.selector_count);
-    try std.testing.expectEqual(@as(usize, 9), result.summary.step_count);
+    try std.testing.expectEqual(@as(usize, 11), result.summary.step_count);
     try std.testing.expect(result.summary.replay.enabled);
-    try std.testing.expectEqual(@as(usize, 8), result.summary.replay.event_count);
-    try std.testing.expectEqual(@as(usize, 7), result.summary.replay.step_count);
+    try std.testing.expectEqual(@as(usize, 10), result.summary.replay.event_count);
+    try std.testing.expectEqual(@as(usize, 9), result.summary.replay.step_count);
     try std.testing.expectEqual(@as(usize, 1), result.summary.replay.skipped_event_count);
     var saw_review_warning = false;
     for (result.summary.warnings) |warning| {
@@ -224,6 +226,8 @@ test "draft from trace can replay successful supported actions" {
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"typeText\",\"selector\":{\"text\":\"Email\"},\"text\":\"agent@example.com\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\",\"x1\":10,\"y1\":20,\"x2\":10,\"y2\":200,\"durationMs\":450") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"scrollUntilVisible\",\"selector\":{\"text\":\"Invite\"},\"direction\":\"up\",\"timeoutMs\":7000") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertNoneVisible\",\"selectors\":[{\"textContains\":\"Crash\"},{\"textContains\":\"Fatal\"}],\"timeoutMs\":2500") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertHealthy\",\"timeoutMs\":3000") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "[REDACTED:secret]") == null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Home\"}") != null);
 }

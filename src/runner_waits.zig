@@ -184,12 +184,12 @@ pub fn assertNoneVisible(
         }
 
         if (!matched) {
-            if (writer) |tw| try tw.recordEvent("assert.noneVisible", "{\"status\":\"ok\"}");
+            if (writer) |tw| try runner_events.recordSelectorArrayStatus(tw, "assert.noneVisible", "ok", selectors, timeout_ms);
             return true;
         }
 
         if (std.time.milliTimestamp() >= deadline) {
-            if (writer) |tw| try runner_events.recordDiagnostic(tw, "assert.noneVisible", "visible", selectors, snap);
+            if (writer) |tw| try runner_events.recordDiagnosticWithStrategyAndTimeout(tw, "assert.noneVisible", "visible", null, selectors, snap, timeout_ms);
             return false;
         }
 
@@ -213,12 +213,16 @@ pub fn assertHealthy(
         defer snap.deinit(device.allocator);
 
         if (!health.hasUnhealthyOverlay(snap.nodes)) {
-            if (writer) |tw| try tw.recordEvent("assert.healthy", "{\"status\":\"ok\"}");
+            if (writer) |tw| {
+                const payload = try std.fmt.allocPrint(tw.allocator, "{{\"status\":\"ok\",\"timeoutMs\":{d}}}", .{timeout_ms});
+                defer tw.allocator.free(payload);
+                try tw.recordEvent("assert.healthy", payload);
+            }
             return true;
         }
 
         if (std.time.milliTimestamp() >= deadline) {
-            if (writer) |tw| try runner_events.recordDiagnostic(tw, "assert.healthy", "unhealthy", health_selectors, snap);
+            if (writer) |tw| try runner_events.recordDiagnosticWithStrategyAndTimeout(tw, "assert.healthy", "unhealthy", null, health_selectors, snap, timeout_ms);
             return false;
         }
 

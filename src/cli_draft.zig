@@ -347,7 +347,13 @@ fn replayStepJson(
         if (selector_value != .object) return try warnMissingReplayField(allocator, owned, kind);
         return try actionWithScrollUntilVisible(allocator, owned, selector_value, optionalScrollDirection(payload), optionalUsize(payload, "timeoutMs"));
     }
+    if (std.mem.eql(u8, kind, "assert.noneVisible")) {
+        const selectors_value = payload.get("selectors") orelse return try warnMissingReplayField(allocator, owned, kind);
+        if (selectors_value != .array) return try warnMissingReplayField(allocator, owned, kind);
+        return try actionWithSelectors(allocator, owned, "assertNoneVisible", selectors_value, optionalUsize(payload, "timeoutMs"));
+    }
     if (std.mem.eql(u8, kind, "assert.healthy")) {
+        if (optionalUsize(payload, "timeoutMs")) |timeout_ms| return try actionWithIntField(allocator, owned, "assertHealthy", "timeoutMs", timeout_ms);
         return try ownString(allocator, owned, "{\"action\":\"assertHealthy\"}");
     }
 
@@ -680,6 +686,25 @@ fn actionWithSelectorAndInt(
     try writer.writeAll(",");
     try trace.writeJsonString(writer, key);
     try writer.print(":{d}}}", .{value});
+    return try ownBytes(allocator, owned, buffer.items);
+}
+
+fn actionWithSelectors(
+    allocator: std.mem.Allocator,
+    owned: *OwnedDraft,
+    action: []const u8,
+    selectors_value: std.json.Value,
+    timeout_ms: ?usize,
+) ![]const u8 {
+    var buffer = std.ArrayList(u8).empty;
+    defer buffer.deinit(allocator);
+    const writer = buffer.writer(allocator);
+    try writer.writeAll("{\"action\":");
+    try trace.writeJsonString(writer, action);
+    try writer.writeAll(",\"selectors\":");
+    try writeJsonValue(writer, selectors_value);
+    if (timeout_ms) |actual| try writer.print(",\"timeoutMs\":{d}", .{actual});
+    try writer.writeAll("}");
     return try ownBytes(allocator, owned, buffer.items);
 }
 

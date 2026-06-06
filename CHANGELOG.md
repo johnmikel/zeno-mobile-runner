@@ -61,6 +61,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added timeout context to native selector wait trace events and timeout
   diagnostics, so real-device shim traces carry the same timing evidence as
   snapshot-backed waits.
+- Added replay metadata for successful `assertNoneVisible` and timed
+  `assertHealthy` trace events, so generated replay scenarios preserve
+  assertion intent instead of dropping those checks.
 - Added `zmr report --junit <report.xml>` so trace directories and benchmark
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
 - Updated generated app report and reliability scripts to write `junit.xml`

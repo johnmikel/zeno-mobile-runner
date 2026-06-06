@@ -335,6 +335,49 @@ test "native selector wait timeouts include final snapshot diagnostics" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"visibleTexts\":[\"Expo Dev Menu\"]") != null);
 }
 
+test "runner assertion traces preserve replay metadata" {
+    const fake_device = @import("fake_device.zig");
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assertion-replay-metadata";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+
+    var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
+    defer {
+        for (snapshots.items) |snap| snap.deinit(allocator);
+        snapshots.deinit(allocator);
+    }
+    try appendTextSnapshot(allocator, &snapshots, "assert-none-visible", "Home", .{});
+    try appendTextSnapshot(allocator, &snapshots, "assert-healthy", "Still healthy", .{});
+
+    var fake = fake_device.FakeDevice.init(allocator, snapshots.items);
+    defer fake.deinit();
+
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    const script_json =
+        \\{
+        \\  "name": "assertion replay metadata",
+        \\  "steps": [
+        \\    {"action": "assertNoneVisible", "selectors": [{"textContains": "Crash"}, {"textContains": "Fatal"}], "timeoutMs": 1234},
+        \\    {"action": "assertHealthy", "timeoutMs": 2345}
+        \\  ]
+        \\}
+    ;
+    const script = try scenario.parseSlice(allocator, script_json);
+    defer script.deinit(allocator);
+
+    try runScenario(allocator, &fake, script, &tw, .{ .settle_ms = 0, .poll_ms = 0 });
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.noneVisible\",\"payload\":{\"status\":\"ok\",\"selectors\":[{\"textContains\":\"Crash\"},{\"textContains\":\"Fatal\"}],\"timeoutMs\":1234}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\",\"payload\":{\"status\":\"ok\",\"timeoutMs\":2345}") != null);
+}
+
 test "runner executes agent flow primitives and records trace events" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;

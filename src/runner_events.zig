@@ -45,6 +45,21 @@ pub fn recordNativeWaitTimeoutWithDiagnostics(device: anytype, tw: *trace.TraceW
     try recordDiagnosticWithStrategyAndTimeout(tw, kind, "timeout", "nativeSelector", selectors, snap, timeout_ms);
 }
 
+pub fn recordSelectorArrayStatus(tw: *trace.TraceWriter, kind: []const u8, status: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(tw.allocator);
+    const out = payload.writer(tw.allocator);
+    try out.writeAll("{\"status\":");
+    try trace.writeJsonString(out, status);
+    try out.writeAll(",\"selectors\":[");
+    for (selectors, 0..) |wanted, index| {
+        if (index > 0) try out.writeAll(",");
+        try trace.writeSelectorJson(out, wanted);
+    }
+    try out.print("],\"timeoutMs\":{d}}}", .{timeout_ms});
+    try tw.recordEvent(kind, payload.items);
+}
+
 pub fn recordSelectorEvent(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector) !void {
     var payload = std.ArrayList(u8).empty;
     defer payload.deinit(tw.allocator);

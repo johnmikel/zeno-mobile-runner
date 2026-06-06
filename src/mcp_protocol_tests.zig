@@ -17,8 +17,13 @@ test "mcp protocol writes initialize and tool list responses" {
     try mcp_protocol.writeToolListResult(tools.writer(allocator), .{ .integer = 2 });
 
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"semantic_snapshot\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"install_app\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"launch_app\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"stop_app\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"clear_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"tap\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"type\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"swipe\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"hide_keyboard\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"erase_text\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.items, "\"name\":\"scroll_until_visible\"") != null);

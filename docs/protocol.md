@@ -544,13 +544,14 @@ exposes tool calls for agent runtimes that prefer MCP over raw JSON-RPC.
 zmr mcp --config .zmr/config.json --trace-dir traces/mcp-agent
 ```
 
-Core tools are `snapshot`, `semantic_snapshot`, `tap`, `type`, `erase_text`,
-`hide_keyboard`, `press_back`, `open_link`, `wait_visible`,
-`wait_not_visible`, `wait_any`, `scroll_until_visible`, `assert_visible`,
-`assert_not_visible`, `assert_healthy`, `scenario_validate`, `trace_events`,
-`trace_discover`, and `trace_export`. The MCP protocol handshake is
-intentionally standard, while the tool names and payloads are versioned with
-the ZMR runner and public schemas.
+Core tools are `snapshot`, `semantic_snapshot`, `install_app`, `launch_app`,
+`stop_app`, `clear_state`, `tap`, `type`, `erase_text`, `hide_keyboard`,
+`swipe`, `press_back`, `open_link`, `wait_visible`, `wait_not_visible`,
+`wait_any`, `scroll_until_visible`, `assert_visible`, `assert_not_visible`,
+`assert_healthy`, `scenario_validate`, `trace_events`, `trace_discover`, and
+`trace_export`. The MCP protocol handshake is intentionally standard, while
+the tool names and payloads are versioned with the ZMR runner and public
+schemas.
 
 ### `ui.tap`
 

@@ -4,7 +4,9 @@ const errors = @import("errors.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
 const mcp_trace = @import("mcp_trace.zig");
 const params_parser = @import("json_rpc_params.zig");
+const rpc_trace = @import("json_rpc_trace.zig");
 const runner = @import("runner.zig");
+const runner_events = @import("runner_events.zig");
 const selector = @import("selector.zig");
 const semantic = @import("semantic.zig");
 const trace = @import("trace.zig");
@@ -131,6 +133,35 @@ fn callTool(
         return;
     }
 
+    if (std.mem.eql(u8, tool_name, "install_app")) {
+        const path = try requiredParamString(arguments, "path");
+        try device.install(path);
+        if (live_trace) |tw| try rpc_trace.recordSimplePayload(tw, "app.install", "path", path);
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "launch_app")) {
+        try device.launch();
+        if (live_trace) |tw| try tw.recordEvent("app.launch", "{\"status\":\"ok\"}");
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "stop_app")) {
+        try device.stop();
+        if (live_trace) |tw| try tw.recordEvent("app.stop", "{\"status\":\"ok\"}");
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "clear_state")) {
+        try device.clearState();
+        if (live_trace) |tw| try tw.recordEvent("app.clearState", "{\"status\":\"ok\"}");
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
     if (std.mem.eql(u8, tool_name, "tap")) {
         const wanted = try parseArgumentsSelector(allocator, arguments);
         defer wanted.deinit(allocator);
@@ -148,6 +179,18 @@ fn callTool(
         } else {
             try device.typeText(text);
         }
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "swipe")) {
+        const x1 = try params_parser.requiredI32(arguments, "x1");
+        const y1 = try params_parser.requiredI32(arguments, "y1");
+        const x2 = try params_parser.requiredI32(arguments, "x2");
+        const y2 = try params_parser.requiredI32(arguments, "y2");
+        const duration_ms = @as(u32, @intCast(try optionalParamU64(arguments, "durationMs", 300)));
+        try device.swipe(x1, y1, x2, y2, duration_ms);
+        if (live_trace) |tw| try runner_events.recordSwipe(tw, x1, y1, x2, y2, duration_ms);
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
         return;
     }

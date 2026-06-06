@@ -205,8 +205,9 @@ Agents that support the Model Context Protocol can use the native MCP surface:
 zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
-The MCP server exposes mobile-specific tools such as `semantic_snapshot`, `tap`,
-`type`, `erase_text`, `hide_keyboard`, `press_back`, `open_link`,
+The MCP server exposes mobile-specific tools such as `semantic_snapshot`,
+`install_app`, `launch_app`, `stop_app`, `clear_state`, `tap`, `type`,
+`erase_text`, `hide_keyboard`, `swipe`, `press_back`, `open_link`,
 `wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible`,
 `assert_visible`, `assert_not_visible`, `assert_healthy`, `scenario_validate`,
 `trace_events`, `trace_discover`, and `trace_export`.

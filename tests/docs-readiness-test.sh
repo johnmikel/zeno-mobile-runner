@@ -131,8 +131,13 @@ require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
 require_grep 'skills/zmr-mobile-testing/SKILL.md' README.md
+require_grep 'install_app' README.md
+require_grep 'launch_app' README.md
+require_grep 'stop_app' README.md
+require_grep 'clear_state' README.md
 require_grep 'erase_text' README.md
 require_grep 'hide_keyboard' README.md
+require_grep 'swipe' README.md
 require_grep 'wait_not_visible' README.md
 require_grep 'wait_any' README.md
 require_grep 'scroll_until_visible' README.md
@@ -189,6 +194,7 @@ require_grep 'coordinate-complete `ui.swipe` trace replay' CHANGELOG.md
 require_grep 'traced `pressBack` replay parity' CHANGELOG.md
 require_grep 'direction and timeout preserving `scrollUntilVisible` trace replay' CHANGELOG.md
 require_grep 'MCP `erase_text`, `hide_keyboard`, `wait_not_visible`, `wait_any`, and' CHANGELOG.md
+require_grep 'MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and' CHANGELOG.md
 require_grep 'selector and timeout preserving wait replay' CHANGELOG.md
 require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
 require_grep 'replay metadata for successful `assertNoneVisible`' CHANGELOG.md
@@ -257,8 +263,13 @@ require_grep 'AI Agent Guide' docs/ai-agents.md
 require_grep 'runner.capabilities' docs/ai-agents.md
 require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
+require_grep 'install_app' docs/ai-agents.md
+require_grep 'launch_app' docs/ai-agents.md
+require_grep 'stop_app' docs/ai-agents.md
+require_grep 'clear_state' docs/ai-agents.md
 require_grep 'erase_text' docs/ai-agents.md
 require_grep 'hide_keyboard' docs/ai-agents.md
+require_grep 'swipe' docs/ai-agents.md
 require_grep 'wait_not_visible' docs/ai-agents.md
 require_grep 'wait_any' docs/ai-agents.md
 require_grep 'scroll_until_visible' docs/ai-agents.md
@@ -309,8 +320,13 @@ require_grep 'zmr run <scenario.json> --trace-dir <trace-dir> --discover-out' do
 require_grep '"replay":{"enabled":true' docs/protocol.md
 require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
 require_grep 'zmr draft --include-actions' docs/protocol.md
+require_grep 'install_app' docs/protocol.md
+require_grep 'launch_app' docs/protocol.md
+require_grep 'stop_app' docs/protocol.md
+require_grep 'clear_state' docs/protocol.md
 require_grep 'erase_text' docs/protocol.md
 require_grep 'hide_keyboard' docs/protocol.md
+require_grep 'swipe' docs/protocol.md
 require_grep 'wait_not_visible' docs/protocol.md
 require_grep 'wait_any' docs/protocol.md
 require_grep 'scroll_until_visible' docs/protocol.md

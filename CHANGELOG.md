@@ -11,6 +11,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added MCP `erase_text`, `hide_keyboard`, `wait_not_visible`, `wait_any`, and
   `scroll_until_visible` tools so agents can cover common mobile flow control
   without dropping to JSON-RPC.
+- Added MCP `install_app`, `launch_app`, `stop_app`, `clear_state`, and
+  `swipe` tools so MCP agents can run full app lifecycle and gesture flows.
 - Added `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` for
   trace-backed, review-first scenario drafting. The command reads the latest
   semantic snapshot artifact and writes a conservative surface-smoke scenario

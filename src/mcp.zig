@@ -3,6 +3,7 @@ const cli_output = @import("cli_output.zig");
 const errors = @import("errors.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
 const mcp_trace = @import("mcp_trace.zig");
+const params_parser = @import("json_rpc_params.zig");
 const runner = @import("runner.zig");
 const selector = @import("selector.zig");
 const semantic = @import("semantic.zig");
@@ -151,6 +152,31 @@ fn callTool(
         return;
     }
 
+    if (std.mem.eql(u8, tool_name, "hide_keyboard")) {
+        try device.hideKeyboard();
+        if (live_trace) |tw| try tw.recordEvent("ui.hideKeyboard", "{\"status\":\"ok\"}");
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "erase_text")) {
+        const max_chars = @as(u32, @intCast(try optionalParamU64(arguments, "maxChars", 80)));
+        if (paramField(arguments, "selector")) |selector_value| {
+            const wanted = try selector.parseFromJson(allocator, selector_value);
+            defer wanted.deinit(allocator);
+            try runner.eraseTextSelector(device, wanted, max_chars, live_trace, .{});
+        } else {
+            try device.eraseText(max_chars);
+            if (live_trace) |tw| {
+                const payload = try std.fmt.allocPrint(tw.allocator, "{{\"maxChars\":{d}}}", .{max_chars});
+                defer tw.allocator.free(payload);
+                try tw.recordEvent("ui.eraseText", payload);
+            }
+        }
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
     if (std.mem.eql(u8, tool_name, "press_back")) {
         try device.pressBack();
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
@@ -168,11 +194,44 @@ fn callTool(
         defer wanted.deinit(allocator);
         const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
         const visible = try runner.waitUntilVisible(device, wanted, timeout_ms, live_trace, .{});
-        try writer.writeAll("{\"jsonrpc\":\"2.0\",\"id\":");
-        try mcp_protocol.writeId(writer, id);
-        try writer.writeAll(",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"visible\\\":");
-        try writer.writeAll(if (visible) "true" else "false");
-        try writer.writeAll("}\"}]}}\n");
+        try writeVisibleToolResult(writer, id, visible);
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "wait_not_visible")) {
+        const wanted = try parseArgumentsSelector(allocator, arguments);
+        defer wanted.deinit(allocator);
+        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
+        const gone = try runner.waitUntilNotVisible(device, wanted, timeout_ms, live_trace, .{});
+        try writeVisibleToolResult(writer, id, !gone);
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "wait_any")) {
+        const selectors = try params_parser.selectors(allocator, arguments);
+        defer {
+            for (selectors) |wanted| wanted.deinit(allocator);
+            allocator.free(selectors);
+        }
+        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
+        const matched = try runner.waitUntilAnyVisible(device, selectors, timeout_ms, live_trace, .{});
+        try writeMatchedIndexToolResult(allocator, writer, id, matched);
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "scroll_until_visible")) {
+        const wanted = try parseArgumentsSelector(allocator, arguments);
+        defer wanted.deinit(allocator);
+        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
+        const visible = try runner.scrollUntilVisible(
+            device,
+            wanted,
+            timeout_ms,
+            try params_parser.optionalDirection(arguments, "direction", .down),
+            live_trace,
+            .{},
+        );
+        try writeVisibleToolResult(writer, id, visible);
         return;
     }
 
@@ -242,6 +301,27 @@ fn callTool(
     }
 
     try mcp_protocol.writeError(writer, id, -32602, "unknown tool");
+}
+
+fn writeVisibleToolResult(writer: anytype, id: ?std.json.Value, visible: bool) !void {
+    try mcp_protocol.writeToolTextResult(writer, id, if (visible) "{\"visible\":true}" else "{\"visible\":false}");
+}
+
+fn writeMatchedIndexToolResult(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    id: ?std.json.Value,
+    matched: ?usize,
+) !void {
+    var payload = std.ArrayList(u8).empty;
+    defer payload.deinit(allocator);
+    const payload_writer = payload.writer(allocator);
+    if (matched) |index| {
+        try payload_writer.print("{{\"matchedIndex\":{d}}}", .{index});
+    } else {
+        try payload_writer.writeAll("{\"matchedIndex\":null}");
+    }
+    try mcp_protocol.writeToolTextResult(writer, id, payload.items);
 }
 
 fn parseArgumentsSelector(allocator: std.mem.Allocator, arguments: ?std.json.Value) !selector.Selector {

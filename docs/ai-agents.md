@@ -77,8 +77,9 @@ The MCP server exposes mobile-specific tools:
 - `snapshot`: raw ZMR observation JSON
 - `semantic_snapshot`: normalized roles, names, selectors, bounds, and
   recommended actions
-- `tap`, `type`, `press_back`, and `open_link`
-- `wait_visible`
+- `tap`, `type`, `erase_text`, `hide_keyboard`, `press_back`, `open_link`, and
+  `scroll_until_visible`
+- `wait_visible`, `wait_not_visible`, and `wait_any`
 - `assert_visible`, `assert_not_visible`, and `assert_healthy`
 - `scenario_validate`
 - `trace_events`, `trace_discover`, and `trace_export`

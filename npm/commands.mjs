@@ -13,8 +13,8 @@ export function smokeRunCommand({ platform, androidShim = "", iosShim = "" }) {
 }
 
 export function smokeReportCommand({ platform }) {
-  if (platform === "android") return "zmr report traces/zmr-android --out traces/zmr-android/report.html";
-  if (platform === "ios") return "zmr report traces/zmr-ios --out traces/zmr-ios/report.html";
+  if (platform === "android") return reportCommand("zmr", "traces/zmr-android");
+  if (platform === "ios") return reportCommand("zmr", "traces/zmr-ios");
   throw new Error(`unsupported smoke report platform: ${platform}`);
 }
 
@@ -71,7 +71,7 @@ export function reliabilityCommand({ scenario, platform = "", device, appId, xcr
     "--max-p95-ms",
     String(maxP95Ms),
   );
-  return `export ZMR_BIN="\${ZMR_BIN:-zmr}"; ${shellJoin(args)} && "$ZMR_BIN" report ${shellQuote(traceRoot)} --out ${shellQuote(`${traceRoot}/report.html`)}`;
+  return `export ZMR_BIN="\${ZMR_BIN:-zmr}"; ${shellJoin(args)} && ${reportCommand('"$ZMR_BIN"', traceRoot)}`;
 }
 
 export function devClientRunCommand({ platform }) {
@@ -85,9 +85,13 @@ export function devClientRunCommand({ platform }) {
 }
 
 export function devClientReportCommand({ platform }) {
-  if (platform === "android") return "zmr report traces/zmr-android-dev-client --out traces/zmr-android-dev-client/report.html";
-  if (platform === "ios") return "zmr report traces/zmr-ios-dev-client --out traces/zmr-ios-dev-client/report.html";
+  if (platform === "android") return reportCommand("zmr", "traces/zmr-android-dev-client");
+  if (platform === "ios") return reportCommand("zmr", "traces/zmr-ios-dev-client");
   throw new Error(`unsupported dev-client report platform: ${platform}`);
+}
+
+function reportCommand(bin, traceRoot) {
+  return `${bin} report ${shellQuote(traceRoot)} --out ${shellQuote(`${traceRoot}/report.html`)} --junit ${shellQuote(`${traceRoot}/junit.xml`)}`;
 }
 
 export function shellJoin(args) {

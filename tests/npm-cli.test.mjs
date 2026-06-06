@@ -74,13 +74,13 @@ test("init command creates app-local scenario and npm script snippets", () => {
     assert.doesNotMatch(config.scripts.androidReliability, /&& zmr report/);
     assert.equal(
       config.scripts.androidReliability,
-      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.demo --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html',
+      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.demo --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml',
     );
     assert.match(config.scripts.iosReliability, /"\$ZMR_BIN" report traces\/zmr-ios-reliability/);
     assert.doesNotMatch(config.scripts.iosReliability, /&& zmr report/);
     assert.equal(
       config.scripts.iosReliability,
-      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html',
+      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml',
     );
     assert.equal(
       config.scripts.pilotGate,
@@ -647,7 +647,7 @@ test("wizard can configure an iOS shim path for selector-grade simulator runs", 
     assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ios-shim ./.zmr/ios-shim");
     assert.equal(
       config.scripts.iosReliability,
-      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --ios-shim ./.zmr/ios-shim --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html',
+      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --ios-shim ./.zmr/ios-shim --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml',
     );
     assert.equal(
       config.scripts.pilotGate,
@@ -750,9 +750,9 @@ test("wizard can scaffold Expo dev-client open-link scenarios", () => {
 
     const config = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "config.json"), "utf8"));
     assert.equal(config.scripts.androidDevClient, "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client");
-    assert.equal(config.scripts.androidDevClientReport, "zmr report traces/zmr-android-dev-client --out traces/zmr-android-dev-client/report.html");
+    assert.equal(config.scripts.androidDevClientReport, "zmr report traces/zmr-android-dev-client --out traces/zmr-android-dev-client/report.html --junit traces/zmr-android-dev-client/junit.xml");
     assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client");
-    assert.equal(config.scripts.iosDevClientReport, "zmr report traces/zmr-ios-dev-client --out traces/zmr-ios-dev-client/report.html");
+    assert.equal(config.scripts.iosDevClientReport, "zmr report traces/zmr-ios-dev-client --out traces/zmr-ios-dev-client/report.html --junit traces/zmr-ios-dev-client/junit.xml");
 
     const pkg = JSON.parse(fs.readFileSync(path.join(tmp, "package.json"), "utf8"));
     assert.equal(pkg.scripts["zmr:android:dev-client"], config.scripts.androidDevClient);
@@ -797,7 +797,7 @@ test("wizard can configure an Android shim path for native instrumentation runs"
     assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --android-shim ./.zmr/android-shim");
     assert.equal(
       config.scripts.androidReliability,
-      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.demo --android-shim ./.zmr/android-shim --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html',
+      'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.demo --android-shim ./.zmr/android-shim --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml',
     );
     assert.equal(
       config.scripts.pilotGate,
@@ -828,7 +828,7 @@ test("wizard removes stale readiness script for single-platform setup", () => {
     fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({
       scripts: {
         "zmr:ios": "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios",
-        "zmr:ios:reliability": 'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html',
+        "zmr:ios:reliability": 'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml',
         "zmr:ios:dev-client": "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client",
         "zmr:readiness": "zmr-release-readiness --evidence traces/zmr-pilots/evidence.jsonl --target production --json",
         "custom:test": "echo keep",

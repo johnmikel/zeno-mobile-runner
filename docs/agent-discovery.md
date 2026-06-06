@@ -38,7 +38,8 @@ ZMR as the deterministic mobile control plane.
    `wait.until`.
 6. Observe again and inspect `trace.events`.
 7. If you used `zmr run --json --trace-dir`, read `nextCommands`; traced run
-   summaries include the matching `zmr discover --from-trace` command.
+   summaries include HTML/JUnit report output and the matching
+   `zmr discover --from-trace` command.
 8. If you want the CLI run itself to write the candidate, use:
 
    ```bash

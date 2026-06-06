@@ -56,7 +56,7 @@ See [docs/frameworks.md](docs/frameworks.md) and
   actions, waits, assertions, live trace events, and redacted trace export over
   JSON-RPC or MCP.
 - **Trace-first debugging:** every run can produce screenshots, UI trees, logs,
-  timings, action inputs, assertion results, and an HTML report.
+  timings, action inputs, assertion results, and HTML/JUnit reports.
 - **Fast local core:** Zig owns orchestration, subprocess control, selectors,
   waits, retries, scenario execution, and packaged binaries.
 - **App-local setup:** `.zmr/config.json`, smoke scenarios, shim commands, and
@@ -108,10 +108,10 @@ zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redac
 ```
 
 For traced runs, `zmr run --json` returns executable `nextCommands` for
-HTML reporting, failure explanation, `zmr discover --from-trace`, and redacted
-export so agents can continue from a run summary without guessing the next
-handoff. Add `--junit <report.xml>` to `zmr report` when CI needs a standard
-test-results artifact.
+HTML and JUnit reporting, failure explanation, `zmr discover --from-trace`,
+and redacted export so agents can continue from a run summary without guessing
+the next handoff. The generated report handoff writes `report.html` and
+`junit.xml` beside the trace for CI artifact collection.
 
 When an agent should produce the reviewable scenario in the same command, add
 `--discover-out .zmr/discovered/<name>.json`. ZMR still treats the generated

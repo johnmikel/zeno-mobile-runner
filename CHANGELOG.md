@@ -38,6 +38,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
   became replay steps and how many were skipped.
 - Added `zmr report --junit <report.xml>` so trace directories and benchmark
   result directories can produce CI-friendly JUnit XML alongside HTML reports.
+- Updated generated app report and reliability scripts to write `junit.xml`
+  beside `report.html` by default.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

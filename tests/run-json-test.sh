@@ -28,7 +28,7 @@ grep -q '"traceDir":' <<< "$PASS_OUTPUT"
 grep -q '"eventsPath":"events.jsonl"' <<< "$PASS_OUTPUT"
 grep -q '"eventCount":' <<< "$PASS_OUTPUT"
 grep -q '"snapshotCount":' <<< "$PASS_OUTPUT"
-if ! grep -q "\"nextCommands\":\[\"zmr report '$PASS_TRACE' --out '$PASS_TRACE/report.html'\",\"zmr explain '$PASS_TRACE' --json\",\"zmr discover --from-trace '$PASS_TRACE' --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json\",\"zmr export '$PASS_TRACE' --out '$PASS_TRACE.zmrtrace' --redact\"\]" <<< "$PASS_OUTPUT"; then
+if ! grep -q "\"nextCommands\":\[\"zmr report '$PASS_TRACE' --out '$PASS_TRACE/report.html' --junit '$PASS_TRACE/junit.xml'\",\"zmr explain '$PASS_TRACE' --json\",\"zmr discover --from-trace '$PASS_TRACE' --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json\",\"zmr export '$PASS_TRACE' --out '$PASS_TRACE.zmrtrace' --redact\"\]" <<< "$PASS_OUTPUT"; then
   echo "run --json should include executable trace and discovery follow-up commands" >&2
   echo "$PASS_OUTPUT" >&2
   exit 1

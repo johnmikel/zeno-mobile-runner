@@ -324,6 +324,8 @@ fn writeRunNextCommandsJson(writer: anytype, trace_dir: []const u8) !void {
     try writeShellArgJsonContent(writer, trace_dir);
     try writer.writeAll(" --out ");
     try writeJoinedPathShellArgJsonContent(writer, trace_dir, "report.html");
+    try writer.writeAll(" --junit ");
+    try writeJoinedPathShellArgJsonContent(writer, trace_dir, "junit.xml");
     try writer.writeAll("\",\"zmr explain ");
     try writeShellArgJsonContent(writer, trace_dir);
     try writer.writeAll(" --json\",\"zmr discover --from-trace ");

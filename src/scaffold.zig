@@ -149,21 +149,21 @@ fn writeAppConfig(path: []const u8, app_id: []const u8, force: bool) !void {
         \\    "schemas": "zmr schemas --json",
         \\    "validate": "zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json",
         \\    "android": "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android",
-        \\    "androidReport": "zmr report traces/zmr-android --out traces/zmr-android/report.html",
+        \\    "androidReport": "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml",
         \\    "androidReliability": "export ZMR_BIN=\"${ZMR_BIN:-zmr}\"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id
     );
     try writer.writeAll(" ");
     try writeJsonShellArg(writer, app_id);
     try writer.writeAll(
-        \\ --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && \"$ZMR_BIN\" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html",
+        \\ --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && \"$ZMR_BIN\" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml",
         \\    "ios": "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios",
-        \\    "iosReport": "zmr report traces/zmr-ios --out traces/zmr-ios/report.html",
+        \\    "iosReport": "zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml",
         \\    "iosReliability": "export ZMR_BIN=\"${ZMR_BIN:-zmr}\"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id
     );
     try writer.writeAll(" ");
     try writeJsonShellArg(writer, app_id);
     try writer.writeAll(
-        \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && \"$ZMR_BIN\" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html",
+        \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && \"$ZMR_BIN\" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml",
         \\    "matrix": "ZMR_BIN=${ZMR_BIN:-zmr} zmr-device-matrix --matrix .zmr/device-matrix.json --trace-root traces/zmr-matrix --min-pass-rate 100 --max-failures 0",
         \\    "pilotGate": "zmr-pilot-gate --android --ios --android-app-root . --android-app-id
     );
@@ -365,21 +365,21 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\
         \\```bash
         \\zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android
-        \\zmr report traces/zmr-android --out traces/zmr-android/report.html
+        \\zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml
         \\export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id
     );
     try writer.writeAll(" ");
     try writeShellArg(writer, app_id);
     try writer.writeAll(
-        \\ --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html
+        \\ --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml
         \\zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios
-        \\zmr report traces/zmr-ios --out traces/zmr-ios/report.html
+        \\zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml
         \\export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id
     );
     try writer.writeAll(" ");
     try writeShellArg(writer, app_id);
     try writer.writeAll(
-        \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html
+        \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml
         \\```
         \\
         \\## Release Claims
@@ -398,21 +398,21 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\zmr schemas --json
         \\zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json
         \\zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android
-        \\zmr report traces/zmr-android --out traces/zmr-android/report.html
+        \\zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml
         \\export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id
     );
     try writer.writeAll(" ");
     try writeShellArg(writer, app_id);
     try writer.writeAll(
-        \\ --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html
+        \\ --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml
         \\zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios
-        \\zmr report traces/zmr-ios --out traces/zmr-ios/report.html
+        \\zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml
         \\export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id
     );
     try writer.writeAll(" ");
     try writeShellArg(writer, app_id);
     try writer.writeAll(
-        \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html
+        \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml
         \\ZMR_BIN=${ZMR_BIN:-zmr} zmr-device-matrix --matrix .zmr/device-matrix.json --trace-root traces/zmr-matrix --min-pass-rate 100 --max-failures 0
     );
     try writer.writeAll("zmr-pilot-gate --android --ios --android-app-root . --android-app-id ");

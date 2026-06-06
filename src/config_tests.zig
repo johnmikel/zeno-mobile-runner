@@ -389,8 +389,8 @@ test "config parser validates optional scripts block" {
         \\  "scripts": {
         \\    "doctor": "zmr doctor --strict --json --config .zmr/config.json",
         \\    "validate": "zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json",
-        \\    "androidReport": "zmr report traces/zmr-android --out traces/zmr-android/report.html",
-        \\    "androidReliability": "export ZMR_BIN=\"${ZMR_BIN:-zmr}\"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.mobiletest --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && \"$ZMR_BIN\" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html",
+        \\    "androidReport": "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml",
+        \\    "androidReliability": "export ZMR_BIN=\"${ZMR_BIN:-zmr}\"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.mobiletest --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && \"$ZMR_BIN\" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml",
         \\    "exportTrace": "zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact"
         \\  }
         \\}

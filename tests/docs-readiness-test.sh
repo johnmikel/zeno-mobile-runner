@@ -95,7 +95,8 @@ require_grep 'zmr schemas --json' README.md
 require_grep 'zmr inspect --json' README.md
 require_grep '--discover-out .zmr/discovered/login-smoke.json' README.md
 require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' README.md
-require_grep 'Add `--junit <report.xml>` to `zmr report`' README.md
+require_grep 'The generated report handoff writes `report.html` and' README.md
+require_grep '`junit.xml` beside the trace for CI artifact collection' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
@@ -148,6 +149,7 @@ require_grep 'replay` coverage metadata' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
 require_grep 'zmr report --junit <report.xml>' FEATURES.md
+require_grep 'HTML/JUnit report scripts' FEATURES.md
 require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML artifacts' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
 require_grep 'Current release status is `0.1.7`' FEATURES.md
@@ -155,6 +157,8 @@ require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
 require_grep 'zmr report --junit <report.xml>' CHANGELOG.md
+require_grep 'generated app report and reliability scripts to write `junit.xml`' CHANGELOG.md
+require_grep 'beside `report.html` by default' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -236,6 +240,9 @@ require_grep 'zmr init --app' docs/npm.md
 require_grep 'device-matrix.json' docs/npm.md
 require_grep '.zmr/AGENTS.md' docs/npm.md
 require_grep 'Expo dev-client scenario' docs/npm.md
+require_grep 'zmr:android:report": "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml' docs/npm.md
+require_grep 'zmr:ios:reliability": "export ZMR_BIN' docs/npm.md
+require_grep '--junit traces/zmr-ios-reliability/junit.xml' docs/npm.md
 require_grep 'zmr version --json' docs/protocol.md
 require_grep 'zmr schemas --json' docs/protocol.md
 require_grep 'zmr inspect --json' docs/protocol.md
@@ -248,6 +255,10 @@ require_grep 'redacted from the trace are skipped' docs/protocol.md
 require_grep 'schemas/discover-output.schema.json' docs/protocol.md
 require_grep 'schemas/draft-output.schema.json' docs/protocol.md
 require_grep 'zmr report <trace-or-benchmark-dir> --out <report.html> --junit <report.xml>' docs/protocol.md
+require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' docs/protocol.md
+require_grep 'HTML and JUnit reports' docs/protocol.md
+require_grep 'HTML/JUnit report' docs/ai-agents.md
+require_grep 'summaries include HTML/JUnit report output' docs/agent-discovery.md
 require_grep 'zmr devices --json' docs/protocol.md
 require_grep 'zmr validate <scenario.json> --json' docs/protocol.md
 require_grep 'zmr explain' docs/troubleshooting.md

@@ -35,7 +35,7 @@ grep -q '"activePackage":"com.example.mobiletest"' <<< "$OUTPUT"
 grep -q '"visibleTexts":' <<< "$OUTPUT"
 grep -q '"nearestTextMatches":' <<< "$OUTPUT"
 grep -q '"lastEvent":"scenario.end"' <<< "$OUTPUT"
-if ! grep -q "\"nextCommands\":\[\"zmr report '$TRACE_DIR' --out '$TRACE_DIR/report.html'\",\"zmr export '$TRACE_DIR' --out '$TRACE_DIR.zmrtrace' --redact\"\]" <<< "$OUTPUT"; then
+if ! grep -q "\"nextCommands\":\[\"zmr report '$TRACE_DIR' --out '$TRACE_DIR/report.html' --junit '$TRACE_DIR/junit.xml'\",\"zmr export '$TRACE_DIR' --out '$TRACE_DIR.zmrtrace' --redact\"\]" <<< "$OUTPUT"; then
   echo "explain --json should include executable trace follow-up commands" >&2
   echo "$OUTPUT" >&2
   exit 1

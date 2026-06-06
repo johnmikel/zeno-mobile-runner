@@ -138,13 +138,13 @@ Clients should read the last `scenario.end` event as the authoritative trace out
 scenario completes. For traced runs it mirrors the authoritative `trace.json`
 terminal fields, including trace paths, event/snapshot counts, failed step, and
 stable error name. Traced summaries also include `nextCommands` so agents can
-immediately render an HTML report, add JUnit XML when CI needs it, explain the
-failure, generate a reviewable scenario from the trace, or export a redacted
-trace bundle. Failed scenarios still exit non-zero after writing the JSON
-summary. The response is covered by `schemas/run-output.schema.json`:
+immediately render HTML and JUnit reports, explain the failure, generate a
+reviewable scenario from the trace, or export a redacted trace bundle. Failed
+scenarios still exit non-zero after writing the JSON summary. The response is
+covered by `schemas/run-output.schema.json`:
 
 ```json
-{"ok":false,"status":"failed","scenario":"login smoke","appId":"com.example.mobiletest","traceDir":"traces/login-smoke","eventsPath":"events.jsonl","artifactsDir":"artifacts","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html","zmr explain traces/login-smoke --json","zmr discover --from-trace traces/login-smoke --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
+{"ok":false,"status":"failed","scenario":"login smoke","appId":"com.example.mobiletest","traceDir":"traces/login-smoke","eventsPath":"events.jsonl","artifactsDir":"artifacts","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml","zmr explain traces/login-smoke --json","zmr discover --from-trace traces/login-smoke --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
 ```
 
 `zmr run <scenario.json> --trace-dir <trace-dir> --discover-out
@@ -180,12 +180,12 @@ The text summary includes the terminal status, failed step, stable error, last d
 
 `zmr explain <trace-dir> --json` or `zmr explain --json <trace-dir>` returns
 the same failure triage fields in a stable machine-readable shape for agents
-and CI. It also includes `traceDir` and `nextCommands` for rendering an HTML
-report or exporting a redacted bundle. The response is covered by
+and CI. It also includes `traceDir` and `nextCommands` for rendering HTML and
+JUnit reports or exporting a redacted bundle. The response is covered by
 `schemas/explain-output.schema.json`:
 
 ```json
-{"ok":true,"traceDir":"traces/login-smoke","scenario":"login smoke","status":"failed","appId":"com.example.mobiletest","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","diagnostic":{"kind":"wait.visible","status":"timeout","snapshotId":"snapshot-7","activePackage":"com.example.mobiletest","activeActivity":".MainActivity","visibleTexts":["Sign in","Try again"],"nearestTextMatches":["Dashboards (score 1)"]},"lastEvent":"scenario.end","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
+{"ok":true,"traceDir":"traces/login-smoke","scenario":"login smoke","status":"failed","appId":"com.example.mobiletest","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","diagnostic":{"kind":"wait.visible","status":"timeout","snapshotId":"snapshot-7","activePackage":"com.example.mobiletest","activeActivity":".MainActivity","visibleTexts":["Sign in","Try again"],"nearestTextMatches":["Dashboards (score 1)"]},"lastEvent":"scenario.end","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
 ```
 
 For partial visual captures, `diagnostic.kind` is

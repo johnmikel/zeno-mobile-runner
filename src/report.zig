@@ -168,6 +168,8 @@ fn writeTraceExplanationNextCommandsJson(writer: anytype, trace_dir: []const u8)
     try cli_output.writeShellArgJsonContent(writer, trace_dir);
     try writer.writeAll(" --out ");
     try cli_output.writeJoinedPathShellArgJsonContent(writer, trace_dir, "report.html");
+    try writer.writeAll(" --junit ");
+    try cli_output.writeJoinedPathShellArgJsonContent(writer, trace_dir, "junit.xml");
     try writer.writeAll("\",\"zmr export ");
     try cli_output.writeShellArgJsonContent(writer, trace_dir);
     try writer.writeAll(" --out ");

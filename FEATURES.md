@@ -22,7 +22,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 - npm-first installation with `zeno-mobile-runner` as a dev dependency.
 - `npx zmr-wizard` scaffolds `.zmr/config.json`, Android and iOS smoke
-  scenarios, optional app package scripts, and `traces/` gitignore rules.
+  scenarios, optional app package scripts, HTML/JUnit report scripts, and
+  `traces/` gitignore rules.
 - `zmr init --app` provides the same app-local bootstrap for source and archive
   installs.
 - `.zmr/config.json` is schema validated, auto-discovered from app checkouts,

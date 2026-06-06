@@ -49,7 +49,7 @@ assert data["recommendedWording"].startswith("Do not publish the production clai
 next_steps = {item["requirement"]: item for item in data["nextSteps"]}
 assert set(next_steps) == {
     f"evidence file not found: {sys.argv[2]}",
-    "local release gate",
+    "local release gate + agent workflow smoke",
     "public Android demo",
     "public iOS simulator demo",
 }
@@ -93,7 +93,7 @@ next_steps = {item["requirement"]: item for item in data["nextSteps"]}
 missing_step = next_steps[f"evidence file not found: {evidence}"]
 assert set(next_steps) == {
     f"evidence file not found: {evidence}",
-    "local release gate",
+    "local release gate + agent workflow smoke",
     "public Android demo",
     "public iOS simulator demo",
 }
@@ -157,7 +157,7 @@ assert data["target"] == "market-claim"
 next_steps = {item["requirement"]: item for item in data["nextSteps"]}
 assert set(next_steps) == {
     f"evidence file not found: {evidence}",
-    "local release gate",
+    "local release gate + agent workflow smoke",
     "public Android demo",
     "public iOS simulator demo",
 }
@@ -201,7 +201,7 @@ evidence = sys.argv[2]
 next_steps = {item["requirement"]: item for item in data["nextSteps"]}
 assert set(next_steps) == {
     f"evidence file not found: {evidence}",
-    "local release gate",
+    "local release gate + agent workflow smoke",
     "public Android demo",
     "public iOS simulator demo",
 }
@@ -409,7 +409,7 @@ data = json.loads(sys.argv[1])
 assert data["ok"] is False
 assert data["target"] == "production"
 assert data["status"] == "blocked"
-assert data["satisfied"] == ["local release gate", "public Android demo", "public iOS simulator demo"]
+assert data["satisfied"] == ["local release gate", "public Android demo", "public iOS simulator demo", "agent workflow smoke"]
 assert data["recommendedWording"].startswith("Do not publish the production claim yet")
 assert "Android hardware pilot" in data["recommendedWording"]
 assert "missing evidence" in data["claimLimitations"]
@@ -496,7 +496,7 @@ cat > "$PROD_EVIDENCE" <<'JSONL'
 {"name":"iOS physical hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-ios-pilot.sh --app-root /tmp/zmr-app --app-path /tmp/zmr-app/build/Release-iphoneos/Sample.ipa --app-id com.example.demo --ios-device-type physical --device ios-ready --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
 JSONL
 
-"$ROOT/scripts/release-readiness.sh" --evidence "$PROD_EVIDENCE" --target production --json | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["ok"] is True'
+"$ROOT/scripts/release-readiness.sh" --evidence "$PROD_EVIDENCE" --target production --json | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["ok"] is True; assert "agent workflow smoke" in data["satisfied"]'
 
 IOS_DEVICE_FLAG_PROD_EVIDENCE="$TMPDIR/ios-device-flag-production-evidence.jsonl"
 cat > "$IOS_DEVICE_FLAG_PROD_EVIDENCE" <<'JSONL'
@@ -509,7 +509,58 @@ cat > "$IOS_DEVICE_FLAG_PROD_EVIDENCE" <<'JSONL'
 {"name":"iOS physical hardware pilot","status":"passed","durationMs":1000,"command":"zmr-pilot-gate --ios --ios-device-type physical --ios-device ios-ready --ios-app-root /tmp/zmr-app --ios-app-path /tmp/zmr-app/build/Release-iphoneos/Sample.ipa --ios-app-id com.example.demo --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
 JSONL
 
-"$ROOT/scripts/release-readiness.sh" --evidence "$IOS_DEVICE_FLAG_PROD_EVIDENCE" --target production --json | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["ok"] is True'
+"$ROOT/scripts/release-readiness.sh" --evidence "$IOS_DEVICE_FLAG_PROD_EVIDENCE" --target production --json | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["ok"] is True; assert "agent workflow smoke" in data["satisfied"]'
+
+AGENTLESS_PROD_EVIDENCE="$TMPDIR/agentless-production-evidence.jsonl"
+cat > "$AGENTLESS_PROD_EVIDENCE" <<'JSONL'
+{"name":"local release gate","status":"passed","durationMs":1000,"command":"echo local gate passed"}
+{"name":"public Android emulator demo","status":"passed","durationMs":1000,"command":"./scripts/demo-android-real.sh --runs 5"}
+{"name":"public iOS simulator demo","status":"passed","durationMs":1000,"command":"./scripts/demo-ios-real.sh --runs 5"}
+{"name":"physical iOS readiness","status":"passed","durationMs":1000,"command":"./scripts/assert-ios-physical-ready.sh --device ios-ready"}
+{"name":"Android hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-android-pilot.sh --app-root /tmp/zmr-app --app-id com.example.demo --device emulator-5554 --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
+{"name":"iOS simulator hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-ios-pilot.sh --app-root /tmp/zmr-app --app-path /tmp/zmr-app/build/Debug-iphonesimulator/Sample.app --app-id com.example.demo --device booted --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
+{"name":"iOS physical hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-ios-pilot.sh --app-root /tmp/zmr-app --app-path /tmp/zmr-app/build/Release-iphoneos/Sample.ipa --app-id com.example.demo --ios-device-type physical --device ios-ready --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
+JSONL
+
+set +e
+agentless_prod_output="$("$ROOT/scripts/release-readiness.sh" --evidence "$AGENTLESS_PROD_EVIDENCE" --target production --json 2>&1)"
+agentless_prod_status=$?
+set -e
+if [[ "$agentless_prod_status" -eq 0 ]]; then
+  echo "production readiness should fail when local evidence does not prove the agent workflow smoke" >&2
+  exit 1
+fi
+python3 - "$agentless_prod_output" <<'PY'
+import json
+import sys
+
+data = json.loads(sys.argv[1])
+assert data["ok"] is False
+assert data["missing"] == []
+assert data["insufficient"] == ["agent workflow smoke"]
+assert "insufficient evidence" in data["claimLimitations"]
+assert "Insufficient evidence: agent workflow smoke" in data["recommendedWording"]
+requirements = {item["name"]: item for item in data["requirements"]}
+assert requirements["agent workflow smoke"]["status"] == "insufficient"
+assert "release-gate.sh or structured agentWorkflow evidence" in requirements["agent workflow smoke"]["reason"]
+next_steps = {item["requirement"]: item for item in data["nextSteps"]}
+assert next_steps["agent workflow smoke"]["commands"] == ["./scripts/release-gate.sh"]
+assert next_steps["agent workflow smoke"]["covers"] == ["agent workflow smoke"]
+PY
+
+STRUCTURED_AGENT_PROD_EVIDENCE="$TMPDIR/structured-agent-production-evidence.jsonl"
+cat > "$STRUCTURED_AGENT_PROD_EVIDENCE" <<'JSONL'
+{"name":"local release gate","status":"passed","durationMs":1000,"command":"echo local gate passed"}
+{"name":"agent workflow smoke","status":"passed","durationMs":1000,"command":"zmr mcp + zmr serve smoke","agentWorkflow":true,"mcp":true,"jsonRpc":true,"semanticSnapshot":true,"typedActions":true,"traceEvents":true,"traceExplain":true,"traceExplore":true,"traceDiscover":true,"scenarioValidation":true,"redactedExport":true}
+{"name":"public Android emulator demo","status":"passed","durationMs":1000,"command":"./scripts/demo-android-real.sh --runs 5"}
+{"name":"public iOS simulator demo","status":"passed","durationMs":1000,"command":"./scripts/demo-ios-real.sh --runs 5"}
+{"name":"physical iOS readiness","status":"passed","durationMs":1000,"command":"./scripts/assert-ios-physical-ready.sh --device ios-ready"}
+{"name":"Android hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-android-pilot.sh --app-root /tmp/zmr-app --app-id com.example.demo --device emulator-5554 --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
+{"name":"iOS simulator hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-ios-pilot.sh --app-root /tmp/zmr-app --app-path /tmp/zmr-app/build/Debug-iphonesimulator/Sample.app --app-id com.example.demo --device booted --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
+{"name":"iOS physical hardware pilot","status":"passed","durationMs":1000,"command":"./scripts/run-ios-pilot.sh --app-root /tmp/zmr-app --app-path /tmp/zmr-app/build/Release-iphoneos/Sample.ipa --app-id com.example.demo --ios-device-type physical --device ios-ready --runs 20 --min-pass-rate 100 --max-failures 0","runs":20,"minPassRate":100,"maxFailures":0}
+JSONL
+
+"$ROOT/scripts/release-readiness.sh" --evidence "$STRUCTURED_AGENT_PROD_EVIDENCE" --target production --json | python3 -c 'import json,sys; data=json.load(sys.stdin); requirements={item["name"]: item for item in data["requirements"]}; assert data["ok"] is True; assert requirements["agent workflow smoke"]["status"] == "satisfied"; assert requirements["agent workflow smoke"]["evidenceName"] == "agent workflow smoke"'
 
 NO_APP_ARTIFACT_PROD_EVIDENCE="$TMPDIR/no-app-artifact-production-evidence.jsonl"
 cat > "$NO_APP_ARTIFACT_PROD_EVIDENCE" <<'JSONL'

@@ -423,6 +423,38 @@ def benchmark_threshold_reason(row):
     return "requires " + ", ".join(reasons)
 
 
+agent_workflow_fields = (
+    "agentWorkflow",
+    "mcp",
+    "jsonRpc",
+    "semanticSnapshot",
+    "typedActions",
+    "traceEvents",
+    "traceExplain",
+    "traceExplore",
+    "traceDiscover",
+    "scenarioValidation",
+    "redactedExport",
+)
+
+
+def agent_workflow_pass(row):
+    command = row.get("command")
+    if row.get("name") == "local release gate" and isinstance(command, str) and "release-gate.sh" in command:
+        return True
+    return all(row.get(field) is True for field in agent_workflow_fields)
+
+
+def agent_workflow_reason(row):
+    command = row.get("command")
+    if row.get("name") == "local release gate" and (not isinstance(command, str) or "release-gate.sh" not in command):
+        return "requires release-gate.sh or structured agentWorkflow evidence"
+    missing = [field for field in agent_workflow_fields if row.get(field) is not True]
+    if missing:
+        return "requires release-gate.sh or structured agentWorkflow evidence: " + ", ".join(missing)
+    return "requires release-gate.sh or structured agentWorkflow evidence"
+
+
 def row_satisfies(label, row):
     if row.get("status") != "passed":
         return False
@@ -436,6 +468,8 @@ def row_satisfies(label, row):
         return physical_ios_device_value(row) is not None
     if label == "competitive benchmark comparison":
         return benchmark_thresholds_pass(row)
+    if label == "agent workflow smoke":
+        return agent_workflow_pass(row)
     return True
 
 
@@ -485,6 +519,8 @@ def requirement_status(label, names):
                 reason = "requires concrete physical device identifier evidence"
             elif label == "competitive benchmark comparison":
                 reason = benchmark_threshold_reason(row)
+            elif label == "agent workflow smoke":
+                reason = agent_workflow_reason(row)
             return {
                 "name": label,
                 "status": "insufficient",
@@ -508,6 +544,7 @@ requirements = [
 
 if target in ("production", "market-claim"):
     requirements.extend([
+        ("agent workflow smoke", ("agent workflow smoke", "local release gate")),
         ("physical iOS readiness", "physical iOS readiness"),
         ("Android hardware pilot", "Android hardware pilot"),
         ("iOS simulator hardware pilot", "iOS simulator hardware pilot"),
@@ -582,6 +619,7 @@ next_step_commands = {
     "local release gate": ["./scripts/release-candidate.sh --mode local"],
     "public Android demo": ["zmr-demo-android --runs 5"],
     "public iOS simulator demo": ["zmr-demo-ios --runs 5"],
+    "agent workflow smoke": ["./scripts/release-gate.sh"],
     "physical iOS readiness": [physical_ios_pilot_command(default_pilot_evidence)],
     "Android hardware pilot": [grouped_simulator_pilot_command(default_pilot_evidence)],
     "iOS simulator hardware pilot": [grouped_simulator_pilot_command(default_pilot_evidence)],
@@ -690,6 +728,11 @@ def append_grouped_next_steps(blocked_items):
             append_next_step(next_steps, label, commands, present)
             handled.update(present)
 
+    maybe_group(
+        ["local release gate", "agent workflow smoke"],
+        "local release gate + agent workflow smoke",
+        ["./scripts/release-candidate.sh --mode local"],
+    )
     maybe_group(
         ["Android hardware pilot", "iOS simulator hardware pilot"],
         "Android hardware pilot + iOS simulator hardware pilot",

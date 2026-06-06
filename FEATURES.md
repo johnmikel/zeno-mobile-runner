@@ -128,8 +128,9 @@ state, and writes deterministic traces. It does not embed an LLM.
 - Release archive builder with checksums, SPDX SBOM, third-party notices,
   generated Homebrew formula, and `RELEASE_MANIFEST.json`.
 - npm package tarball generation with bundled prebuilt binaries.
-- `zmr-release-readiness` checks repeated app/device evidence for teams that
-  want a machine-readable readiness summary.
+- `zmr-release-readiness` checks repeated app/device evidence and the
+  agent workflow smoke for teams that want a machine-readable readiness
+  summary.
 - Tagged release workflow with artifact attestation and optional npm
   provenance publishing.
 - CI workflow retains run traces, coverage output, and built runner artifacts

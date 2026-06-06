@@ -2,6 +2,15 @@
 
 All notable changes to Zeno Mobile Runner are tracked here.
 
+## Unreleased
+
+### Changed
+
+- `zmr-release-readiness --target production` now enforces an
+  `agent workflow smoke` gate, satisfied by the local release gate or
+  structured MCP/JSON-RPC, trace, discovery, validation, and redacted-export
+  evidence.
+
 ## 0.1.7 (2026-06-06)
 
 ### Added

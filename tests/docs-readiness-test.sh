@@ -181,6 +181,7 @@ require_grep 'Android and iOS pilot wrappers emit `junit.xml`' FEATURES.md
 require_grep 'HTML/JUnit report scripts' FEATURES.md
 require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML artifacts' FEATURES.md
 require_grep 'CI workflow retains run traces, coverage output, and built runner artifacts' FEATURES.md
+require_grep 'agent workflow smoke' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
 require_grep 'Current release status is `0.1.7`' FEATURES.md
 require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
@@ -205,6 +206,7 @@ require_grep 'MCP `trace_events` cursor metadata' CHANGELOG.md
 require_grep 'JSON-RPC `trace.explain` and MCP `trace_explain`' CHANGELOG.md
 require_grep 'zmr explore --from-trace <trace-dir>' CHANGELOG.md
 require_grep 'JSON-RPC `trace.explore` and MCP `trace_explore`' CHANGELOG.md
+require_grep 'agent workflow smoke' CHANGELOG.md
 require_grep 'TypeScript `exploreTrace()`, Python `explore_trace()`, Go' CHANGELOG.md
 require_grep 'TypeScript, Python, Go, Rust, Swift, and Kotlin trace explanation helpers' CHANGELOG.md
 require_grep '`trace.discover` records a `trace.discover` event' CHANGELOG.md
@@ -231,6 +233,8 @@ require_grep 'Product Gates Before 1.0' docs/production-readiness.md
 require_grep 'Release supply chain' docs/production-readiness.md
 require_grep 'trusted publisher must be configured' docs/production-readiness.md
 require_grep 'Agentic Standard' docs/production-readiness.md
+require_grep 'agent workflow smoke' docs/production-readiness.md
+require_grep 'agent workflow smoke' docs/protocol.md
 require_grep 'assertion-grade checks' docs/production-readiness.md
 require_grep 'zmr report --junit' docs/production-readiness.md
 require_grep 'pilot wrapper run that produced both `report.html` and `junit.xml`' docs/production-readiness.md

@@ -2,7 +2,7 @@
 
 ZMR exposes newline-delimited JSON-RPC 2.0 over stdio or localhost TCP in v1. Each request is one JSON object followed by `\n`. Each response is one JSON object followed by `\n`.
 
-Current runner version: `0.1.7`.
+Current runner version: `0.1.8`.
 
 Current protocol version: `2026-04-28`.
 
@@ -47,7 +47,7 @@ and protocol versions. The response is covered by
 `schemas/inspect-output.schema.json`:
 
 ```json
-{"ok":true,"status":"ready","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","dir":".","configPath":".zmr/config.json","configExists":true,"agentInstructionsPath":".zmr/AGENTS.md","agentInstructionsExists":true,"platforms":[{"name":"android","enabled":true,"defaultDevice":"emulator-5554","smokeScenario":".zmr/android-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-android"},{"name":"ios","enabled":true,"defaultDevice":"booted","smokeScenario":".zmr/ios-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-ios"}],"recommendedCommands":["zmr doctor --strict --json --config .zmr/config.json","zmr schemas --json","zmr validate --json .zmr/android-smoke.json","zmr validate --json .zmr/ios-smoke.json","zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent","zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent"],"claimsPolicy":["verify runs with trace evidence before making readiness claims","do not claim Flutter widget-tree inspection"],"limitations":["inspect is read-only and does not launch devices","autonomous crawling is not shipped; generate or edit scenarios for human review"]}
+{"ok":true,"status":"ready","schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","dir":".","configPath":".zmr/config.json","configExists":true,"agentInstructionsPath":".zmr/AGENTS.md","agentInstructionsExists":true,"platforms":[{"name":"android","enabled":true,"defaultDevice":"emulator-5554","smokeScenario":".zmr/android-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-android"},{"name":"ios","enabled":true,"defaultDevice":"booted","smokeScenario":".zmr/ios-smoke.json","smokeScenarioExists":true,"traceDir":"traces/zmr-ios"}],"recommendedCommands":["zmr doctor --strict --json --config .zmr/config.json","zmr schemas --json","zmr validate --json .zmr/android-smoke.json","zmr validate --json .zmr/ios-smoke.json","zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent","zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent"],"claimsPolicy":["verify runs with trace evidence before making readiness claims","do not claim Flutter widget-tree inspection"],"limitations":["inspect is read-only and does not launch devices","autonomous crawling is not shipped; generate or edit scenarios for human review"]}
 ```
 
 `zmr discover --from-trace <trace-dir> --out <scenario.json> --validate --json`
@@ -60,7 +60,7 @@ invent credentials, or commit files. The response is covered by
 `schemas/discover-output.schema.json`:
 
 ```json
-{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/replay-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/replay-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/replay-smoke.json","zmr run .zmr/discovered/replay-smoke.json --json --trace-dir traces/zmr-agent"]}
+{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","out":".zmr/discovered/replay-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/replay-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/replay-smoke.json","zmr run .zmr/discovered/replay-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr explore --from-trace <trace-dir> --out <scenario.json> --goal <goal>
@@ -71,7 +71,7 @@ launch devices, crawl the app, invent missing actions, discover credentials, or
 commit files. The response is covered by `schemas/explore-output.schema.json`:
 
 ```json
-{"ok":true,"mode":"explore","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","goal":"find a stable login smoke","autonomous":false,"reviewRequired":true,"guardrails":["writes from existing trace evidence only","does not crawl the app","does not discover credentials or secrets","requires human review before commit"],"out":".zmr/discovered/login-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/login-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/login-smoke.json","zmr run .zmr/discovered/login-smoke.json --json --trace-dir traces/zmr-agent"]}
+{"ok":true,"mode":"explore","schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","goal":"find a stable login smoke","autonomous":false,"reviewRequired":true,"guardrails":["writes from existing trace evidence only","does not crawl the app","does not discover credentials or secrets","requires human review before commit"],"out":".zmr/discovered/login-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/login-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/login-smoke.json","zmr run .zmr/discovered/login-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` is the lower
@@ -84,7 +84,7 @@ into fields, or commit files. The response is covered by
 `schemas/draft-output.schema.json`:
 
 ```json
-{"ok":true,"mode":"draft","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/surface-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":4,"replay":{"enabled":false,"eventCount":0,"stepCount":0,"skippedEventCount":0},"warnings":["draft requires human review before commit"],"nextCommands":["zmr validate --json .zmr/discovered/surface-smoke.json","zmr run .zmr/discovered/surface-smoke.json --json --trace-dir traces/zmr-agent"]}
+{"ok":true,"mode":"draft","schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","out":".zmr/discovered/surface-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":4,"replay":{"enabled":false,"eventCount":0,"stepCount":0,"skippedEventCount":0},"warnings":["draft requires human review before commit"],"nextCommands":["zmr validate --json .zmr/discovered/surface-smoke.json","zmr run .zmr/discovered/surface-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr draft --include-actions` additionally parses `events.jsonl` and prepends
@@ -214,7 +214,7 @@ installers, setup scripts, and generated clients. The response is covered by
 `schemas/version-output.schema.json`:
 
 ```json
-{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","minimumCompatibleProtocolVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"}
+{"name":"zmr","version":"0.1.8","protocolVersion":"2026-04-28","minimumCompatibleProtocolVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"}
 ```
 
 ## Capabilities Output Contract
@@ -226,7 +226,7 @@ and method inventory for JSON-RPC clients. The result object is covered by
 iOS simulator, or physical iOS workflows are available.
 
 ```json
-{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.explore","trace.discover","trace.explain","trace.export"]}
+{"name":"zmr","version":"0.1.8","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.explore","trace.discover","trace.explain","trace.export"]}
 ```
 
 ## Doctor Output Contract
@@ -432,7 +432,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.7","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.explore","trace.discover","trace.explain","trace.export"]}}
+{"jsonrpc":"2.0","id":1,"result":{"name":"zmr","version":"0.1.8","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.explore","trace.discover","trace.explain","trace.export"]}}
 ```
 
 ### `trace.events`
@@ -514,7 +514,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":25,"result":{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/agent-smoke.json","traceDir":"traces/agent-session","sourceSnapshot":"traces/agent-session/artifacts/snapshot-1.json","name":"agent smoke","appId":"com.example.mobiletest","selectorCount":1,"stepCount":4,"replay":{"enabled":true,"eventCount":2,"stepCount":1,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/agent-smoke.json","name":"agent smoke","appId":"com.example.mobiletest","stepCount":4},"nextCommands":["zmr validate --json .zmr/discovered/agent-smoke.json","zmr run .zmr/discovered/agent-smoke.json --json --trace-dir traces/agent-session"]}}
+{"jsonrpc":"2.0","id":25,"result":{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","out":".zmr/discovered/agent-smoke.json","traceDir":"traces/agent-session","sourceSnapshot":"traces/agent-session/artifacts/snapshot-1.json","name":"agent smoke","appId":"com.example.mobiletest","selectorCount":1,"stepCount":4,"replay":{"enabled":true,"eventCount":2,"stepCount":1,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/agent-smoke.json","name":"agent smoke","appId":"com.example.mobiletest","stepCount":4},"nextCommands":["zmr validate --json .zmr/discovered/agent-smoke.json","zmr run .zmr/discovered/agent-smoke.json --json --trace-dir traces/agent-session"]}}
 ```
 
 Without `--trace-dir`, it returns `ok: false` with `traceDir: null`. Generated
@@ -537,7 +537,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":27,"result":{"ok":true,"mode":"explore","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/agent-goal.json","traceDir":"traces/agent-session","sourceSnapshot":"traces/agent-session/artifacts/snapshot-1.json","name":"agent goal smoke","appId":"com.example.mobiletest","selectorCount":1,"stepCount":4,"replay":{"enabled":true,"eventCount":2,"stepCount":1,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/agent-goal.json","name":"agent goal smoke","appId":"com.example.mobiletest","stepCount":4},"nextCommands":["zmr validate --json .zmr/discovered/agent-goal.json","zmr run .zmr/discovered/agent-goal.json --json --trace-dir traces/agent-session"],"goal":"find a stable login smoke","autonomous":false,"reviewRequired":true,"guardrails":["writes from existing trace evidence only","does not crawl the app","does not discover credentials or secrets","requires human review before commit"]}}
+{"jsonrpc":"2.0","id":27,"result":{"ok":true,"mode":"explore","schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","out":".zmr/discovered/agent-goal.json","traceDir":"traces/agent-session","sourceSnapshot":"traces/agent-session/artifacts/snapshot-1.json","name":"agent goal smoke","appId":"com.example.mobiletest","selectorCount":1,"stepCount":4,"replay":{"enabled":true,"eventCount":2,"stepCount":1,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/agent-goal.json","name":"agent goal smoke","appId":"com.example.mobiletest","stepCount":4},"nextCommands":["zmr validate --json .zmr/discovered/agent-goal.json","zmr run .zmr/discovered/agent-goal.json --json --trace-dir traces/agent-session"],"goal":"find a stable login smoke","autonomous":false,"reviewRequired":true,"guardrails":["writes from existing trace evidence only","does not crawl the app","does not discover credentials or secrets","requires human review before commit"]}}
 ```
 
 Without `--trace-dir`, it returns `ok: false` with `traceDir: null`.

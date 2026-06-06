@@ -276,7 +276,7 @@ and [docs/client-installation.md](docs/client-installation.md).
 | iOS physical device | Supported, validate locally | `devicectl` lifecycle plus app-local XCTest/XCUIAutomation shim; run pilots on your own app/device before relying on it in CI |
 | Cloud device farms | Not included | ZMR is focused on local and self-managed device targets in this preview |
 
-Current release: `0.1.7` developer preview. Protocol version:
+Current release: `0.1.8` developer preview. Protocol version:
 `2026-04-28`.
 
 ## Documentation

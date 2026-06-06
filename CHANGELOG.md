@@ -2,7 +2,7 @@
 
 All notable changes to Zeno Mobile Runner are tracked here.
 
-## Unreleased
+## 0.1.8 (2026-06-06)
 
 ### Changed
 

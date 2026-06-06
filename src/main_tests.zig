@@ -178,7 +178,7 @@ test "trace summary module preserves partial visual capture diagnostics" {
         var manifest = try std.fs.cwd().createFile(dir ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
-            "{\"schemaVersion\":1,\"runnerVersion\":\"0.1.7\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"ios partial\",\"appId\":\"com.example.mobiletest\",\"status\":\"partial\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":1,\"partialFailureCount\":1,\"reportPath\":null}\n",
+            "{\"schemaVersion\":1,\"runnerVersion\":\"0.1.8\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"ios partial\",\"appId\":\"com.example.mobiletest\",\"status\":\"partial\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":1,\"partialFailureCount\":1,\"reportPath\":null}\n",
         );
     }
     {

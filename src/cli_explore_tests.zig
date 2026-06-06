@@ -45,7 +45,7 @@ test "explore from trace writes reviewable validated candidate with guardrails" 
     try std.fs.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
-        \\{"schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":2,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
+        \\{"schemaVersion":1,"runnerVersion":"0.1.8","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":2,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });

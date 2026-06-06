@@ -29,6 +29,8 @@ require_grep 'call("trace.discover"' "$CLIENT"
 require_grep 'includeActions' "$CLIENT"
 require_grep 'appId' "$CLIENT"
 require_grep 'escapeJson' "$CLIENT"
+require_grep 'hasTopLevelKey(response, "error")' "$CLIENT"
+require_grep 'private fun hasTopLevelKey' "$CLIENT"
 
 require_grep 'client.discoverTrace' "$TEST"
 require_grep 'client.explainTrace' "$TEST"

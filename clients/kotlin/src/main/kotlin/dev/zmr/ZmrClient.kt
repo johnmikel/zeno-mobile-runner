@@ -62,7 +62,7 @@ class ZmrClient(
         input.newLine()
         input.flush()
         val response = output.readLine() ?: error("zmr closed stdout")
-        if (response.contains(""""error"""")) {
+        if (hasTopLevelKey(response, "error")) {
             throw ZmrRpcException(
                 code = extractNumber(response, "code") ?: -32000,
                 message = extractString(response, "message").ifEmpty { "ZMR JSON-RPC error" },
@@ -87,6 +87,42 @@ private fun extractString(json: String, key: String): String {
 private fun extractNumber(json: String, key: String): Int? {
     val pattern = """"$key"\s*:\s*(-?[0-9]+)""".toRegex()
     return pattern.find(json)?.groupValues?.get(1)?.toIntOrNull()
+}
+
+private fun hasTopLevelKey(json: String, key: String): Boolean {
+    var depth = 0
+    var inString = false
+    var escaped = false
+    var stringStart = 0
+    var i = 0
+    while (i < json.length) {
+        val ch = json[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                ch == '\\' -> escaped = true
+                ch == '"' -> {
+                    inString = false
+                    if (depth == 1 && json.substring(stringStart, i) == key) {
+                        var j = i + 1
+                        while (j < json.length && json[j].isWhitespace()) j += 1
+                        if (j < json.length && json[j] == ':') return true
+                    }
+                }
+            }
+        } else {
+            when (ch) {
+                '"' -> {
+                    inString = true
+                    stringStart = i + 1
+                }
+                '{', '[' -> depth += 1
+                '}', ']' -> depth -= 1
+            }
+        }
+        i += 1
+    }
+    return false
 }
 
 private fun escapeJson(value: String): String =

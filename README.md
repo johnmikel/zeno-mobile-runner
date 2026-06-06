@@ -102,14 +102,16 @@ zmr validate --json .zmr/login-smoke.json
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke --discover-out .zmr/discovered/login-smoke.json
 zmr explain --json traces/login-smoke
+zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml
 zmr import flow-yaml .zmr/legacy-flow.yaml --out .zmr/legacy-flow.json
 zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact
 ```
 
 For traced runs, `zmr run --json` returns executable `nextCommands` for
-reporting, failure explanation, `zmr discover --from-trace`, and redacted
+HTML reporting, failure explanation, `zmr discover --from-trace`, and redacted
 export so agents can continue from a run summary without guessing the next
-handoff.
+handoff. Add `--junit <report.xml>` to `zmr report` when CI needs a standard
+test-results artifact.
 
 When an agent should produce the reviewable scenario in the same command, add
 `--discover-out .zmr/discovered/<name>.json`. ZMR still treats the generated

@@ -94,6 +94,8 @@ require_grep 'zmr devices --json' README.md
 require_grep 'zmr schemas --json' README.md
 require_grep 'zmr inspect --json' README.md
 require_grep '--discover-out .zmr/discovered/login-smoke.json' README.md
+require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' README.md
+require_grep 'Add `--junit <report.xml>` to `zmr report`' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
@@ -145,11 +147,14 @@ require_grep 'zmr run --discover-out <scenario.json> --json' FEATURES.md
 require_grep 'replay` coverage metadata' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
+require_grep 'zmr report --junit <report.xml>' FEATURES.md
+require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML artifacts' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
 require_grep 'Current release status is `0.1.7`' FEATURES.md
 require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
+require_grep 'zmr report --junit <report.xml>' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -162,11 +167,13 @@ require_grep 'Semantics' docs/frameworks.md
 require_grep 'Expo Smoke Test' docs/expo-smoke.md
 require_grep 'npm install --save-dev zeno-mobile-runner' docs/expo-smoke.md
 require_grep 'zmr report traces/zmr-ios --out traces/zmr-ios/report.html' docs/expo-smoke.md
+require_grep '--junit traces/zmr-ios/junit.xml' docs/expo-smoke.md
 require_grep 'Production Readiness' docs/production-readiness.md
 require_grep 'Product Gates Before 1.0' docs/production-readiness.md
 require_grep 'Release supply chain' docs/production-readiness.md
 require_grep 'trusted publisher must be configured' docs/production-readiness.md
 require_grep 'Agentic Standard' docs/production-readiness.md
+require_grep 'zmr report --junit' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md
@@ -240,14 +247,17 @@ require_grep 'zmr draft --include-actions' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md
 require_grep 'schemas/discover-output.schema.json' docs/protocol.md
 require_grep 'schemas/draft-output.schema.json' docs/protocol.md
+require_grep 'zmr report <trace-or-benchmark-dir> --out <report.html> --junit <report.xml>' docs/protocol.md
 require_grep 'zmr devices --json' docs/protocol.md
 require_grep 'zmr validate <scenario.json> --json' docs/protocol.md
 require_grep 'zmr explain' docs/troubleshooting.md
+require_grep '--junit traces/zmr-android/junit.xml' docs/troubleshooting.md
 require_grep 'Android App Pilot Command' docs/app-integration.md
 require_grep 'Public Android Demo Command' docs/app-integration.md
 require_grep 'React Native' docs/app-integration.md
 require_grep 'Flutter' docs/app-integration.md
 require_grep 'zmr-device-matrix' docs/benchmarking.md
+require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
 

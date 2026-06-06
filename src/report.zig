@@ -22,6 +22,23 @@ pub fn writeHtmlReport(
     }
 }
 
+pub fn writeJUnitReport(
+    allocator: std.mem.Allocator,
+    input_path: []const u8,
+    out_path: []const u8,
+) !void {
+    const results_path = try std.fs.path.join(allocator, &.{ input_path, "results.jsonl" });
+    defer allocator.free(results_path);
+
+    if (std.fs.cwd().openFile(results_path, .{})) |file| {
+        file.close();
+        return try writeBenchmarkJUnitReport(allocator, input_path, results_path, out_path);
+    } else |err| switch (err) {
+        error.FileNotFound => return try writeTraceJUnitReport(allocator, input_path, out_path),
+        else => return err,
+    }
+}
+
 pub fn writeTraceExplanation(
     allocator: std.mem.Allocator,
     trace_dir: []const u8,
@@ -260,6 +277,89 @@ fn writeBenchmarkReport(
     try report_html.writeFile(out_path, html.items);
 }
 
+fn writeBenchmarkJUnitReport(
+    allocator: std.mem.Allocator,
+    input_path: []const u8,
+    results_path: []const u8,
+    out_path: []const u8,
+) !void {
+    const content = try std.fs.cwd().readFileAlloc(allocator, results_path, 64 * 1024 * 1024);
+    defer allocator.free(content);
+
+    var cases_xml = std.ArrayList(u8).empty;
+    defer cases_xml.deinit(allocator);
+
+    var total: usize = 0;
+    var failed: usize = 0;
+    var total_duration_ms: i64 = 0;
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r\n");
+        if (line.len == 0) continue;
+
+        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, line, .{});
+        defer parsed.deinit();
+        if (parsed.value != .object) continue;
+        const object = parsed.value.object;
+
+        const tool = report_values.stringField(object, "tool") orelse "zmr";
+        const status = report_values.stringField(object, "status") orelse "";
+        const trace_status = report_values.stringField(object, "traceStatus") orelse "";
+        const trace_error = report_values.stringField(object, "traceError") orelse "";
+        const trace_dir = report_values.stringField(object, "traceDir") orelse "";
+        const run = report_values.intField(object, "run") orelse @as(i64, @intCast(total + 1));
+        const duration_ms = report_values.intField(object, "durationMs") orelse 0;
+        const failed_step = report_values.intField(object, "failedStepIndex");
+        const row_passed = std.mem.eql(u8, status, "ok") and (trace_status.len == 0 or std.mem.eql(u8, trace_status, "passed"));
+
+        total += 1;
+        if (!row_passed) failed += 1;
+        if (duration_ms > 0) total_duration_ms += duration_ms;
+
+        const writer = cases_xml.writer(allocator);
+        try writer.writeAll("  <testcase classname=\"");
+        try report_html.escape(writer, tool);
+        try writer.writeAll("\" name=\"run ");
+        try writer.print("{d}", .{run});
+        try writer.writeAll("\" time=\"");
+        try writeSeconds(writer, duration_ms);
+        try writer.writeAll("\">");
+        if (!row_passed) {
+            const message = if (trace_error.len > 0) trace_error else if (trace_status.len > 0) trace_status else status;
+            try writer.writeAll("<failure message=\"");
+            try report_html.escape(writer, message);
+            try writer.writeAll("\" type=\"ZMRFailure\">");
+            if (failed_step) |index| try writer.print("failedStepIndex={d}", .{index});
+            if (trace_dir.len > 0) {
+                if (failed_step != null) try writer.writeAll(" ");
+                try writer.writeAll("traceDir=");
+                try report_html.escape(writer, trace_dir);
+            }
+            try writer.writeAll("</failure>");
+        }
+        try writer.writeAll("</testcase>\n");
+    }
+
+    var xml = std.ArrayList(u8).empty;
+    defer xml.deinit(allocator);
+    const writer = xml.writer(allocator);
+    try writeJUnitHeader(writer);
+    try writer.writeAll("<testsuite name=\"ZMR Benchmark\" tests=\"");
+    try writer.print("{d}", .{total});
+    try writer.writeAll("\" failures=\"");
+    try writer.print("{d}", .{failed});
+    try writer.writeAll("\" errors=\"0\" skipped=\"0\" time=\"");
+    try writeSeconds(writer, total_duration_ms);
+    try writer.writeAll("\">\n");
+    try writer.writeAll("  <properties>\n");
+    try writeJUnitProperty(writer, "source", input_path);
+    try writer.writeAll("  </properties>\n");
+    try writer.writeAll(cases_xml.items);
+    try writer.writeAll("</testsuite>\n");
+    try report_html.writeFile(out_path, xml.items);
+}
+
 fn writeTraceReport(
     allocator: std.mem.Allocator,
     input_path: []const u8,
@@ -343,4 +443,88 @@ fn writeTraceReport(
     const relative_report_path = std.fs.path.relative(allocator, input_path, out_path) catch try allocator.dupe(u8, out_path);
     defer allocator.free(relative_report_path);
     try trace.attachReportPath(allocator, input_path, relative_report_path);
+}
+
+fn writeTraceJUnitReport(
+    allocator: std.mem.Allocator,
+    input_path: []const u8,
+    out_path: []const u8,
+) !void {
+    var summary = try trace_summary.read(allocator, input_path);
+    defer summary.deinit(allocator);
+
+    const failed = !isPassedStatus(summary.status);
+    var xml = std.ArrayList(u8).empty;
+    defer xml.deinit(allocator);
+    const writer = xml.writer(allocator);
+
+    try writeJUnitHeader(writer);
+    try writer.writeAll("<testsuite name=\"ZMR\" tests=\"1\" failures=\"");
+    try writer.writeAll(if (failed) "1" else "0");
+    try writer.writeAll("\" errors=\"0\" skipped=\"0\" time=\"");
+    try writeSeconds(writer, summary.duration_ms orelse 0);
+    try writer.writeAll("\">\n");
+    try writer.writeAll("  <properties>\n");
+    try writeJUnitProperty(writer, "traceDir", input_path);
+    try writeJUnitProperty(writer, "status", summary.status);
+    if (summary.event_count) |value| try writeJUnitIntProperty(writer, "eventCount", value);
+    if (summary.snapshot_count) |value| try writeJUnitIntProperty(writer, "snapshotCount", value);
+    if (summary.failed_step_index) |value| try writeJUnitIntProperty(writer, "failedStepIndex", value);
+    try writer.writeAll("  </properties>\n");
+
+    try writer.writeAll("  <testcase classname=\"");
+    try report_html.escape(writer, summary.app_id orelse "zmr");
+    try writer.writeAll("\" name=\"");
+    try report_html.escape(writer, summary.scenario_name);
+    try writer.writeAll("\" time=\"");
+    try writeSeconds(writer, summary.duration_ms orelse 0);
+    try writer.writeAll("\">");
+    if (failed) {
+        const message = summary.error_name orelse summary.status;
+        const failure_type = summary.error_name orelse "ZMRFailure";
+        try writer.writeAll("<failure message=\"");
+        try report_html.escape(writer, message);
+        try writer.writeAll("\" type=\"");
+        try report_html.escape(writer, failure_type);
+        try writer.writeAll("\">");
+        if (summary.failed_step_index) |index| {
+            try writer.print("failedStepIndex={d}", .{index});
+        } else {
+            try writer.writeAll("status=");
+            try report_html.escape(writer, summary.status);
+        }
+        try writer.writeAll("</failure>");
+    }
+    try writer.writeAll("</testcase>\n");
+    try writer.writeAll("</testsuite>\n");
+    try report_html.writeFile(out_path, xml.items);
+}
+
+fn isPassedStatus(status: []const u8) bool {
+    return std.mem.eql(u8, status, "passed");
+}
+
+fn writeJUnitHeader(writer: anytype) !void {
+    try writer.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+}
+
+fn writeJUnitProperty(writer: anytype, name: []const u8, value: []const u8) !void {
+    try writer.writeAll("    <property name=\"");
+    try report_html.escape(writer, name);
+    try writer.writeAll("\" value=\"");
+    try report_html.escape(writer, value);
+    try writer.writeAll("\"/>\n");
+}
+
+fn writeJUnitIntProperty(writer: anytype, name: []const u8, value: i64) !void {
+    try writer.writeAll("    <property name=\"");
+    try report_html.escape(writer, name);
+    try writer.writeAll("\" value=\"");
+    try writer.print("{d}", .{value});
+    try writer.writeAll("\"/>\n");
+}
+
+fn writeSeconds(writer: anytype, duration_ms: i64) !void {
+    const safe_ms = @max(duration_ms, 0);
+    try writer.print("{d}.{d:0>3}", .{ @divTrunc(safe_ms, 1000), @mod(safe_ms, 1000) });
 }

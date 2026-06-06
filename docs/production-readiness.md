@@ -16,6 +16,7 @@ Every public release should satisfy:
 - `./scripts/release-gate.sh`
 - `npm run pack:npm`
 - `./scripts/verify-release-artifacts.sh --dist dist`
+- at least one trace or benchmark report rendered with `zmr report --junit`
 - a fresh npm install smoke:
 
   ```bash
@@ -40,6 +41,7 @@ package is configured with the `release.yml` trusted publisher.
 | Expo | Public smoke, dev-client scaffold, and iOS/Android run evidence | Basic iOS smoke is documented; repeated matrix evidence is still needed |
 | Flutter | Platform-level Android/iOS smoke using semantics, deep links, and screenshots | Supported at platform level; widget-tree claims are intentionally out of scope |
 | Agent workflows | MCP and JSON-RPC loop with semantic snapshots, typed actions, traces, redacted export, and scenario validation | Supported; built-in autonomous crawler is not shipped |
+| CI reporting | HTML reports plus JUnit XML artifacts from trace and benchmark directories | Supported by `zmr report --junit` |
 | Trace privacy | Redacted export path, denylist/allowlist controls, and public-safety tests | Supported and gated |
 | Release supply chain | Trusted npm publish, GitHub artifact attestations, checksums, SBOM, and release manifest | Workflow is ready; npm trusted publisher must be configured in package settings |
 
@@ -88,6 +90,8 @@ screenscraping or guessing:
 - `zmr serve` exposes JSON-RPC for long-running sessions.
 - `zmr mcp` exposes MCP tools for semantic snapshots and typed actions.
 - `zmr explain --json` summarizes failed traces.
+- `zmr report --junit` emits CI-compatible test results from trace and
+  benchmark evidence.
 - `zmr export --redact` produces shareable trace bundles.
 
 The safe discovery pattern is still external-agent-first: observe with

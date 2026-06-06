@@ -6,6 +6,7 @@ const report = @import("report.zig");
 pub const ReportArgs = struct {
     input_path: []const u8,
     out_path: ?[]const u8 = null,
+    junit_path: ?[]const u8 = null,
 };
 
 pub const ExplainArgs = struct {
@@ -30,6 +31,9 @@ pub fn parseReportArgs(args: []const []const u8) !ReportArgs {
         if (std.mem.eql(u8, arg, "--out")) {
             index += 1;
             parsed.out_path = if (index < args.len) args[index] else return error.MissingReportOutput;
+        } else if (std.mem.eql(u8, arg, "--junit")) {
+            index += 1;
+            parsed.junit_path = if (index < args.len) args[index] else return error.MissingJUnitOutput;
         } else {
             return error.UnknownFlag;
         }
@@ -84,6 +88,10 @@ pub fn runReport(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !
     const parsed = try parseReportArgs(raw_args.items);
     try report.writeHtmlReport(allocator, parsed.input_path, parsed.out_path.?);
     try std.fs.File.stdout().deprecatedWriter().print("wrote {s}\n", .{parsed.out_path.?});
+    if (parsed.junit_path) |junit_path| {
+        try report.writeJUnitReport(allocator, parsed.input_path, junit_path);
+        try std.fs.File.stdout().deprecatedWriter().print("wrote {s}\n", .{junit_path});
+    }
 }
 
 pub fn runExplain(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {

@@ -105,6 +105,12 @@ Rust reference clients live under `clients/typescript/`, `clients/python/`,
 
 `trace.json` is the stable bundle entrypoint for agents and viewers. It includes `schemaVersion`, `runnerVersion`, `protocolVersion`, `scenarioName`, `appId`, `status`, start/end/duration timestamps, failure metadata, `eventsPath`, `artifactsDir`, event/snapshot counts, partial failure count, and `reportPath` when `zmr report` has generated a single-trace HTML report.
 
+`zmr report <trace-or-benchmark-dir> --out <report.html> --junit <report.xml>`
+writes the local HTML report and a CI-friendly JUnit XML file. For trace
+directories, the XML contains one testcase for the scenario. For benchmark
+directories with `results.jsonl`, the XML contains one testcase per benchmark
+row.
+
 `zmr export <trace-dir> --out <bundle.zmrtrace>` writes a deterministic tar archive with relative paths only. V1 bundles include `trace.json`, `events.jsonl`, optional `report.html`, and every regular file under `artifacts/`.
 
 `zmr export <trace-dir> --out <bundle.zmrtrace> --redact` writes a shareable bundle without mutating the local trace directory. Redacted bundles replace PNG screenshots with placeholder frames, omit screen recording artifacts, scrub text artifacts for emails/tokens/sensitive JSON values, and add `redaction` metadata to the bundled `trace.json`. Add `--omit-screenshots` when the bundle should contain no screenshot artifacts at all.
@@ -132,10 +138,10 @@ Clients should read the last `scenario.end` event as the authoritative trace out
 scenario completes. For traced runs it mirrors the authoritative `trace.json`
 terminal fields, including trace paths, event/snapshot counts, failed step, and
 stable error name. Traced summaries also include `nextCommands` so agents can
-immediately render an HTML report, explain the failure, generate a reviewable
-scenario from the trace, or export a redacted trace bundle. Failed scenarios
-still exit non-zero after writing the JSON summary. The response is covered by
-`schemas/run-output.schema.json`:
+immediately render an HTML report, add JUnit XML when CI needs it, explain the
+failure, generate a reviewable scenario from the trace, or export a redacted
+trace bundle. Failed scenarios still exit non-zero after writing the JSON
+summary. The response is covered by `schemas/run-output.schema.json`:
 
 ```json
 {"ok":false,"status":"failed","scenario":"login smoke","appId":"com.example.mobiletest","traceDir":"traces/login-smoke","eventsPath":"events.jsonl","artifactsDir":"artifacts","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html","zmr explain traces/login-smoke --json","zmr discover --from-trace traces/login-smoke --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}

@@ -2,8 +2,8 @@
 
 This is the quickest public smoke path for an Expo app. It proves that the npm
 package installs, the wizard scaffolds a scenario, ZMR can launch an iOS app,
-and the runner can produce screenshots, traces, HTML reports, and redacted trace
-bundles.
+and the runner can produce screenshots, traces, HTML reports, JUnit XML, and
+redacted trace bundles.
 
 Run the flow below on a local iOS simulator before treating a specific app build
 as validated.
@@ -35,7 +35,7 @@ npx zmr run .zmr/ios-smoke.json \
   --trace-dir traces/zmr-ios \
   --json
 
-npx zmr report traces/zmr-ios --out traces/zmr-ios/report.html
+npx zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml
 npx zmr export traces/zmr-ios --out traces/zmr-ios-redacted.zmrtrace --redact
 ```
 
@@ -55,9 +55,9 @@ Expected result shape:
 ```
 
 This smoke validates the platform-level loop: app launch, health check,
-screenshot capture, trace collection, report generation, and redacted export.
-For selector-grade React Native or Expo assertions on iOS, add the XCTest shim
-described in [app integration](app-integration.md).
+screenshot capture, trace collection, HTML/JUnit report generation, and
+redacted export. For selector-grade React Native or Expo assertions on iOS, add
+the XCTest shim described in [app integration](app-integration.md).
 
 Android follows the same pattern with a connected emulator or device:
 

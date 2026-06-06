@@ -228,7 +228,7 @@ When a run fails, do not rerun blindly. Inspect the recorded failure:
 
 ```bash
 zmr explain traces/zmr-android
-zmr report traces/zmr-android --out traces/zmr-android/report.html
+zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml
 ```
 
 Timeout diagnostics include the active package/activity, visible text, hidden or

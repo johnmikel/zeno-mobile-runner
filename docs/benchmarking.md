@@ -1,6 +1,8 @@
 # Benchmarking
 
-ZMR benchmark output is intentionally simple: each run appends one JSON object to `results.jsonl`, and `zmr report` turns that directory into a local HTML report.
+ZMR benchmark output is intentionally simple: each run appends one JSON object
+to `results.jsonl`, and `zmr report` turns that directory into local HTML and
+optional JUnit XML artifacts.
 
 ## Single Tool Benchmark
 
@@ -29,7 +31,9 @@ or p95 duration misses the configured threshold.
 Generate a report:
 
 ```bash
-zmr report traces/bench-<timestamp> --out traces/bench-<timestamp>/report.html
+zmr report traces/bench-<timestamp> \
+  --out traces/bench-<timestamp>/report.html \
+  --junit traces/bench-<timestamp>/junit.xml
 ```
 
 ## Pilot Wrapper
@@ -128,6 +132,7 @@ Benchmark reports include:
 - terminal trace status
 - failed step index and error when available
 - links to each run's `events.jsonl`
+- optional JUnit XML with one testcase per benchmark row for CI test reports
 
 Before making public performance claims, run the same scenario repeatedly on a clean emulator image and include the raw `results.jsonl` plus the redacted trace bundle for any failure.
 

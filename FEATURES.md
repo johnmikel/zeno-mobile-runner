@@ -87,6 +87,8 @@ state, and writes deterministic traces. It does not embed an LLM.
   selected node details, payloads, artifact links, and snapshot replay
   controls.
 - `zmr explain` summarizes failed traces for humans and agents.
+- `zmr report --junit <report.xml>` writes CI-friendly JUnit XML for trace
+  directories and benchmark result directories.
 - Redacted `.zmrtrace` export can replace or omit screenshots, omit screen
   recordings, and redact common secrets plus app-configured denylist fields.
 
@@ -94,6 +96,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 - `zmr-benchmark` repeats ZMR scenarios with pass-rate, failure-count, and p95
   duration gates.
+- Benchmark directories can be rendered as both HTML and JUnit XML artifacts
+  with `zmr report`.
 - `zmr-benchmark-command` records normalized rows for app-local baseline
   commands without hardcoding another tool.
 - `zmr-compare-benchmarks` compares candidate and baseline rows into generic

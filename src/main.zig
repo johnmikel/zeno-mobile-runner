@@ -94,8 +94,12 @@ fn exitCodeForError(err: anyerror) u8 {
         error.MissingScenarioPath,
         error.MissingDeviceSerial,
         error.MissingTraceDir,
+        error.MissingReportInput,
+        error.MissingReportOutput,
         error.MissingDraftOut,
         error.MissingDiscoverOut,
+        error.MissingJUnitOutput,
+        error.MissingTraceBundleOutput,
         error.MissingAppId,
         error.MissingAdbPath,
         error.MissingXcrunPath,
@@ -129,7 +133,7 @@ fn usage() !void {
         \\  zmr import flow-yaml <flow.yaml> --out <scenario.json> [--name <name>] [--app-id <id>] [--force] [--json]
         \\  zmr inspect [--json] [--dir <app-root>] [--config <path>]
         \\  zmr run [scenario.json] [--json] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--discover-out <scenario.json>] [--android-avd <name>] [--create-avd-if-missing] [--avd-system-image <pkg>] [--avd-device <profile>] [--restore-snapshot <name>] [--reset-emulator] [--wait-emulator] [--screen-record] [--no-screen-record] [--adb <path>] [--emulator <path>] [--avdmanager <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
-        \\  zmr report <trace-or-benchmark-dir> --out <report.html>
+        \\  zmr report <trace-or-benchmark-dir> --out <report.html> [--junit <report.xml>]
         \\  zmr explain <trace-dir> [--json]
         \\  zmr export <trace-dir> --out <bundle.zmrtrace> [--redact] [--omit-screenshots]
         \\  zmr serve --transport stdio [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]

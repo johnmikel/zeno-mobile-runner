@@ -93,6 +93,7 @@ require_grep 'zmr validate --json' README.md
 require_grep 'zmr devices --json' README.md
 require_grep 'zmr schemas --json' README.md
 require_grep 'zmr inspect --json' README.md
+require_grep '--discover-out .zmr/discovered/login-smoke.json' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
@@ -103,6 +104,7 @@ require_grep 'skipped with warnings instead of guessed' README.md
 require_grep 'redacted from the trace are also skipped' README.md
 require_grep 'zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact' README.md
 require_grep 'For traced runs, `zmr run --json` returns executable `nextCommands`' README.md
+require_grep 'When an agent should produce the reviewable scenario in the same command' README.md
 require_grep 'zmr discover --from-trace' README.md
 require_grep '## Optional Protocol Clients' README.md
 require_grep 'TypeScript and Python are the most common starting points' README.md
@@ -138,6 +140,7 @@ require_grep 'Agent Interface' FEATURES.md
 require_grep 'MCP stdio server' FEATURES.md
 require_grep 'zmr inspect --json' FEATURES.md
 require_grep 'zmr discover --from-trace' FEATURES.md
+require_grep 'zmr run --discover-out <scenario.json> --json' FEATURES.md
 require_grep 'zmr draft --from-trace' FEATURES.md
 require_grep 'zmr draft --include-actions' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
@@ -171,6 +174,7 @@ require_grep 'scenario.validate' docs/agent-discovery.md
 require_grep 'scenario_validate' docs/agent-discovery.md
 require_grep 'traced run' docs/agent-discovery.md
 require_grep '`nextCommands`; traced run' docs/agent-discovery.md
+require_grep '--discover-out .zmr/discovered/replay-smoke.json' docs/agent-discovery.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/agent-discovery.md
 require_grep 'Treat `zmr discover` output as a starting point' docs/agent-discovery.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/agent-discovery.md
@@ -198,6 +202,7 @@ require_grep 'trace_discover' docs/ai-agents.md
 require_grep 'trace.export' docs/ai-agents.md
 require_grep 'Agent-Led Discovery' docs/ai-agents.md
 require_grep 'zmr discover --from-trace traces/zmr-agent' docs/ai-agents.md
+require_grep '--discover-out .zmr/discovered/<name>.json' docs/ai-agents.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep '--include-actions' docs/ai-agents.md
 require_grep 'agent-discovery.md' docs/ai-agents.md
@@ -224,6 +229,7 @@ require_grep 'zmr version --json' docs/protocol.md
 require_grep 'zmr schemas --json' docs/protocol.md
 require_grep 'zmr inspect --json' docs/protocol.md
 require_grep 'zmr discover --from-trace <trace-dir> --out <scenario.json> --validate --json' docs/protocol.md
+require_grep 'zmr run <scenario.json> --trace-dir <trace-dir> --discover-out' docs/protocol.md
 require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
 require_grep 'zmr draft --include-actions' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md

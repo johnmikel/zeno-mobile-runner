@@ -30,6 +30,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added a trace-backed discovery handoff to traced `zmr run --json`
   `nextCommands`, so agents can generate a reviewable replay scenario directly
   from a run summary.
+- Added `zmr run --discover-out <scenario.json> --json` so traced runs can
+  write and validate the reviewable replay scenario before returning the run
+  summary.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

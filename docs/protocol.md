@@ -138,6 +138,14 @@ still exit non-zero after writing the JSON summary. The response is covered by
 {"ok":false,"status":"failed","scenario":"login smoke","appId":"com.example.mobiletest","traceDir":"traces/login-smoke","eventsPath":"events.jsonl","artifactsDir":"artifacts","durationMs":100,"eventCount":4,"snapshotCount":1,"failedStepIndex":2,"error":"WaitTimeout","nextCommands":["zmr report traces/login-smoke --out traces/login-smoke/report.html","zmr explain traces/login-smoke --json","zmr discover --from-trace traces/login-smoke --out .zmr/discovered/replay-smoke.json --include-actions --validate --force --json","zmr export traces/login-smoke --out traces/login-smoke.zmrtrace --redact"]}
 ```
 
+`zmr run <scenario.json> --trace-dir <trace-dir> --discover-out
+<scenario.json> --json` runs the same trace-backed discover engine before
+printing the run summary. The response includes `discovery` with the
+`zmr discover --json` payload, including validation results and next commands.
+If discovery cannot run, the run summary remains authoritative and includes
+`discoveryError` with the stable error name. `--discover-out` requires an
+effective `--trace-dir`, either passed directly or resolved from `.zmr/config.json`.
+
 When a run captures useful artifacts but a non-terminal enrichment fails, such
 as an iOS screenshot succeeding while XCTest hierarchy extraction fails, the
 terminal status is `partial` and `partialFailureCount` is greater than zero.

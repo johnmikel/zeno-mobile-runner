@@ -48,6 +48,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 - Traced `zmr run --json` output includes executable follow-up commands for
   reports, failure explanation, trace-backed scenario discovery, and redacted
   export.
+- `zmr run --discover-out <scenario.json> --json` can generate and validate a
+  reviewable replay scenario from the trace immediately after the run.
 - `zmr discover --from-trace` turns a traced agent session into a reviewable
   scenario candidate and can validate the generated scenario before returning.
 - `zmr draft --from-trace` turns a traced semantic snapshot into a reviewable

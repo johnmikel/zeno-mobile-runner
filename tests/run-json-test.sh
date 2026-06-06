@@ -4,13 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ZMR="$ROOT/zig-out/bin/zmr"
 PASS_TRACE="$ROOT/traces/test-run-json pass"
+DISCOVER_TRACE="$ROOT/traces/test-run-json-discover"
 FAIL_TRACE="$ROOT/traces/test-run-json-fail"
 PARTIAL_TRACE="$ROOT/traces/test-run-json-partial-ios"
 OMIT_BUNDLE="$ROOT/traces/test-run-json-omit-screenshots.zmrtrace"
 TMPDIR="$(mktemp -d)"
+DISCOVER_OUT="$TMPDIR/discovered run.json"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-rm -rf "$PASS_TRACE" "$FAIL_TRACE" "$PARTIAL_TRACE"
+rm -rf "$PASS_TRACE" "$DISCOVER_TRACE" "$FAIL_TRACE" "$PARTIAL_TRACE"
 rm -f "$OMIT_BUNDLE"
 
 PASS_OUTPUT="$("$ZMR" run "$ROOT/examples/demo-fake.json" \
@@ -31,6 +33,21 @@ if ! grep -q "\"nextCommands\":\[\"zmr report '$PASS_TRACE' --out '$PASS_TRACE/r
   echo "$PASS_OUTPUT" >&2
   exit 1
 fi
+
+DISCOVER_OUTPUT="$("$ZMR" run "$ROOT/examples/demo-fake.json" \
+  --device fake-android-1 \
+  --adb "$ROOT/tests/fake-adb.sh" \
+  --trace-dir "$DISCOVER_TRACE" \
+  --discover-out "$DISCOVER_OUT" \
+  --json)"
+grep -q '"ok":true' <<< "$DISCOVER_OUTPUT"
+grep -q '"discovery":{"ok":true,"mode":"discover"' <<< "$DISCOVER_OUTPUT"
+grep -q "\"out\":\"$DISCOVER_OUT\"" <<< "$DISCOVER_OUTPUT"
+grep -q '"validated":true' <<< "$DISCOVER_OUTPUT"
+grep -q '"validation":{"ok":true' <<< "$DISCOVER_OUTPUT"
+test -f "$DISCOVER_OUT"
+grep -q '"action":"openLink","url":"exampleapp://e2e-auth?probe=1"' "$DISCOVER_OUT"
+grep -q '"action":"assertVisible","selector":{"text":"Sample landing."}' "$DISCOVER_OUT"
 
 "$ZMR" export "$PASS_TRACE" --out "$OMIT_BUNDLE" --redact --omit-screenshots
 if tar -tf "$OMIT_BUNDLE" | grep -q '[.]png$'; then

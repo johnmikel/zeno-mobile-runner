@@ -100,6 +100,7 @@ zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json 
 zmr init --app --json --dir . --app-id com.example.mobiletest
 zmr validate --json .zmr/login-smoke.json
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke
+zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke --discover-out .zmr/discovered/login-smoke.json
 zmr explain --json traces/login-smoke
 zmr import flow-yaml .zmr/legacy-flow.yaml --out .zmr/legacy-flow.json
 zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact
@@ -109,6 +110,11 @@ For traced runs, `zmr run --json` returns executable `nextCommands` for
 reporting, failure explanation, `zmr discover --from-trace`, and redacted
 export so agents can continue from a run summary without guessing the next
 handoff.
+
+When an agent should produce the reviewable scenario in the same command, add
+`--discover-out .zmr/discovered/<name>.json`. ZMR still treats the generated
+file as review-first: it writes from trace evidence, validates the file, and
+returns the embedded `discovery` result without crawling or committing tests.
 
 See [docs/scenario-authoring.md](docs/scenario-authoring.md) for selector and
 wait guidance.
@@ -140,6 +146,11 @@ zmr discover --from-trace traces/zmr-agent \
 trace evidence, optionally validates it immediately, and returns next commands
 for deterministic reruns. It does not crawl the app, discover credentials, or
 commit tests.
+
+For CLI-driven agent loops, `zmr run --json --trace-dir traces/zmr-agent
+--discover-out .zmr/discovered/replay-smoke.json` performs the same
+trace-backed discovery after the run and embeds the discover result in the run
+JSON response.
 
 For the lower-level draft primitive, agents can still ask ZMR to write a
 conservative surface-smoke scenario from the latest snapshot:

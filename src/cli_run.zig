@@ -2,6 +2,7 @@ const std = @import("std");
 
 const android = @import("android.zig");
 const android_emulator = @import("android_emulator.zig");
+const cli_discover = @import("cli_discover.zig");
 const cli_output = @import("cli_output.zig");
 const config_paths = @import("config_paths.zig");
 const ios = @import("ios.zig");
@@ -21,6 +22,7 @@ pub const ParsedArgs = struct {
     avdmanager_path_set: bool = false,
     xcrun_path_set: bool = false,
     config_path: ?[]const u8 = null,
+    discover_out: ?[]const u8 = null,
     json: bool = false,
 };
 
@@ -69,6 +71,9 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--config")) {
             index += 1;
             parsed.config_path = if (index < args.len) args[index] else return error.MissingConfigPath;
+        } else if (std.mem.eql(u8, arg, "--discover-out")) {
+            index += 1;
+            parsed.discover_out = if (index < args.len) args[index] else return error.MissingDiscoverOut;
         } else if (std.mem.eql(u8, arg, "--screen-record")) {
             parsed.raw.screen_recording = true;
         } else if (std.mem.eql(u8, arg, "--no-screen-record")) {
@@ -153,6 +158,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         try config_paths.ownFilePath(allocator, &owned_config_paths, config_root.?, resolved.trace_dir.?)
     else
         resolved.trace_dir;
+    if (parsed.discover_out != null and trace_dir == null) return error.MissingTraceDir;
     const android_shim_path = if (raw.android_shim_path == null and config_root != null and resolved.android_shim_path != null)
         try config_paths.ownFilePath(allocator, &owned_config_paths, config_root.?, resolved.android_shim_path.?)
     else
@@ -185,6 +191,27 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         break :blk null;
     };
 
+    var discovery_payload = std.ArrayList(u8).empty;
+    defer discovery_payload.deinit(allocator);
+    var run_discovery = cli_output.RunDiscovery{};
+    if (parsed.discover_out) |out_path| {
+        if (cli_discover.discoverFromTrace(allocator, .{
+            .from_trace = trace_dir,
+            .out_path = out_path,
+            .include_actions = true,
+            .validate = true,
+            .force = true,
+            .json = true,
+        })) |discovered_value| {
+            var discovered = discovered_value;
+            defer discovered.deinit(allocator);
+            try cli_discover.writeJson(discovery_payload.writer(allocator), discovered.summary, discovered.validation);
+            run_discovery = .{ .json = std.mem.trimRight(u8, discovery_payload.items, " \t\r\n") };
+        } else |err| {
+            run_discovery = .{ .error_name = @errorName(err) };
+        }
+    }
+
     if (parsed.json) try cli_output.writeRunSummaryJson(
         allocator,
         std.fs.File.stdout().deprecatedWriter(),
@@ -192,6 +219,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         script.name,
         app_id,
         run_error,
+        run_discovery,
     );
     if (run_error) |err| return err;
 }

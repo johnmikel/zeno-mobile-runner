@@ -58,6 +58,9 @@ the same diagnostic shape after the run.
 For traced CLI runs, `zmr run --json` also returns `nextCommands` with the
 report, explain, `zmr discover --from-trace`, and redacted export handoffs.
 Agents should prefer those commands over reconstructing trace paths from text.
+When an agent should create the reviewable scenario in the same process, pass
+`--discover-out .zmr/discovered/<name>.json`; the run JSON will include a
+`discovery` object with validation results.
 
 ## MCP Session
 

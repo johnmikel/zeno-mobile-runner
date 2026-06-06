@@ -17,4 +17,5 @@ test "parse args rejects missing option values and invalid platform values" {
     try std.testing.expectError(error.MissingAndroidSnapshotName, cli_run.parseArgs(&.{"--restore-snapshot"}));
     try std.testing.expectError(error.MissingAndroidAvdSystemImage, cli_run.parseArgs(&.{"--avd-system-image"}));
     try std.testing.expectError(error.MissingAndroidAvdDeviceProfile, cli_run.parseArgs(&.{"--avd-device"}));
+    try std.testing.expectError(error.MissingDiscoverOut, cli_run.parseArgs(&.{"--discover-out"}));
 }

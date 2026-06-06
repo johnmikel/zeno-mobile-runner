@@ -11,6 +11,7 @@ pub fn classify(err: anyerror) PublicError {
         error.MissingDeviceSerial => .{ .code = "cli.missing_device", .message = "missing device serial" },
         error.MissingTraceDir => .{ .code = "cli.missing_trace_dir", .message = "missing trace directory" },
         error.MissingDraftOut => .{ .code = "cli.missing_draft_out", .message = "missing draft output path" },
+        error.MissingDiscoverOut => .{ .code = "cli.missing_discover_out", .message = "missing discover output path" },
         error.MissingAppId => .{ .code = "cli.missing_app_id", .message = "missing app id" },
         error.MissingAdbPath => .{ .code = "cli.missing_adb_path", .message = "missing adb path" },
         error.MissingXcrunPath => .{ .code = "cli.missing_xcrun_path", .message = "missing xcrun path" },

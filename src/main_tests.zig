@@ -536,6 +536,8 @@ test "cli run module parses scenario device platform and emulator options" {
         "com.example.app",
         "--trace-dir",
         "traces/run",
+        "--discover-out",
+        ".zmr/discovered/run-smoke.json",
         "--adb",
         "./tools/adb",
         "--emulator",
@@ -564,6 +566,7 @@ test "cli run module parses scenario device platform and emulator options" {
     try std.testing.expectEqualStrings("emulator-5554", parsed.raw.serial.?);
     try std.testing.expectEqualStrings("com.example.app", parsed.raw.app_id.?);
     try std.testing.expectEqualStrings("traces/run", parsed.raw.trace_dir.?);
+    try std.testing.expectEqualStrings(".zmr/discovered/run-smoke.json", parsed.discover_out.?);
     try std.testing.expectEqualStrings("./tools/adb", parsed.adb_path);
     try std.testing.expect(parsed.adb_path_set);
     try std.testing.expectEqualStrings("./tools/emulator", parsed.emulator_path);

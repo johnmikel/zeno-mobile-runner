@@ -6,6 +6,11 @@ const trace = @import("trace.zig");
 const trace_summary = @import("trace_summary.zig");
 const validation = @import("validation.zig");
 
+pub const RunDiscovery = struct {
+    json: ?[]const u8 = null,
+    error_name: ?[]const u8 = null,
+};
+
 pub fn writeImportJson(writer: anytype, format: []const u8, source_path: []const u8, result: importer.ImportResult) !void {
     try writer.writeAll("{\"ok\":true,\"format\":");
     try trace.writeJsonString(writer, format);
@@ -131,12 +136,13 @@ pub fn writeRunSummaryJson(
     fallback_scenario: []const u8,
     fallback_app_id: []const u8,
     run_error: ?anyerror,
+    discovery: RunDiscovery,
 ) !void {
     if (trace_dir) |dir| {
         if (trace_summary.read(allocator, dir)) |summary_value| {
             var summary = summary_value;
             defer summary.deinit(allocator);
-            return try writeRunSummaryFromTraceSummary(writer, dir, summary, run_error);
+            return try writeRunSummaryFromTraceSummary(writer, dir, summary, run_error, discovery);
         } else |_| {}
     }
 
@@ -153,6 +159,7 @@ pub fn writeRunSummaryJson(
         try writer.writeAll(",\"error\":");
         try trace.writeJsonString(writer, @errorName(err));
     }
+    try writeRunDiscoveryJson(writer, discovery);
     try writer.writeAll("}\n");
 }
 
@@ -258,6 +265,7 @@ fn writeRunSummaryFromTraceSummary(
     trace_dir: []const u8,
     summary: trace_summary.Summary,
     run_error: ?anyerror,
+    discovery: RunDiscovery,
 ) !void {
     try writer.writeAll("{\"ok\":");
     try writer.writeAll(if (std.mem.eql(u8, summary.status, "passed")) "true" else "false");
@@ -295,8 +303,20 @@ fn writeRunSummaryFromTraceSummary(
         try writer.writeAll(",\"reportPath\":");
         try trace.writeJsonString(writer, value);
     }
+    try writeRunDiscoveryJson(writer, discovery);
     try writeRunNextCommandsJson(writer, trace_dir);
     try writer.writeAll("}\n");
+}
+
+fn writeRunDiscoveryJson(writer: anytype, discovery: RunDiscovery) !void {
+    if (discovery.json) |json| {
+        try writer.writeAll(",\"discovery\":");
+        try writer.writeAll(json);
+    }
+    if (discovery.error_name) |error_name| {
+        try writer.writeAll(",\"discoveryError\":");
+        try trace.writeJsonString(writer, error_name);
+    }
 }
 
 fn writeRunNextCommandsJson(writer: anytype, trace_dir: []const u8) !void {

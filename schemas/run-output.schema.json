@@ -34,6 +34,8 @@
     "failedStepIndex": { "type": "integer", "minimum": 0 },
     "error": { "type": "string", "minLength": 1 },
     "reportPath": { "type": "string", "minLength": 1 },
+    "discovery": { "$ref": "https://zmr.dev/schemas/discover-output.schema.json" },
+    "discoveryError": { "type": "string", "minLength": 1 },
     "nextCommands": {
       "type": "array",
       "minItems": 1,

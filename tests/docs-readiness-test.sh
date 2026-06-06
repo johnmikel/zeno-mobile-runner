@@ -152,6 +152,7 @@ require_grep 'zmr report --junit <report.xml>' FEATURES.md
 require_grep 'Android and iOS pilot wrappers emit `junit.xml`' FEATURES.md
 require_grep 'HTML/JUnit report scripts' FEATURES.md
 require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML artifacts' FEATURES.md
+require_grep 'CI workflow retains run traces, coverage output, and built runner artifacts' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
 require_grep 'Current release status is `0.1.7`' FEATURES.md
 require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
@@ -161,6 +162,7 @@ require_grep 'zmr report --junit <report.xml>' CHANGELOG.md
 require_grep 'generated app report and reliability scripts to write `junit.xml`' CHANGELOG.md
 require_grep 'beside `report.html` by default' CHANGELOG.md
 require_grep 'Android and iOS pilot wrappers to emit `junit.xml`' CHANGELOG.md
+require_grep 'release workflows to retain generated run evidence' CHANGELOG.md
 require_grep '0.1.7' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
@@ -181,6 +183,8 @@ require_grep 'trusted publisher must be configured' docs/production-readiness.md
 require_grep 'Agentic Standard' docs/production-readiness.md
 require_grep 'zmr report --junit' docs/production-readiness.md
 require_grep 'pilot wrapper run that produced both `report.html` and `junit.xml`' docs/production-readiness.md
+require_grep 'CI runs retain `traces/`, `zig-cache/coverage/`, and `zig-out/bin/zmr` for 14' docs/production-readiness.md
+require_grep 'workflow artifact for 30 days' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'Agent Discovery' docs/agent-discovery.md
 require_grep 'does not include a built-in autonomous crawler' docs/agent-discovery.md

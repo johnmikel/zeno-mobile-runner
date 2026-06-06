@@ -30,6 +30,10 @@ Tagged releases are expected to build release archives, generate
 assets, and publish the npm tarball through trusted publishing after the npm
 package is configured with the `release.yml` trusted publisher.
 
+CI runs retain `traces/`, `zig-cache/coverage/`, and `zig-out/bin/zmr` for 14
+days when those files are produced. Tagged releases retain `dist/` as a
+workflow artifact for 30 days in addition to GitHub release assets.
+
 ## Product Gates Before 1.0
 
 | Area | Required evidence | Current status |

@@ -42,6 +42,10 @@ All notable changes to Zeno Mobile Runner are tracked here.
   beside `report.html` by default.
 - Updated Android and iOS pilot wrappers to emit `junit.xml` beside every
   generated `report.html`.
+- Updated CI and tagged release workflows to retain generated run evidence as
+  GitHub Actions artifacts: CI keeps traces, coverage output, and the built
+  `zmr` binary for 14 days, while releases keep the generated `dist/` bundle
+  for 30 days.
 - Added `schemas/draft-output.schema.json` and included it in `zmr schemas
   --json`.
 - Added `schemas/discover-output.schema.json` and included it in `zmr schemas

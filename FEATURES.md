@@ -119,6 +119,9 @@ state, and writes deterministic traces. It does not embed an LLM.
   want a machine-readable readiness summary.
 - Tagged release workflow with artifact attestation and optional npm
   provenance publishing.
+- CI workflow retains run traces, coverage output, and built runner artifacts
+  for 14 days; tagged release workflow retains the generated `dist/` bundle
+  for 30 days.
 - Security, contribution, trace privacy, troubleshooting, protocol versioning,
   app integration, benchmarking, and npm packaging docs.
 - Reusable agent skill under `skills/zmr-mobile-testing/`.

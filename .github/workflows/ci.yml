@@ -38,3 +38,14 @@ jobs:
           "$PWD/zig-${zig_arch}-macos-${ZIG_VERSION}/zig" version
       - name: Local CI gate
         run: ./scripts/ci-gate.sh
+      - name: Upload CI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zmr-ci-artifacts
+          path: |
+            traces/
+            zig-cache/coverage/
+            zig-out/bin/zmr
+          if-no-files-found: ignore
+          retention-days: 14

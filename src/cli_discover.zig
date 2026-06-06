@@ -151,6 +151,7 @@ pub fn writeJson(writer: anytype, summary: DiscoverSummary, validation_result: ?
         try writer.writeAll("null");
     }
     try writer.print(",\"selectorCount\":{d},\"stepCount\":{d}", .{ draft.selector_count, draft.step_count });
+    try cli_draft.writeReplayJson(writer, draft.replay);
     try writer.writeAll(",\"warnings\":[");
     for (draft.warnings, 0..) |warning, index| {
         if (index > 0) try writer.writeAll(",");

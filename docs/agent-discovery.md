@@ -49,7 +49,8 @@ ZMR as the deterministic mobile control plane.
    ```
 
    The run response embeds `discovery`, the same JSON payload returned by
-   `zmr discover --json`.
+   `zmr discover --json`, including `replay` coverage metadata for converted
+   and skipped trace actions.
 9. Generate a reviewable scenario candidate from the trace. JSON-RPC agents can
    call `trace.discover`:
 
@@ -73,6 +74,10 @@ ZMR as the deterministic mobile control plane.
    `--validate`, immediately proves that the generated file is syntactically
    runnable by ZMR. It is still review-first: it does not crawl, invent missing
    actions, discover credentials, or commit the scenario.
+   Read the `replay` object before trusting coverage: `eventCount` is the
+   trace action event count considered for replay, `stepCount` is the number of
+   generated replay steps, and `skippedEventCount` is the number of events left
+   out.
 
 10. After editing a generated scenario, validate it in-band with JSON-RPC:
 

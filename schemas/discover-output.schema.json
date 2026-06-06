@@ -17,6 +17,7 @@
     "appId",
     "selectorCount",
     "stepCount",
+    "replay",
     "warnings",
     "validated",
     "validation",
@@ -35,6 +36,17 @@
     "appId": { "type": ["string", "null"] },
     "selectorCount": { "type": "integer", "minimum": 0 },
     "stepCount": { "type": "integer", "minimum": 2 },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "eventCount", "stepCount", "skippedEventCount"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "eventCount": { "type": "integer", "minimum": 0 },
+        "stepCount": { "type": "integer", "minimum": 0 },
+        "skippedEventCount": { "type": "integer", "minimum": 0 }
+      }
+    },
     "warnings": {
       "type": "array",
       "items": { "type": "string" }

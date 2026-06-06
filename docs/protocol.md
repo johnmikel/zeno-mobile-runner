@@ -59,7 +59,7 @@ invent credentials, or commit files. The response is covered by
 `schemas/discover-output.schema.json`:
 
 ```json
-{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/replay-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/replay-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/replay-smoke.json","zmr run .zmr/discovered/replay-smoke.json --json --trace-dir traces/zmr-agent"]}
+{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/replay-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":6,"replay":{"enabled":true,"eventCount":4,"stepCount":3,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/replay-smoke.json","name":"draft from login smoke","appId":"com.example.mobiletest","stepCount":6},"nextCommands":["zmr validate --json .zmr/discovered/replay-smoke.json","zmr run .zmr/discovered/replay-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr draft --from-trace <trace-dir> --out <scenario.json> --json` is the lower
@@ -72,7 +72,7 @@ into fields, or commit files. The response is covered by
 `schemas/draft-output.schema.json`:
 
 ```json
-{"ok":true,"mode":"draft","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/surface-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":4,"warnings":["draft requires human review before commit"],"nextCommands":["zmr validate --json .zmr/discovered/surface-smoke.json","zmr run .zmr/discovered/surface-smoke.json --json --trace-dir traces/zmr-agent"]}
+{"ok":true,"mode":"draft","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/surface-smoke.json","traceDir":"traces/zmr-agent","sourceSnapshot":"traces/zmr-agent/artifacts/snapshot-2.json","name":"draft from login smoke","appId":"com.example.mobiletest","selectorCount":2,"stepCount":4,"replay":{"enabled":false,"eventCount":0,"stepCount":0,"skippedEventCount":0},"warnings":["draft requires human review before commit"],"nextCommands":["zmr validate --json .zmr/discovered/surface-smoke.json","zmr run .zmr/discovered/surface-smoke.json --json --trace-dir traces/zmr-agent"]}
 ```
 
 `zmr draft --include-actions` additionally parses `events.jsonl` and prepends
@@ -83,6 +83,9 @@ entry, selector erase, visible/not-visible waits, matched wait-any events as
 Events without enough replay data, failed events, diagnostics, raw swipes, and
 control events are skipped with warnings rather than guessed. Text entry events
 whose text has already been redacted from the trace are skipped.
+The `replay` object in draft and discover JSON reports whether action replay
+was enabled, how many trace action events were considered, how many replay
+steps were generated, and how many events were skipped.
 
 `zmr-release-readiness --json` checks one or more repeated app/device evidence
 files and emits a machine-readable readiness summary. The output is covered by
@@ -466,7 +469,7 @@ Request:
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":25,"result":{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/agent-smoke.json","traceDir":"traces/agent-session","sourceSnapshot":"traces/agent-session/artifacts/snapshot-1.json","name":"agent smoke","appId":"com.example.mobiletest","selectorCount":1,"stepCount":4,"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/agent-smoke.json","name":"agent smoke","appId":"com.example.mobiletest","stepCount":4},"nextCommands":["zmr validate --json .zmr/discovered/agent-smoke.json","zmr run .zmr/discovered/agent-smoke.json --json --trace-dir traces/agent-session"]}}
+{"jsonrpc":"2.0","id":25,"result":{"ok":true,"mode":"discover","schemaVersion":1,"runnerVersion":"0.1.7","protocolVersion":"2026-04-28","out":".zmr/discovered/agent-smoke.json","traceDir":"traces/agent-session","sourceSnapshot":"traces/agent-session/artifacts/snapshot-1.json","name":"agent smoke","appId":"com.example.mobiletest","selectorCount":1,"stepCount":4,"replay":{"enabled":true,"eventCount":2,"stepCount":1,"skippedEventCount":1},"warnings":["draft requires human review before commit"],"validated":true,"validation":{"ok":true,"path":".zmr/discovered/agent-smoke.json","name":"agent smoke","appId":"com.example.mobiletest","stepCount":4},"nextCommands":["zmr validate --json .zmr/discovered/agent-smoke.json","zmr run .zmr/discovered/agent-smoke.json --json --trace-dir traces/agent-session"]}}
 ```
 
 Without `--trace-dir`, it returns `ok: false` with `traceDir: null`. Generated

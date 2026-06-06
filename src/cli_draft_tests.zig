@@ -112,6 +112,10 @@ test "draft from trace writes conservative surface smoke scenario" {
     try std.testing.expectEqualStrings(trace_dir ++ "/artifacts/snapshot-2.json", result.summary.source_snapshot);
     try std.testing.expectEqual(@as(usize, 2), result.summary.selector_count);
     try std.testing.expectEqual(@as(usize, 4), result.summary.step_count);
+    try std.testing.expect(!result.summary.replay.enabled);
+    try std.testing.expectEqual(@as(usize, 0), result.summary.replay.event_count);
+    try std.testing.expectEqual(@as(usize, 0), result.summary.replay.step_count);
+    try std.testing.expectEqual(@as(usize, 0), result.summary.replay.skipped_event_count);
 
     const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
@@ -196,6 +200,10 @@ test "draft from trace can replay successful supported actions" {
 
     try std.testing.expectEqual(@as(usize, 1), result.summary.selector_count);
     try std.testing.expectEqual(@as(usize, 7), result.summary.step_count);
+    try std.testing.expect(result.summary.replay.enabled);
+    try std.testing.expectEqual(@as(usize, 7), result.summary.replay.event_count);
+    try std.testing.expectEqual(@as(usize, 5), result.summary.replay.step_count);
+    try std.testing.expectEqual(@as(usize, 2), result.summary.replay.skipped_event_count);
     var saw_review_warning = false;
     var saw_unsupported_warning = false;
     for (result.summary.warnings) |warning| {
@@ -235,11 +243,18 @@ test "draft json response points agents to validation before running" {
         .app_id = "com.example.mobiletest",
         .selector_count = 2,
         .step_count = 4,
+        .replay = .{
+            .enabled = true,
+            .event_count = 3,
+            .step_count = 2,
+            .skipped_event_count = 1,
+        },
         .warnings = &.{"draft requires human review before commit"},
     });
 
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"draft\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":2,\"skippedEventCount\":1}") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr validate --json .zmr/discovered/draft.json\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr run .zmr/discovered/draft.json --json --trace-dir traces/zmr-agent\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "human review") != null);

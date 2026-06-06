@@ -56,6 +56,9 @@ state, and writes deterministic traces. It does not embed an LLM.
   surface-smoke scenario with conservative `assertVisible` checks.
 - `zmr draft --include-actions` can turn supported successful trace actions
   into a replay draft while warning instead of guessing unsupported events.
+- Draft and discover JSON include `replay` coverage metadata so agents can
+  compare trace action events considered for replay, generated replay steps,
+  and skipped events.
 - Public JSON Schemas for scenarios, snapshots, semantic snapshots, action
   results, trace events, protocol messages, setup diagnostics, and release
   manifests.

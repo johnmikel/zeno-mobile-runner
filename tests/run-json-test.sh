@@ -43,6 +43,7 @@ DISCOVER_OUTPUT="$("$ZMR" run "$ROOT/examples/demo-fake.json" \
 grep -q '"ok":true' <<< "$DISCOVER_OUTPUT"
 grep -q '"discovery":{"ok":true,"mode":"discover"' <<< "$DISCOVER_OUTPUT"
 grep -q "\"out\":\"$DISCOVER_OUT\"" <<< "$DISCOVER_OUTPUT"
+grep -q '"replay":{"enabled":true,"eventCount":3,"stepCount":2,"skippedEventCount":1}' <<< "$DISCOVER_OUTPUT"
 grep -q '"validated":true' <<< "$DISCOVER_OUTPUT"
 grep -q '"validation":{"ok":true' <<< "$DISCOVER_OUTPUT"
 test -f "$DISCOVER_OUT"

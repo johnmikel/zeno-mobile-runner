@@ -115,6 +115,9 @@ When an agent should produce the reviewable scenario in the same command, add
 `--discover-out .zmr/discovered/<name>.json`. ZMR still treats the generated
 file as review-first: it writes from trace evidence, validates the file, and
 returns the embedded `discovery` result without crawling or committing tests.
+The `discovery.replay` object shows how many trace action events were
+considered for replay, how many became scenario steps, and how many were
+skipped.
 
 See [docs/scenario-authoring.md](docs/scenario-authoring.md) for selector and
 wait guidance.
@@ -145,7 +148,8 @@ zmr discover --from-trace traces/zmr-agent \
 `zmr discover` is offline and review-first. It writes a scenario from stable
 trace evidence, optionally validates it immediately, and returns next commands
 for deterministic reruns. It does not crawl the app, discover credentials, or
-commit tests.
+commit tests. Its JSON includes `replay` coverage metadata so agents can report
+which trace action events became replay steps and which were skipped.
 
 For CLI-driven agent loops, `zmr run --json --trace-dir traces/zmr-agent
 --discover-out .zmr/discovered/replay-smoke.json` performs the same

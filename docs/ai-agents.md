@@ -60,7 +60,7 @@ report, explain, `zmr discover --from-trace`, and redacted export handoffs.
 Agents should prefer those commands over reconstructing trace paths from text.
 When an agent should create the reviewable scenario in the same process, pass
 `--discover-out .zmr/discovered/<name>.json`; the run JSON will include a
-`discovery` object with validation results.
+`discovery` object with validation results and `replay` coverage metadata.
 
 ## MCP Session
 
@@ -104,7 +104,9 @@ zmr discover --from-trace traces/zmr-agent \
 
 `zmr discover` is review-first. It writes from trace evidence, validates the
 generated scenario when asked, and returns next commands for deterministic
-reruns. It does not crawl, discover credentials, or commit tests.
+reruns. It does not crawl, discover credentials, or commit tests. The JSON
+`replay` object lets agents compare trace action events considered for replay,
+generated replay steps, and skipped events before making coverage claims.
 
 Use `zmr draft` when you want the lower-level split workflow. It writes
 `launch`, `snapshot`, and conservative `assertVisible` checks by default. For

@@ -50,6 +50,7 @@ test "discover from trace writes reviewable scenario and validates it" {
         .data =
         \\{"seq":1,"timestampMs":1,"kind":"app.launch","payload":{"status":"ok"}}
         \\{"seq":2,"timestampMs":2,"kind":"app.openLink","payload":{"status":"ok","url":"exampleapp://discover"}}
+        \\{"seq":3,"timestampMs":3,"kind":"ui.swipe","payload":{"status":"ok","x1":10,"y1":20,"x2":10,"y2":200}}
         \\
         ,
     });
@@ -106,6 +107,7 @@ test "discover from trace writes reviewable scenario and validates it" {
     defer out.deinit(allocator);
     try cli_discover.writeJson(out.writer(allocator), result.summary, result.validation);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"discover\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":2,\"skippedEventCount\":1}") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validated\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validation\":{\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr validate --json ") != null);

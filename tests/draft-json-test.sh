@@ -82,6 +82,12 @@ assert result["traceDir"] == trace_dir
 assert result["sourceSnapshot"] == f"{trace_dir}/artifacts/snapshot-2.json"
 assert result["selectorCount"] == 2
 assert result["stepCount"] == 4
+assert result["replay"] == {
+    "enabled": False,
+    "eventCount": 0,
+    "stepCount": 0,
+    "skippedEventCount": 0,
+}
 assert any("human review" in warning for warning in result["warnings"])
 assert f"zmr validate --json {sys.argv[2]}" in result["nextCommands"]
 
@@ -111,6 +117,12 @@ scenario = json.load(open(sys.argv[2], encoding="utf-8"))
 assert result["ok"] is True
 assert result["selectorCount"] == 2
 assert result["stepCount"] == 8
+assert result["replay"] == {
+    "enabled": True,
+    "eventCount": 7,
+    "stepCount": 5,
+    "skippedEventCount": 2,
+}
 assert "unsupported trace action was skipped: ui.swipe" in result["warnings"]
 assert "redacted trace text action was skipped: ui.type" in result["warnings"]
 

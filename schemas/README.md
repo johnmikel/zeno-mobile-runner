@@ -20,8 +20,8 @@ This directory contains draft 2020-12 JSON Schemas for public ZMR file and proto
 - `explain-output.schema.json`: machine-readable `zmr explain --json` failure triage output for agents and CI
 - `run-output.schema.json`: machine-readable `zmr run --json` terminal run summary output
 - `inspect-output.schema.json`: machine-readable `zmr inspect --json` app and agent handoff output
-- `discover-output.schema.json`: machine-readable `zmr discover --json` trace-backed scenario discovery output
-- `draft-output.schema.json`: machine-readable `zmr draft --json` trace-backed scenario draft output
+- `discover-output.schema.json`: machine-readable `zmr discover --json` trace-backed scenario discovery output with replay coverage metadata
+- `draft-output.schema.json`: machine-readable `zmr draft --json` trace-backed scenario draft output with replay coverage metadata
 - `release-manifest.schema.json`: machine-readable `RELEASE_MANIFEST.json` emitted with release archives
 - `release-readiness-output.schema.json`: machine-readable `zmr-release-readiness --json` release evidence gate output
 - `schemas-output.schema.json`: machine-readable `zmr schemas --json` index of public schema names, paths, ids, and descriptions

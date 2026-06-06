@@ -6,6 +6,13 @@ const version = @import("version.zig");
 
 const max_draft_selectors = 3;
 
+pub const ReplaySummary = struct {
+    enabled: bool = false,
+    event_count: usize = 0,
+    step_count: usize = 0,
+    skipped_event_count: usize = 0,
+};
+
 pub const ParsedArgs = struct {
     from_trace: ?[]const u8 = null,
     out_path: ?[]const u8 = null,
@@ -25,6 +32,7 @@ pub const DraftSummary = struct {
     app_id: ?[]const u8 = null,
     selector_count: usize,
     step_count: usize,
+    replay: ReplaySummary = .{},
     warnings: []const []const u8 = &.{},
 };
 
@@ -61,6 +69,11 @@ const DraftSelector = struct {
 
 const DraftActionStep = struct {
     json: []const u8,
+};
+
+const ReplayDraft = struct {
+    steps: []DraftActionStep,
+    summary: ReplaySummary,
 };
 
 pub fn parseArgs(args: []const []const u8) !ParsedArgs {
@@ -148,11 +161,14 @@ pub fn draftFromTrace(allocator: std.mem.Allocator, parsed: ParsedArgs) !OwnedDr
     const snapshot_path = try latestSnapshotPath(allocator, &owned, from_trace, metadata);
     const selectors = try parseSemanticSelectors(allocator, snapshot_path, &owned);
     defer freeSelectors(allocator, selectors);
-    const action_steps = if (parsed.include_actions)
+    const replay = if (parsed.include_actions)
         try parseReplaySteps(allocator, &owned, from_trace, metadata)
     else
-        try allocator.alloc(DraftActionStep, 0);
-    defer allocator.free(action_steps);
+        ReplayDraft{
+            .steps = try allocator.alloc(DraftActionStep, 0),
+            .summary = .{},
+        };
+    defer allocator.free(replay.steps);
 
     const draft_name = if (parsed.name) |explicit|
         try ownString(allocator, &owned, explicit)
@@ -168,7 +184,7 @@ pub fn draftFromTrace(allocator: std.mem.Allocator, parsed: ParsedArgs) !OwnedDr
     else
         null;
 
-    try writeScenarioFile(out_path, draft_name, app_id, action_steps, selectors, parsed.force);
+    try writeScenarioFile(out_path, draft_name, app_id, replay.steps, selectors, parsed.force);
 
     owned.summary.out_path = try ownString(allocator, &owned, out_path);
     owned.summary.trace_dir = try ownString(allocator, &owned, from_trace);
@@ -176,7 +192,8 @@ pub fn draftFromTrace(allocator: std.mem.Allocator, parsed: ParsedArgs) !OwnedDr
     owned.summary.name = draft_name;
     owned.summary.app_id = app_id;
     owned.summary.selector_count = selectors.len;
-    owned.summary.step_count = (if (action_steps.len > 0) action_steps.len else 1) + 1 + selectors.len;
+    owned.summary.step_count = (if (replay.steps.len > 0) replay.steps.len else 1) + 1 + selectors.len;
+    owned.summary.replay = replay.summary;
     try appendWarning(allocator, &owned, "draft requires human review before commit");
     if (selectors.len == 0) try appendWarning(allocator, &owned, "no stable visible selectors were found in the semantic snapshot");
     owned.summary.warnings = owned.warnings.items;
@@ -199,13 +216,16 @@ fn parseReplaySteps(
     owned: *OwnedDraft,
     trace_dir: []const u8,
     metadata: TraceMetadata,
-) ![]DraftActionStep {
+) !ReplayDraft {
     const events_path = try std.fs.path.join(allocator, &.{ trace_dir, metadata.events_path });
     defer allocator.free(events_path);
     const content = std.fs.cwd().readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => {
             try appendWarning(allocator, owned, "trace events were not found; action replay was skipped");
-            return try allocator.alloc(DraftActionStep, 0);
+            return .{
+                .steps = try allocator.alloc(DraftActionStep, 0),
+                .summary = .{ .enabled = true },
+            };
         },
         else => return err,
     };
@@ -213,6 +233,8 @@ fn parseReplaySteps(
 
     var steps = std.ArrayList(DraftActionStep).empty;
     errdefer steps.deinit(allocator);
+    var replay_event_count: usize = 0;
+    var skipped_replay_event_count: usize = 0;
 
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |raw_line| {
@@ -229,12 +251,25 @@ fn parseReplaySteps(
         const payload_value = event.get("payload") orelse continue;
         if (payload_value != .object) continue;
 
+        const replay_event = !isControlEvent(kind);
+        if (replay_event) replay_event_count += 1;
         if (try replayStepJson(allocator, owned, kind, payload_value.object)) |json| {
             try steps.append(allocator, .{ .json = json });
+        } else if (replay_event) {
+            skipped_replay_event_count += 1;
         }
     }
 
-    return try steps.toOwnedSlice(allocator);
+    const owned_steps = try steps.toOwnedSlice(allocator);
+    return .{
+        .steps = owned_steps,
+        .summary = .{
+            .enabled = true,
+            .event_count = replay_event_count,
+            .step_count = owned_steps.len,
+            .skipped_event_count = skipped_replay_event_count,
+        },
+    };
 }
 
 fn replayStepJson(
@@ -515,6 +550,7 @@ pub fn writeJson(writer: anytype, summary: DraftSummary) !void {
         try writer.writeAll("null");
     }
     try writer.print(",\"selectorCount\":{d},\"stepCount\":{d}", .{ summary.selector_count, summary.step_count });
+    try writeReplayJson(writer, summary.replay);
     try writer.writeAll(",\"warnings\":[");
     for (summary.warnings, 0..) |warning, index| {
         if (index > 0) try writer.writeAll(",");
@@ -527,6 +563,15 @@ pub fn writeJson(writer: anytype, summary: DraftSummary) !void {
     try writer.writeAll(" --json --trace-dir ");
     try cli_output.writeShellArgJsonContent(writer, summary.trace_dir);
     try writer.writeAll("\"]}\n");
+}
+
+pub fn writeReplayJson(writer: anytype, replay: ReplaySummary) !void {
+    try writer.writeAll(",\"replay\":{\"enabled\":");
+    try writer.writeAll(if (replay.enabled) "true" else "false");
+    try writer.print(
+        ",\"eventCount\":{d},\"stepCount\":{d},\"skippedEventCount\":{d}}}",
+        .{ replay.event_count, replay.step_count, replay.skipped_event_count },
+    );
 }
 
 fn actionWithStringField(

@@ -349,8 +349,12 @@ on the tag workflow:
 
 - Package: `zeno-mobile-runner`
 - Provider: GitHub Actions
-- Repository: `johnmikel/zeno-mobile-runner`
-- Workflow file: `release.yml`
+- Organization or user: `johnmikel`
+- Repository: `zeno-mobile-runner`
+- Workflow filename: `release.yml`
+- Environment name: leave blank unless the release job also declares a GitHub
+  deployment environment.
+- Allowed actions: `npm publish`
 
 The release workflow already requests `id-token: write`, builds the npm tarball
 from the tag, attests the generated release artifacts, uploads the GitHub
@@ -360,6 +364,23 @@ and then publishes that tarball with public access.
 Trusted publishing requires a current npm runtime. The tag workflow uses Node
 24 so the npm CLI can exchange the GitHub Actions OIDC identity for publish
 authorization.
+
+With `npm@11.10.0` or newer, maintainers can also configure the same trust
+relationship from an authenticated local shell:
+
+```bash
+npm trust list zeno-mobile-runner
+npm trust github zeno-mobile-runner \
+  --repo johnmikel/zeno-mobile-runner \
+  --file release.yml \
+  --allow-publish
+```
+
+If `npm trust` is not available, update npm or use the package settings page on
+npmjs.com. A failed publish with `E404` for an existing package usually means
+the trusted-publisher configuration is missing, points at a different GitHub
+owner/repository/workflow filename, names an environment that the workflow does
+not use, or does not allow `npm publish`.
 
 ### Manual publish with passkey or 2FA
 

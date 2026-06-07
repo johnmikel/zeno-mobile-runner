@@ -243,6 +243,13 @@ require_grep 'workflow artifact for 30 days' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
 require_grep 'npm login --auth-type=web' docs/npm.md
 require_grep 'npm whoami' docs/npm.md
+require_grep 'Organization or user: `johnmikel`' docs/npm.md
+require_grep 'Workflow filename: `release.yml`' docs/npm.md
+require_grep 'Allowed actions: `npm publish`' docs/npm.md
+require_grep 'npm trust github zeno-mobile-runner' docs/npm.md
+require_grep '--repo johnmikel/zeno-mobile-runner' docs/npm.md
+require_grep 'If `npm trust` is not available' docs/npm.md
+require_grep 'A failed publish with `E404` for an existing package' docs/npm.md
 require_grep 'npm publish ./dist/zeno-mobile-runner-<version>.tgz --access public' docs/npm.md
 require_grep 'If npm returns `E403`' docs/npm.md
 require_grep 'Agent Discovery' docs/agent-discovery.md

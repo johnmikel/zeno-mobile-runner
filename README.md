@@ -18,17 +18,17 @@ or optional protocol clients.
 Inside a mobile app repo:
 
 ```bash
-npm install --save-dev zeno-mobile-runner
-npx zmr-wizard --app-id com.example.mobiletest --package-json
-npx zmr doctor --strict --json --config .zmr/config.json
+bun add --dev zeno-mobile-runner
+bunx zmr-wizard --app-id com.example.mobiletest --package-json
+bunx zmr doctor --strict --json --config .zmr/config.json
 ```
 
 Run a generated smoke scenario:
 
 ```bash
-npm run zmr:validate
-npm run zmr:android
-npm run zmr:ios
+bun run zmr:validate
+bun run zmr:android
+bun run zmr:ios
 ```
 
 ## React Native, Expo, and Flutter

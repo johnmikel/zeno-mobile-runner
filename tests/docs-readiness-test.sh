@@ -84,7 +84,7 @@ for internal_doc in \
 done
 
 require_grep '^# Zeno Mobile Runner$' README.md
-require_grep 'npm install --save-dev zeno-mobile-runner' README.md
+require_grep 'bun add --dev zeno-mobile-runner' README.md
 require_grep 'React Native, Expo, and Flutter' README.md
 require_grep 'Flutter apps at the Android and iOS app level' README.md
 require_grep 'not a Flutter widget-tree driver' README.md

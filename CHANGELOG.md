@@ -15,6 +15,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added a richer public-safe iOS workflow benchmark pack covering profile
   entry, catalog selection, save, review, and final-state assertion on the
   generated demo app.
+- Added the first Android workflow benchmark pack for the generated demo app,
+  covering 20 repeated UIAutomator-path ZMR runs.
 
 ### Fixed
 

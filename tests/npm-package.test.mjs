@@ -583,6 +583,8 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.match(tarList.stdout, new RegExp("package/docs/benchmarks/2026-06-09-ios-app" + "ium-comparison.results.jsonl"));
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-workflow-comparison\.md/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-workflow-comparison\.results\.jsonl/);
+    assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-android-workflow\.md/);
+    assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-android-workflow\.results\.jsonl/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/benchmark-lab-v1\.md/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/benchmark-lab-v1\.json/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.md/);

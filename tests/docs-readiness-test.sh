@@ -50,6 +50,8 @@ require_file docs/benchmarking.md
 require_file docs/benchmarks/README.md
 require_file docs/benchmarks/benchmark-lab-v1.md
 require_file docs/benchmarks/benchmark-lab-v1.json
+require_file docs/benchmarks/2026-06-09-android-workflow.md
+require_file docs/benchmarks/2026-06-09-android-workflow.results.jsonl
 require_file docs/benchmarks/2026-06-09-ios-demo.md
 require_file docs/benchmarks/2026-06-09-ios-demo.results.jsonl
 baseline_doc="docs/benchmarks/2026-06-09-ios-mae""stro-comparison.md"
@@ -457,17 +459,23 @@ require_grep 'profile entry,' docs/benchmarking.md
 require_grep 'catalog item selection, save, review' docs/benchmarking.md
 require_grep 'Benchmark Lab v1 is the next public evidence layer' docs/benchmarking.md
 require_grep 'zmr-benchmark-lab' docs/benchmarking.md
+require_grep 'generated Android workflow now has its first 20-run evidence pack' docs/benchmarking.md
 require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
 require_grep '20 repeated runs of' docs/benchmarks/README.md
 require_grep 'Benchmark Lab v1' docs/benchmarks/README.md
+require_grep '2026-06-09 Android emulator workflow' docs/benchmarks/README.md
 require_grep 'framework-level evidence' docs/benchmarks/benchmark-lab-v1.md
 require_grep 'zmr-benchmark-lab --manifest docs/benchmarks/benchmark-lab-v1.json --format markdown' docs/benchmarks/benchmark-lab-v1.md
+require_grep '2026-06-09 Android emulator workflow' docs/benchmarks/benchmark-lab-v1.md
 require_grep '"schemaVersion": 1' docs/benchmarks/benchmark-lab-v1.json
 require_grep '"react-native-expo-workflow"' docs/benchmarks/benchmark-lab-v1.json
 require_grep '"flutter-semantics-workflow"' docs/benchmarks/benchmark-lab-v1.json
+require_grep '"status": "done"' docs/benchmarks/benchmark-lab-v1.json
+require_grep 'ZMR | 20 | 100.00% | 0 | 44134 ms | 46385 ms' docs/benchmarks/2026-06-09-android-workflow.md
+require_grep '"tool":"zmr","run":20,"status":"ok"' docs/benchmarks/2026-06-09-android-workflow.results.jsonl
 require_grep '2026-06-09 iOS simulator workflow comparison' docs/benchmarks/README.md
 require_grep 'Pass rate | 100.00%' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep 'Mean duration | 4192 ms' docs/benchmarks/2026-06-09-ios-demo.md

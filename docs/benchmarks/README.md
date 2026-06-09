@@ -25,6 +25,8 @@ Evidence here is intentionally narrow:
 - [2026-06-09 iOS simulator workflow comparison](2026-06-09-ios-workflow-comparison.md):
   longer profile, catalog, save, and review workflow on the generated iOS demo
   app.
+- [2026-06-09 Android emulator workflow](2026-06-09-android-workflow.md):
+  20 repeated ZMR runs of the generated Android workflow demo app.
 - [2026-06-09 iOS simulator XCTest shim floor](2026-06-09-ios-xctest-floor.md):
   native-path floor for the optimized iOS shim-backed smoke flow.
 - [2026-06-09 framework baseline status](2026-06-09-framework-baseline-status.md):

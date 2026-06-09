@@ -52,7 +52,7 @@
       "label": "Generated native Android workflow",
       "framework": "native-android",
       "platforms": ["android"],
-      "status": "fixture-available",
+      "status": "evidence-committed",
       "scenario": "examples/android-workflow.json",
       "appGenerator": "scripts/create-android-demo-app.sh",
       "workflow": [
@@ -62,7 +62,8 @@
         "item-detail",
         "save-item",
         "review-assertion"
-      ]
+      ],
+      "evidence": "docs/benchmarks/2026-06-09-android-workflow.md"
     },
     {
       "id": "react-native-expo-workflow",
@@ -130,7 +131,7 @@
   "nextSlices": [
     {
       "id": "android-native-rows",
-      "status": "next",
+      "status": "done",
       "description": "Collect 20-run Android rows for the generated native workflow on a clean emulator."
     },
     {

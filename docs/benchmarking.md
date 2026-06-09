@@ -29,6 +29,10 @@ Benchmark Lab v1 is the next public evidence layer. It defines framework
 fixtures, timing modes, runner-adapter labels, and claim rules in a manifest
 that can be validated or rendered with `zmr-benchmark-lab`.
 
+The generated Android workflow now has its first 20-run evidence pack in
+[docs/benchmarks](benchmarks/README.md), using the platform UIAutomator path
+without the optional Android instrumentation shim.
+
 ## Single Tool Benchmark
 
 ```bash

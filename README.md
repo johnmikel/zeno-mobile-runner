@@ -255,9 +255,9 @@ For custom comparisons, collect ZMR rows and baseline command rows into the
 same `results.jsonl`, then compare them:
 
 ```bash
-zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --runs 20 --results traces/bench-comparison/results.jsonl --replace
-zmr-benchmark-command --tool baseline --runs 20 --results traces/bench-comparison/results.jsonl -- npm run e2e:android
-zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline baseline
+bunx zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --runs 20 --results traces/bench-comparison/results.jsonl --replace
+bunx zmr-benchmark-command --tool baseline --runs 20 --results traces/bench-comparison/results.jsonl -- bun run e2e:android
+bunx zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline baseline
 ```
 
 ZMR also includes `zmr-device-matrix` for running scenarios across multiple

@@ -20,6 +20,16 @@ Keep generated ZMR files under `.zmr/` and run the wizard from the app repo:
 npx zmr-wizard --app-id com.example.mobiletest --package-json
 ```
 
+To inspect a generated public fixture with a longer workflow:
+
+```bash
+npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo
+```
+
+That fixture includes `expo-dev-client`, deep-link setup, stable `testID`
+values, accessibility labels, and Android/iOS ZMR workflow scenarios under
+`.zmr/`.
+
 ## Expo
 
 Expo development builds work like React Native apps once they are installed on a

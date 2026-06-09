@@ -27,6 +27,7 @@
     "zmr-install-ios-shim": "scripts/install-ios-shim.sh",
     "zmr-create-android-demo-app": "scripts/create-android-demo-app.sh",
     "zmr-create-ios-demo-app": "scripts/create-ios-demo-app.sh",
+    "zmr-create-react-native-expo-demo-app": "scripts/create-react-native-expo-demo-app.sh",
     "zmr-demo-android": "scripts/demo-android-real.sh",
     "zmr-demo-ios": "scripts/demo-ios-real.sh"
   },

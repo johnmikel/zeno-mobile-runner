@@ -32,7 +32,7 @@ without overstating what one fixture demonstrates.
 | --- | --- | --- | --- | --- |
 | Generated native iOS workflow | native-ios | iOS | evidence committed | `examples/ios-shim-workflow.json` |
 | Generated native Android workflow | native-android | Android | evidence committed | `examples/android-workflow.json` |
-| React Native and Expo workflow | react-native-expo | Android, iOS | planned | pending |
+| React Native and Expo workflow | react-native-expo | Android, iOS | fixture available | `examples/react-native-expo-workflow.json` |
 | Flutter semantics workflow | flutter | Android, iOS | planned | pending |
 
 The first richer iOS evidence pack is
@@ -43,6 +43,11 @@ final-state assertion on the generated native iOS demo app.
 The first Android workflow evidence pack is
 [2026-06-09 Android emulator workflow](2026-06-09-android-workflow.md). It
 records 20 repeated ZMR runs through the platform UIAutomator path.
+
+The React Native/Expo fixture is available through
+`scripts/create-react-native-expo-demo-app.sh`. It generates an Expo app with
+stable `testID` values, accessibility labels, a deep-link scheme, and matching
+Android/iOS ZMR workflow scenarios. Public timing rows are still pending.
 
 ## Runner Adapters
 
@@ -84,10 +89,7 @@ hiding setup work. Native-floor rows show where remaining overhead lives.
 
 ## Next Slices
 
-1. Add a generated React Native/Expo fixture with stable `testID` values,
-   accessibility labels, Expo dev-client deep links, and matching ZMR plus
-   baseline flows.
-2. Add a Flutter semantics fixture that proves app-level Android/iOS support
+1. Add a Flutter semantics fixture that proves app-level Android/iOS support
    without claiming widget-tree automation.
-3. Add warm-suite collection so bridge prewarm and repeated execution can be
+2. Add warm-suite collection so bridge prewarm and repeated execution can be
    measured separately from command startup.

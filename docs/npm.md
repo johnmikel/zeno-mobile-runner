@@ -33,6 +33,9 @@ The package exposes:
   matching `.zmr/` smoke scenario for public demos and emulator pilots.
 - `zmr-create-ios-demo-app`: creates a generic SwiftUI simulator app with
   `.zmr/` scenarios and the iOS shim already installed for public demos.
+- `zmr-create-react-native-expo-demo-app`: creates a generic React Native and
+  Expo app with stable `testID` values, accessibility labels, deep-link config,
+  and Android/iOS `.zmr/` workflow scenarios.
 - `zmr-demo-android`: creates, installs, and runs the generated Android demo
   through a real emulator/device.
 - `zmr-demo-ios`: creates, builds, and runs the generated iOS simulator demo
@@ -215,6 +218,24 @@ zmr run /tmp/zmr-android-demo/.zmr/android-smoke.json \
   --app-id com.example.mobiletest \
   --trace-dir /tmp/zmr-android-demo/traces/android-demo
 ```
+
+## React Native And Expo Demo Fixture
+
+Generate a public React Native and Expo app when you need a framework-level
+benchmark fixture before collecting timing rows:
+
+```bash
+npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo
+cd /tmp/zmr-rn-expo-demo
+bun install
+bunx expo start
+```
+
+The generated app includes `expo-dev-client`, stable `testID` values,
+accessibility labels, an Expo deep-link scheme, and platform-specific ZMR
+workflow scenarios under `.zmr/`. After installing a development build on the
+target device, run the generated Android or iOS workflow scenario from the app
+directory.
 
 ## iOS Demo App
 

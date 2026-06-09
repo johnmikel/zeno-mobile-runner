@@ -17,12 +17,13 @@ The script builds `zig-out/bin/zmr`, then runs:
 - `zmr validate examples/android-app-referral-deep-link.json`
 - `zmr validate examples/android-app-error-state.json`
 - `zmr validate examples/android-shim-smoke.json`
+- `zmr validate examples/android-workflow.json`
+- `zmr validate examples/react-native-expo-workflow.json`
 - `zmr validate examples/ios-smoke.json`
 - `zmr validate examples/ios-dev-client-open-link.json`
 - `zmr validate examples/ios-dev-client-route-snapshot.json`
 - `zmr validate examples/ios-shim-smoke.json`
 - `zmr validate examples/ios-shim-workflow.json`
-- `zmr validate examples/android-workflow.json`
 - expected-failing `zmr validate --json` output that shows `fieldPath`, `line`,
   and `column` for invalid scenarios covered by `schemas/validate-output.schema.json`
 - `zmr doctor --adb ./tests/fake-adb.sh --xcrun ./tests/fake-xcrun.sh --ios-shim ./tests/fake-ios-shim.sh`
@@ -83,6 +84,8 @@ The Swift and Kotlin reference client flows verify host-side native-language
 agent/test-harness integration for iOS and Android teams.
 The fake Android shim flow exercises shim-backed hierarchy, wait, tap, type,
 hide-keyboard, and snapshot handling.
+The React Native/Expo workflow example validates the framework fixture scenario
+that uses deep links, accessibility labels, and stable `testID` values.
 The fake iOS flow exercises simulator lifecycle, deep-link opening, screenshot
 artifact capture, log capture, and snapshot trace writing. The fake iOS shim
 flow exercises shim-backed hierarchy, wait, tap, type, hide-keyboard, and
@@ -186,6 +189,32 @@ zmr run /tmp/zmr-android-demo/.zmr/android-smoke.json \
 
 The scenario launches the app, waits for visible text, taps a button, types
 text into a field, and captures a trace-backed snapshot.
+
+## React Native And Expo Fixture
+
+To generate a public React Native and Expo app with stable test IDs,
+accessibility labels, deep-link routing, and matching Android/iOS ZMR workflow
+scenarios:
+
+```bash
+npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo
+cd /tmp/zmr-rn-expo-demo
+bun install
+bunx expo start
+```
+
+After installing a development build on the target device, run the generated
+scenario for the platform you are measuring:
+
+```bash
+zmr run .zmr/react-native-expo-android-workflow.json \
+  --device emulator-5554 \
+  --app-id com.example.mobiletest \
+  --trace-dir traces/zmr-rn-expo-android
+```
+
+The fixture includes `expo-dev-client` and is available for benchmark
+collection, but it does not have public timing rows yet.
 
 ## Real iOS Simulator Demo
 

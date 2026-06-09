@@ -353,6 +353,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.equal(pkg.bin["zmr-release-readiness"], "scripts/release-readiness.sh");
   assert.equal(pkg.bin["zmr-create-android-demo-app"], "scripts/create-android-demo-app.sh");
   assert.equal(pkg.bin["zmr-create-ios-demo-app"], "scripts/create-ios-demo-app.sh");
+  assert.equal(pkg.bin["zmr-create-react-native-expo-demo-app"], "scripts/create-react-native-expo-demo-app.sh");
   assert.equal(pkg.bin["zmr-demo-android"], "scripts/demo-android-real.sh");
   assert.equal(pkg.bin["zmr-demo-ios"], "scripts/demo-ios-real.sh");
   assert.equal(Object.hasOwn(pkg.bin, "zmr-release-candidate"), false);
@@ -590,8 +591,10 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.md/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.results\.jsonl/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-framework-baseline-status\.md/);
+    assert.match(tarList.stdout, /package\/scripts\/create-react-native-expo-demo-app\.sh/);
     assert.match(tarList.stdout, /package\/examples\/ios-shim-workflow\.json/);
     assert.match(tarList.stdout, /package\/examples\/android-workflow\.json/);
+    assert.match(tarList.stdout, /package\/examples\/react-native-expo-workflow\.json/);
     assert.doesNotMatch(tarList.stdout, /__pycache__|\.pyc/);
 
     const appDir = path.join(tmp, "app");
@@ -817,6 +820,30 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
       assert.ok(fs.existsSync(path.join(iosDemoDir, ".zmr", "ios-smoke.json")));
       assert.ok(fs.existsSync(path.join(iosDemoDir, ".zmr", "ios-shim-smoke.json")));
     }
+
+    const rnExpoDir = path.join(appDir, "tmp-rn-expo-demo");
+    const createRnExpoDemo = spawnSync("npx", [
+      "zmr-create-react-native-expo-demo-app",
+      "--out",
+      rnExpoDir,
+      "--name",
+      "ZenoPackedExpoDemo",
+      "--app-id",
+      "com.example.packed",
+      "--ios-bundle-id",
+      "com.example.packed",
+      "--scheme",
+      "zenopackedexpo",
+    ], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(createRnExpoDemo.status, 0, createRnExpoDemo.stderr);
+    assert.ok(fs.existsSync(path.join(rnExpoDir, "App.tsx")));
+    assert.ok(fs.existsSync(path.join(rnExpoDir, ".zmr", "react-native-expo-workflow.json")));
+    assert.ok(fs.existsSync(path.join(rnExpoDir, ".zmr", "react-native-expo-android-workflow.json")));
+    assert.ok(fs.existsSync(path.join(rnExpoDir, ".zmr", "react-native-expo-ios-workflow.json")));
 
     const packageDir = fs.realpathSync(path.join(appDir, "node_modules", "zeno-mobile-runner"));
     const androidDemo = spawnSync("npx", [

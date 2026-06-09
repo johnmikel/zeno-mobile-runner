@@ -30,9 +30,9 @@ assert data["candidateFailures"] == 0
 assert "native-ios-workflow" in data["evidenceFixtures"]
 assert "native-android-workflow" in data["evidenceFixtures"]
 assert "native-android-workflow" in data["availableFixtures"]
-assert "react-native-expo-workflow" in data["plannedFixtures"]
+assert "react-native-expo-workflow" in data["availableFixtures"]
 assert "flutter-semantics-workflow" in data["plannedFixtures"]
-assert "react-native-expo-fixture" in data["nextSlices"]
+assert "flutter-semantics-fixture" in data["nextSlices"]
 assert all(value for value in (runner_a_id, runner_b_id, runner_c_id))
 PY
 

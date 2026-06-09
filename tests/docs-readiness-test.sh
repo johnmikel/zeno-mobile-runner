@@ -87,6 +87,8 @@ require_file docs/frameworks.md
 require_file docs/expo-smoke.md
 require_file docs/production-readiness.md
 require_file docs/agent-discovery.md
+require_file examples/react-native-expo-workflow.json
+require_file scripts/create-react-native-expo-demo-app.sh
 require_file docs/adr/README.md
 require_file schemas/README.md
 require_file clients/python/pyproject.toml
@@ -119,6 +121,7 @@ require_grep 'React Native, Expo, and Flutter' README.md
 require_grep 'Flutter apps at the Android and iOS app level' README.md
 require_grep 'not a Flutter widget-tree driver' README.md
 require_grep 'Expo development builds' README.md
+require_grep 'zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo' README.md
 require_grep '## Scenario Example' README.md
 require_grep 'assertHealthy' README.md
 require_grep 'zmr validate --json' README.md
@@ -256,6 +259,7 @@ require_grep '0.1.8' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
 require_grep 'Expo' docs/frameworks.md
+require_grep 'zmr-create-react-native-expo-demo-app' docs/frameworks.md
 require_grep 'Flutter' docs/frameworks.md
 require_grep 'Flutter apps at the platform level' docs/frameworks.md
 require_grep 'not inspect Flutter widget trees' docs/frameworks.md
@@ -408,6 +412,7 @@ require_grep '.zmr/AGENTS.md' docs/npm.md
 require_grep 'Expo dev-client scenario' docs/npm.md
 require_grep 'zmr:android:report": "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml' docs/npm.md
 require_grep 'zmr:ios:reliability": "export ZMR_BIN' docs/npm.md
+require_grep 'zmr-create-react-native-expo-demo-app' docs/npm.md
 require_grep '--junit traces/zmr-ios-reliability/junit.xml' docs/npm.md
 require_grep 'zmr version --json' docs/protocol.md
 require_grep 'zmr schemas --json' docs/protocol.md
@@ -464,14 +469,20 @@ require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
+require_grep 'generated React Native/Expo fixture is now available' docs/benchmarking.md
 require_grep '20 repeated runs of' docs/benchmarks/README.md
 require_grep 'Benchmark Lab v1' docs/benchmarks/README.md
 require_grep '2026-06-09 Android emulator workflow' docs/benchmarks/README.md
+require_grep 'zmr-create-react-native-expo-demo-app' docs/benchmarks/README.md
 require_grep 'framework-level evidence' docs/benchmarks/benchmark-lab-v1.md
 require_grep 'zmr-benchmark-lab --manifest docs/benchmarks/benchmark-lab-v1.json --format markdown' docs/benchmarks/benchmark-lab-v1.md
 require_grep '2026-06-09 Android emulator workflow' docs/benchmarks/benchmark-lab-v1.md
+require_grep 'React Native/Expo fixture is available' docs/benchmarks/benchmark-lab-v1.md
+require_grep 'examples/react-native-expo-workflow.json' docs/benchmarks/benchmark-lab-v1.md
 require_grep '"schemaVersion": 1' docs/benchmarks/benchmark-lab-v1.json
 require_grep '"react-native-expo-workflow"' docs/benchmarks/benchmark-lab-v1.json
+require_grep '"status": "fixture-available"' docs/benchmarks/benchmark-lab-v1.json
+require_grep '"appGenerator": "scripts/create-react-native-expo-demo-app.sh"' docs/benchmarks/benchmark-lab-v1.json
 require_grep '"flutter-semantics-workflow"' docs/benchmarks/benchmark-lab-v1.json
 require_grep '"status": "done"' docs/benchmarks/benchmark-lab-v1.json
 require_grep 'ZMR | 20 | 100.00% | 0 | 44134 ms | 46385 ms' docs/benchmarks/2026-06-09-android-workflow.md
@@ -506,6 +517,8 @@ require_grep 'ios-smoke/junit.xml' docs/demo.md
 require_grep 'ios-shim-smoke/junit.xml' docs/demo.md
 require_grep 'zmr validate examples/ios-shim-workflow.json' docs/demo.md
 require_grep 'zmr validate examples/android-workflow.json' docs/demo.md
+require_grep 'zmr validate examples/react-native-expo-workflow.json' docs/demo.md
+require_grep 'npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo' docs/demo.md
 require_grep 'explore-output.schema.json' schemas/README.md
 
 require_not_grep 'market-claim' docs/ai-agents.md

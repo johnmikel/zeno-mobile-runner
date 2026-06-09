@@ -33,6 +33,10 @@ The generated Android workflow now has its first 20-run evidence pack in
 [docs/benchmarks](benchmarks/README.md), using the platform UIAutomator path
 without the optional Android instrumentation shim.
 
+A generated React Native/Expo fixture is now available for the next evidence
+slice. It includes stable `testID` values, accessibility labels, deep-link
+setup, and Android/iOS ZMR workflow scenarios, but no public timing rows yet.
+
 ## Single Tool Benchmark
 
 ```bash

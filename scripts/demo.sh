@@ -38,6 +38,7 @@ echo "== Validate demo scenarios =="
 ./zig-out/bin/zmr validate examples/android-app-error-state.json
 ./zig-out/bin/zmr validate examples/android-shim-smoke.json
 ./zig-out/bin/zmr validate examples/android-workflow.json
+./zig-out/bin/zmr validate examples/react-native-expo-workflow.json
 ./zig-out/bin/zmr validate examples/ios-smoke.json
 ./zig-out/bin/zmr validate examples/ios-dev-client-open-link.json
 ./zig-out/bin/zmr validate examples/ios-shim-smoke.json

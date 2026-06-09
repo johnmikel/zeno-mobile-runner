@@ -28,6 +28,7 @@ required = [
     "bash tests/ios-shim-install-script-test.sh",
     "bash tests/ios-shim-target-helper-test.sh",
     "bash tests/ios-pilot-script-test.sh",
+    "bash tests/react-native-expo-demo-app-script-test.sh",
     "bash tests/release-gate-script-test.sh",
     "bash tests/release-candidate-script-test.sh",
     "bash tests/release-readiness-script-test.sh",

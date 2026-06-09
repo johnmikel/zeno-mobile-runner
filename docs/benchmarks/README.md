@@ -27,6 +27,9 @@ Evidence here is intentionally narrow:
   app.
 - [2026-06-09 Android emulator workflow](2026-06-09-android-workflow.md):
   20 repeated ZMR runs of the generated Android workflow demo app.
+- React Native/Expo fixture: generated app and ZMR workflow scenarios are
+  available through `zmr-create-react-native-expo-demo-app`; public timing rows
+  are still pending.
 - [2026-06-09 iOS simulator XCTest shim floor](2026-06-09-ios-xctest-floor.md):
   native-path floor for the optimized iOS shim-backed smoke flow.
 - [2026-06-09 framework baseline status](2026-06-09-framework-baseline-status.md):

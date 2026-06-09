@@ -41,6 +41,9 @@ semantics, screenshots, logs, selector actions, waits, assertions, and traces.
   links for direct navigation into important states.
 - **Expo development builds:** pass `--expo-dev-client-scheme <scheme>` to the
   wizard so ZMR scaffolds dev-client open-link scenarios.
+- **Generated RN/Expo fixture:** run
+  `bunx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo` to
+  inspect a public app with stable selectors and matching ZMR workflow files.
 - **Flutter:** ZMR supports Flutter apps at the Android and iOS app level when
   the app exposes stable semantics labels, text, deep links, or native ids. It is
   not a Flutter widget-tree driver and does not inspect Flutter internals.

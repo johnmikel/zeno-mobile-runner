@@ -70,7 +70,9 @@
       "label": "React Native and Expo workflow",
       "framework": "react-native-expo",
       "platforms": ["android", "ios"],
-      "status": "planned",
+      "status": "fixture-available",
+      "scenario": "examples/react-native-expo-workflow.json",
+      "appGenerator": "scripts/create-react-native-expo-demo-app.sh",
       "workflow": [
         "deep-link-open",
         "profile-entry",
@@ -78,7 +80,7 @@
         "stateful-save",
         "review-assertion"
       ],
-      "notes": "Use testID, accessibility labels, Expo dev-client deep links, and a committed generated fixture before collecting public rows."
+      "notes": "Generated fixture uses testID values, accessibility labels, and deep links. Public ZMR rows and baseline runner rows are not collected yet."
     },
     {
       "id": "flutter-semantics-workflow",
@@ -136,12 +138,12 @@
     },
     {
       "id": "react-native-expo-fixture",
-      "status": "next",
-      "description": "Add a generated React Native/Expo fixture with stable test IDs, deep links, and matching ZMR and baseline flows."
+      "status": "done",
+      "description": "Add a generated React Native/Expo fixture with stable test IDs, deep links, and matching ZMR workflow files."
     },
     {
       "id": "flutter-semantics-fixture",
-      "status": "later",
+      "status": "next",
       "description": "Add a Flutter fixture that proves app-level semantics support without widget-tree claims."
     },
     {

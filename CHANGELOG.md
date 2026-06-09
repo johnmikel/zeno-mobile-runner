@@ -17,6 +17,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   generated demo app.
 - Added the first Android workflow benchmark pack for the generated demo app,
   covering 20 repeated UIAutomator-path ZMR runs.
+- Added a generated React Native/Expo benchmark fixture with stable `testID`
+  values, accessibility labels, deep-link setup, and Android/iOS ZMR workflow
+  scenarios.
 
 ### Fixed
 

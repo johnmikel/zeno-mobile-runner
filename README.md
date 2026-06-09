@@ -57,6 +57,8 @@ See [docs/frameworks.md](docs/frameworks.md) and
   redacted trace export over JSON-RPC or MCP.
 - **Trace-first debugging:** every run can produce screenshots, UI trees, logs,
   timings, action inputs, assertion results, and HTML/JUnit reports.
+- **Benchmark Lab:** public fixture manifests define framework-level evidence,
+  timing modes, runner-adapter labels, and claim boundaries.
 - **Fast local core:** Zig owns orchestration, subprocess control, selectors,
   waits, retries, scenario execution, and packaged binaries.
 - **App-local setup:** `.zmr/config.json`, smoke scenarios, shim commands, and
@@ -258,6 +260,7 @@ same `results.jsonl`, then compare them:
 bunx zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --runs 20 --results traces/bench-comparison/results.jsonl --replace
 bunx zmr-benchmark-command --tool baseline --runs 20 --results traces/bench-comparison/results.jsonl -- bun run e2e:android
 bunx zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline baseline
+bunx zmr-benchmark-lab --manifest node_modules/zeno-mobile-runner/docs/benchmarks/benchmark-lab-v1.json --format markdown
 ```
 
 ZMR also includes `zmr-device-matrix` for running scenarios across multiple

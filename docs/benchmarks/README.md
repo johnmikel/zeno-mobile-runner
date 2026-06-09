@@ -14,6 +14,8 @@ Evidence here is intentionally narrow:
 
 ## Evidence Packs
 
+- [Benchmark Lab v1](benchmark-lab-v1.md): public fixture, timing-mode,
+  runner-adapter, and claim-rule plan for framework-level evidence.
 - [2026-06-09 iOS simulator demo](2026-06-09-ios-demo.md): 20 repeated runs of
   the public iOS smoke scenario on a booted simulator.
 - [2026-06-09 iOS simulator ZMR vs Maestro comparison](2026-06-09-ios-maestro-comparison.md):

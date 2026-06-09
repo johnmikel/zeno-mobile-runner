@@ -342,6 +342,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.match(pkg.bugs.url, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner\/issues$/);
   assert.equal(pkg.bin.zmr, "npm/zmr.mjs");
   assert.equal(pkg.bin["zmr-benchmark"], "scripts/benchmark.sh");
+  assert.equal(pkg.bin["zmr-benchmark-lab"], "scripts/benchmark-lab.py");
   assert.equal(pkg.bin["zmr-benchmark-command"], "scripts/benchmark-command.sh");
   assert.equal(pkg.bin["zmr-compare-benchmarks"], "scripts/compare-benchmarks.py");
   assert.equal(pkg.bin["zmr-device-matrix"], "scripts/device-matrix.sh");
@@ -582,6 +583,8 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.match(tarList.stdout, new RegExp("package/docs/benchmarks/2026-06-09-ios-app" + "ium-comparison.results.jsonl"));
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-workflow-comparison\.md/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-workflow-comparison\.results\.jsonl/);
+    assert.match(tarList.stdout, /package\/docs\/benchmarks\/benchmark-lab-v1\.md/);
+    assert.match(tarList.stdout, /package\/docs\/benchmarks\/benchmark-lab-v1\.json/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.md/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.results\.jsonl/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-framework-baseline-status\.md/);
@@ -742,6 +745,21 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.equal(commandBenchmark.status, 0, commandBenchmark.stderr);
     assert.match(commandBenchmark.stdout, /baseline: runs=1 failures=0/);
     assert.ok(fs.existsSync(path.join(appDir, "traces", "command-bench", "results.jsonl")));
+
+    const benchmarkLab = spawnSync("npx", [
+      "zmr-benchmark-lab",
+      "--manifest",
+      "node_modules/zeno-mobile-runner/docs/benchmarks/benchmark-lab-v1.json",
+      "--format",
+      "json",
+    ], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(benchmarkLab.status, 0, benchmarkLab.stderr);
+    assert.match(benchmarkLab.stdout, /"name":"Benchmark Lab v1"/);
+    assert.match(benchmarkLab.stdout, /"fixtureCount":4/);
 
     const androidShimInstall = spawnSync("npx", [
       "zmr-install-android-shim",

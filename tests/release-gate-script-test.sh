@@ -14,6 +14,7 @@ required = [
     "zig fmt --check build.zig src",
     "bash -n scripts/*.sh tests/*.sh",
     "python3 -m py_compile scripts/*.py",
+    "bash tests/benchmark-lab-test.sh",
     "bash tests/benchmark-results-test.sh",
     "bash tests/device-matrix-test.sh",
     "bash tests/android-emulator-script-test.sh",

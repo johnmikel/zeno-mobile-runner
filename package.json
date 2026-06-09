@@ -16,6 +16,7 @@
     "zmr-init": "npm/init-app.mjs",
     "zmr-wizard": "npm/wizard.mjs",
     "zmr-benchmark": "scripts/benchmark.sh",
+    "zmr-benchmark-lab": "scripts/benchmark-lab.py",
     "zmr-benchmark-command": "scripts/benchmark-command.sh",
     "zmr-compare-benchmarks": "scripts/compare-benchmarks.py",
     "zmr-device-matrix": "scripts/device-matrix.sh",

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "name": "Benchmark Lab v1",
+  "purpose": "Define reproducible mobile benchmark fixtures, modes, adapters, and claim boundaries for ZMR against framework-relevant local runners.",
+  "claimPolicy": {
+    "minimumRuns": 20,
+    "candidatePassRate": 100,
+    "candidateFailures": 0,
+    "requiresSameContext": true,
+    "requiresCommittedRows": true,
+    "requiresSanitizedCommands": true,
+    "forbiddenClaim": "Do not present fixture results as universal speed or reliability claims."
+  },
+  "modes": [
+    {
+      "id": "cold-command",
+      "label": "Cold command",
+      "description": "Each row measures the command surface a user would run from a shell, including runner startup."
+    },
+    {
+      "id": "warm-suite",
+      "label": "Warm suite",
+      "description": "The app, device, and runner bridge are prepared before timed rows so the benchmark isolates repeated scenario execution."
+    },
+    {
+      "id": "native-floor",
+      "label": "Native floor",
+      "description": "A lower-bound timing for the platform shim path. It is diagnostic evidence, not a product comparison."
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "native-ios-workflow",
+      "label": "Generated native iOS workflow",
+      "framework": "native-ios",
+      "platforms": ["ios"],
+      "status": "evidence-committed",
+      "scenario": "examples/ios-shim-workflow.json",
+      "appGenerator": "scripts/create-ios-demo-app.sh",
+      "workflow": [
+        "launch",
+        "profile-entry",
+        "catalog-scroll",
+        "item-detail",
+        "save-item",
+        "review-assertion"
+      ],
+      "evidence": "docs/benchmarks/2026-06-09-ios-workflow-comparison.md"
+    },
+    {
+      "id": "native-android-workflow",
+      "label": "Generated native Android workflow",
+      "framework": "native-android",
+      "platforms": ["android"],
+      "status": "fixture-available",
+      "scenario": "examples/android-workflow.json",
+      "appGenerator": "scripts/create-android-demo-app.sh",
+      "workflow": [
+        "launch",
+        "profile-entry",
+        "catalog-scroll",
+        "item-detail",
+        "save-item",
+        "review-assertion"
+      ]
+    },
+    {
+      "id": "react-native-expo-workflow",
+      "label": "React Native and Expo workflow",
+      "framework": "react-native-expo",
+      "platforms": ["android", "ios"],
+      "status": "planned",
+      "workflow": [
+        "deep-link-open",
+        "profile-entry",
+        "list-scroll",
+        "stateful-save",
+        "review-assertion"
+      ],
+      "notes": "Use testID, accessibility labels, Expo dev-client deep links, and a committed generated fixture before collecting public rows."
+    },
+    {
+      "id": "flutter-semantics-workflow",
+      "label": "Flutter semantics workflow",
+      "framework": "flutter",
+      "platforms": ["android", "ios"],
+      "status": "planned",
+      "workflow": [
+        "deep-link-open",
+        "semantics-label-selection",
+        "scroll",
+        "stateful-save",
+        "review-assertion"
+      ],
+      "notes": "Measure app-level Android/iOS automation through semantics labels and deep links. Do not claim widget-tree driver support."
+    }
+  ],
+  "runnerAdapters": [
+    {
+      "id": "zmr",
+      "label": "ZMR",
+      "status": "available",
+      "collector": "scripts/benchmark.sh",
+      "modes": ["cold-command", "warm-suite"]
+    },
+    {
+      "id": "maestro",
+      "label": "Maestro",
+      "status": "evidence-committed",
+      "collector": "scripts/benchmark-command.sh",
+      "modes": ["cold-command"]
+    },
+    {
+      "id": "appium",
+      "label": "Appium",
+      "status": "partial",
+      "collector": "scripts/benchmark-command.sh",
+      "modes": ["cold-command"],
+      "notes": "The current public iOS workflow attempt failed while starting WebDriverAgent, so fixture-specific setup hardening is required before timing rows."
+    },
+    {
+      "id": "detox",
+      "label": "Detox",
+      "status": "planned",
+      "collector": "scripts/benchmark-command.sh",
+      "modes": ["warm-suite"],
+      "notes": "Requires a React Native fixture with project-local native build targets and a test harness."
+    }
+  ],
+  "nextSlices": [
+    {
+      "id": "android-native-rows",
+      "status": "next",
+      "description": "Collect 20-run Android rows for the generated native workflow on a clean emulator."
+    },
+    {
+      "id": "react-native-expo-fixture",
+      "status": "next",
+      "description": "Add a generated React Native/Expo fixture with stable test IDs, deep links, and matching ZMR and baseline flows."
+    },
+    {
+      "id": "flutter-semantics-fixture",
+      "status": "later",
+      "description": "Add a Flutter fixture that proves app-level semantics support without widget-tree claims."
+    },
+    {
+      "id": "warm-suite-runner",
+      "status": "later",
+      "description": "Add suite-level benchmark collection so bridge prewarm and repeated scenario execution are measured separately from cold command startup."
+    }
+  ]
+}

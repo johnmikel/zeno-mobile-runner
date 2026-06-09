@@ -48,6 +48,8 @@ require_file docs/demo.md
 require_file docs/npm.md
 require_file docs/benchmarking.md
 require_file docs/benchmarks/README.md
+require_file docs/benchmarks/benchmark-lab-v1.md
+require_file docs/benchmarks/benchmark-lab-v1.json
 require_file docs/benchmarks/2026-06-09-ios-demo.md
 require_file docs/benchmarks/2026-06-09-ios-demo.results.jsonl
 baseline_doc="docs/benchmarks/2026-06-09-ios-mae""stro-comparison.md"
@@ -134,6 +136,7 @@ require_grep '## Reliability And Benchmarks' README.md
 require_grep 'bun run zmr:android:reliability' README.md
 require_grep 'bunx zmr-benchmark-command --tool baseline' README.md
 require_grep 'bunx zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl' README.md
+require_grep 'bunx zmr-benchmark-lab --manifest node_modules/zeno-mobile-runner/docs/benchmarks/benchmark-lab-v1.json --format markdown' README.md
 require_grep 'zmr-device-matrix' README.md
 require_grep 'claims should come from the same app build' README.md
 require_grep 'It does not crawl the app' README.md
@@ -450,12 +453,21 @@ require_grep 'zmr-device-matrix' docs/benchmarking.md
 require_grep '2026-06-09 iOS simulator demo' docs/benchmarking.md
 require_grep '20 ZMR runs and 20 baseline runner' docs/benchmarking.md
 require_grep 'richer iOS workflow pack' docs/benchmarking.md
-require_grep 'profile entry, catalog item selection, save, review' docs/benchmarking.md
+require_grep 'profile entry,' docs/benchmarking.md
+require_grep 'catalog item selection, save, review' docs/benchmarking.md
+require_grep 'Benchmark Lab v1 is the next public evidence layer' docs/benchmarking.md
+require_grep 'zmr-benchmark-lab' docs/benchmarking.md
 require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
 require_grep '20 repeated runs of' docs/benchmarks/README.md
+require_grep 'Benchmark Lab v1' docs/benchmarks/README.md
+require_grep 'framework-level evidence' docs/benchmarks/benchmark-lab-v1.md
+require_grep 'zmr-benchmark-lab --manifest docs/benchmarks/benchmark-lab-v1.json --format markdown' docs/benchmarks/benchmark-lab-v1.md
+require_grep '"schemaVersion": 1' docs/benchmarks/benchmark-lab-v1.json
+require_grep '"react-native-expo-workflow"' docs/benchmarks/benchmark-lab-v1.json
+require_grep '"flutter-semantics-workflow"' docs/benchmarks/benchmark-lab-v1.json
 require_grep '2026-06-09 iOS simulator workflow comparison' docs/benchmarks/README.md
 require_grep 'Pass rate | 100.00%' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep 'Mean duration | 4192 ms' docs/benchmarks/2026-06-09-ios-demo.md

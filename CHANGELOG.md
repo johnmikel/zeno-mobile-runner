@@ -10,11 +10,15 @@ All notable changes to Zeno Mobile Runner are tracked here.
   runs of the generated iOS smoke scenario.
 - Added a public-safe iOS simulator baseline runner benchmark comparison on the
   same generated demo app.
+- Added a second public-safe iOS baseline comparison plus a native shim floor
+  evidence pack for the generated demo app.
 
 ### Fixed
 
 - Fixed generated iOS shim one-shot log file creation on macOS by using a
   portable `mktemp` template with `XXXXXX` at the end.
+- Skipped the slow iOS system-open confirmation probe for simulator custom URL
+  schemes while keeping it for universal web links.
 
 ## 0.1.8 (2026-06-06)
 

@@ -126,7 +126,9 @@ pub const IosDevice = struct {
         const result = try self.runSimctl(&.{ "openurl", self.target(), url }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
-        self.acceptOpenURLConfirmationBestEffort();
+        if (urlMayNeedOpenConfirmation(url)) {
+            self.acceptOpenURLConfirmationBestEffort();
+        }
     }
 
     pub fn tap(self: *IosDevice, x: i32, y: i32) !void {
@@ -382,6 +384,14 @@ fn isTransientShimBootstrapFailure(result: command.ExecResult) bool {
     return std.mem.indexOf(u8, result.stderr, "iOS shim server exited before it became ready") != null or
         std.mem.indexOf(u8, result.stderr, "Early unexpected exit") != null or
         std.mem.indexOf(u8, result.stderr, "operation never finished bootstrapping") != null;
+}
+
+fn urlMayNeedOpenConfirmation(url: []const u8) bool {
+    return startsWithIgnoreCase(url, "http://") or startsWithIgnoreCase(url, "https://");
+}
+
+fn startsWithIgnoreCase(value: []const u8, prefix: []const u8) bool {
+    return value.len >= prefix.len and std.ascii.eqlIgnoreCase(value[0..prefix.len], prefix);
 }
 
 pub fn listDevices(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {

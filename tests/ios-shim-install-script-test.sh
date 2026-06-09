@@ -88,7 +88,11 @@ grep -q 'rm -f "$APP_ROOT/.zmr/ios-shim-state/destination.id"' "$ROOT/scripts/in
 grep -q 'rm -rf "$APP_ROOT/.zmr/ios-shim-state/server"' "$ROOT/scripts/install-ios-shim.sh"
 grep -q 'xcrun simctl list devices available' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ps -p "$pid" -o command=' "$TMPDIR/app/.zmr/ios-shim"
-grep -q '\[\[ "$command" == \*xcodebuild\* && "$command" == \*ZMRShimUITests\* \]\]' "$TMPDIR/app/.zmr/ios-shim"
+grep -q '\[\[ "$command" == \*xcodebuild\* && "$command" == \*"SampleUITests"\* \]\]' "$TMPDIR/app/.zmr/ios-shim"
+if grep -q '\[\[ "$command" == \*xcodebuild\* && "$command" == \*ZMRShimUITests\* \]\]' "$TMPDIR/app/.zmr/ios-shim"; then
+  echo "ios-shim process liveness check should use the generated test target name" >&2
+  exit 1
+fi
 grep -q '< /dev/null' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'tail -120 "$LOG_FILE"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'SampleUITests' "$TMPDIR/app/.zmr/ios-shim"
@@ -120,6 +124,10 @@ grep -q 'preferredTypes: \[.textField, .secureTextField, .textView\]' "$TMPDIR/a
 grep -q 'matches(selector:' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
 grep -q 'command.selector' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
 grep -q 'selector.unsupported' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
+grep -q 'commandRequiresForeground' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
+grep -q 'ensureAppForeground' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
+grep -q 'app.activate()' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
+grep -q '.runningForeground' "$TMPDIR/app/.zmr/ZMRShimUITestCase.swift"
 grep -q 'ZMR_SHIM_REQUEST_FILE' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 grep -q 'ZMR_SHIM_MODE' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 grep -q 'ZMR_SHIM_SERVER_DIR' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"

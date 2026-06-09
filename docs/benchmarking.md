@@ -16,6 +16,11 @@ The first baseline comparison is documented in
 [docs/benchmarks](benchmarks/README.md): 20 ZMR runs and 20 baseline runner
 runs against the same generated iOS demo app.
 
+Additional public-safe packs in that directory include a second baseline
+comparison and a native shim floor. The floor is not a product comparison; it
+shows the warmed platform path ZMR can approach after runner and trace overhead
+are reduced.
+
 ## Single Tool Benchmark
 
 ```bash

@@ -342,7 +342,7 @@ is_server_running() {
     return 1
   fi
   command="\$(ps -p "\$pid" -o command= 2>/dev/null || true)"
-  [[ "\$command" == *xcodebuild* && "\$command" == *ZMRShimUITests* ]]
+  [[ "\$command" == *xcodebuild* && "\$command" == *"$TEST_TARGET"* ]]
 }
 
 run_oneshot() {

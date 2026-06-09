@@ -145,7 +145,7 @@ JSON
     }
     ;;
   openurl)
-    [[ "${2:-}" == "fake-ios-1" && "${3:-}" == "exampleapp:///e2e-auth?probe=1" ]] || {
+    [[ "${2:-}" == "fake-ios-1" && ( "${3:-}" == "exampleapp:///e2e-auth?probe=1" || "${3:-}" == "https://example.com/e2e-auth?probe=1" ) ]] || {
       echo "unsupported simctl openurl command: $*" >&2
       exit 2
     }

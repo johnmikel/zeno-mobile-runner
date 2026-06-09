@@ -105,6 +105,10 @@ final class ZMRShimUITestCase: XCTestCase {
     }
 
     private func run(command: ZMRShimCommand, app: XCUIApplication) -> [String: Any] {
+        if commandRequiresForeground(command), let foregroundError = ensureAppForeground(app: app) {
+            return foregroundError
+        }
+
         switch command.cmd {
         case "snapshot":
             return [
@@ -186,6 +190,34 @@ final class ZMRShimUITestCase: XCTestCase {
         default:
             return error("unknown.command", "unsupported command: \(command.cmd)")
         }
+    }
+
+    private func commandRequiresForeground(_ command: ZMRShimCommand) -> Bool {
+        switch command.cmd {
+        case "snapshot", "query", "tap", "type", "eraseText", "hideKeyboard", "swipe", "settle":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func ensureAppForeground(app: XCUIApplication) -> [String: Any]? {
+        if app.state != .runningForeground {
+            app.activate()
+        }
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if app.state == .runningForeground {
+                return nil
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        return error(
+            "app.not_foreground",
+            "target app did not become foreground; state=\(app.state.rawValue)"
+        )
     }
 
     private func ok() -> [String: Any] {

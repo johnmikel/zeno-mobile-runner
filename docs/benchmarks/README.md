@@ -18,3 +18,9 @@ Evidence here is intentionally narrow:
   the public iOS smoke scenario on a booted simulator.
 - [2026-06-09 iOS simulator ZMR vs Maestro comparison](2026-06-09-ios-maestro-comparison.md):
   command-level comparison against Maestro on the same generated iOS demo app.
+- [2026-06-09 iOS simulator ZMR vs Appium comparison](2026-06-09-ios-appium-comparison.md):
+  command-level comparison against Appium on the same generated iOS demo app.
+- [2026-06-09 iOS simulator XCTest shim floor](2026-06-09-ios-xctest-floor.md):
+  native-path floor for the optimized iOS shim-backed smoke flow.
+- [2026-06-09 framework baseline status](2026-06-09-framework-baseline-status.md):
+  status for Detox, Flutter, Espresso, and other framework-specific baselines.

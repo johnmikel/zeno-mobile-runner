@@ -416,7 +416,45 @@ test "ios xctest shim supplies hierarchy and handles selector actions" {
     try device.pressBack();
 }
 
-test "ios simulator openLink asks XCTest shim to accept system confirmation when available" {
+test "ios simulator openLink asks XCTest shim to accept universal link confirmation when available" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var shim = try tmp.dir.createFile("fake-ios-shim-log.sh", .{ .truncate = true });
+    try shim.writeAll(
+        \\#!/usr/bin/env bash
+        \\set -euo pipefail
+        \\request="$(cat)"
+    );
+    const shim_tail = try std.fmt.allocPrint(allocator,
+        \\
+        \\printf '%s\n' "$request" >> ".zig-cache/tmp/{s}/shim.log"
+        \\printf '{{"status":"ok"}}\n'
+        \\
+    , .{tmp.sub_path});
+    defer allocator.free(shim_tail);
+    try shim.writeAll(shim_tail);
+    try shim.chmod(0o755);
+    shim.close();
+
+    const shim_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-ios-shim-log.sh", .{tmp.sub_path});
+    defer allocator.free(shim_path);
+    const log_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/shim.log", .{tmp.sub_path});
+    defer allocator.free(log_path);
+
+    var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    defer device.deinit();
+
+    try device.openLink("https://example.com/e2e-auth?probe=1");
+
+    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
+    defer allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"cmd\":\"acceptSystemAlert\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);
+}
+
+test "ios simulator openLink skips XCTest confirmation for custom URL schemes" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -448,8 +486,5 @@ test "ios simulator openLink asks XCTest shim to accept system confirmation when
 
     try device.openLink("exampleapp:///e2e-auth?probe=1");
 
-    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
-    defer allocator.free(log);
-    try std.testing.expect(std.mem.indexOf(u8, log, "\"cmd\":\"acceptSystemAlert\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(log_path, .{}));
 }

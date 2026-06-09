@@ -317,6 +317,7 @@ Current release: `0.1.8` developer preview. Protocol version:
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
 - [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery and scenario authoring loop
 - [docs/benchmarking.md](docs/benchmarking.md): repeat-run gates, reports, device matrix, and baseline comparisons
+- [docs/benchmarks](docs/benchmarks/README.md): public-safe benchmark evidence
 - [docs/protocol.md](docs/protocol.md): JSON-RPC methods and schemas
 - [docs/ai-agents.md](docs/ai-agents.md): JSON-RPC and MCP agent workflows
 - [docs/clients.md](docs/clients.md): language client guide

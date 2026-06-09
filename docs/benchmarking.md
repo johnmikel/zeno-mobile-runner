@@ -4,6 +4,14 @@ ZMR benchmark output is intentionally simple: each run appends one JSON object
 to `results.jsonl`, and `zmr report` turns that directory into local HTML and
 optional JUnit XML artifacts.
 
+## Public Evidence
+
+Public-safe benchmark evidence lives in [docs/benchmarks](benchmarks/README.md).
+The first committed pack is
+[2026-06-09 iOS simulator demo](benchmarks/2026-06-09-ios-demo.md): 20 repeated
+runs of the generated iOS smoke scenario with a 100% pass rate. It is a
+single-tool reliability benchmark, not a competitive speed claim.
+
 ## Single Tool Benchmark
 
 ```bash

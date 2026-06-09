@@ -349,7 +349,7 @@ run_oneshot() {
   local request_file response_file oneshot_log destination_id
   request_file="\$(mktemp "\$STATE_DIR/request.XXXXXX")"
   response_file="\$(mktemp "\$STATE_DIR/response.XXXXXX")"
-  oneshot_log="\$(mktemp "\$STATE_DIR/xcodebuild.oneshot.XXXXXX.log")"
+  oneshot_log="\$(mktemp "\$STATE_DIR/xcodebuild.oneshot.log.XXXXXX")"
   cp "\$STDIN_FILE" "\$request_file"
   destination_id="\$(destination_spec)"
 

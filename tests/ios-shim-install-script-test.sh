@@ -64,6 +64,11 @@ grep -q -- '-derivedDataPath "ios/build/ZMRDerivedData"' "$TMPDIR/app/.zmr/ios-s
 grep -q 'ZMR_SHIM_REQUEST_FILE' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ZMR_SHIM_RESPONSE_FILE' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ZMR_IOS_SHIM_ONESHOT' "$TMPDIR/app/.zmr/ios-shim"
+grep -q 'xcodebuild.oneshot.log.XXXXXX' "$TMPDIR/app/.zmr/ios-shim"
+if grep -q 'xcodebuild.oneshot.XXXXXX.log' "$TMPDIR/app/.zmr/ios-shim"; then
+  echo "ios-shim should use a mktemp template with XXXXXX at the end" >&2
+  exit 1
+fi
 grep -q 'ios-shim-state' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'PID_FILE="$STATE_DIR/xcodebuild.pid"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'READY_FILE="$SERVER_DIR/ready"' "$TMPDIR/app/.zmr/ios-shim"

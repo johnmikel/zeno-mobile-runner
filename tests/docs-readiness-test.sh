@@ -47,6 +47,9 @@ require_file docs/protocol.md
 require_file docs/demo.md
 require_file docs/npm.md
 require_file docs/benchmarking.md
+require_file docs/benchmarks/README.md
+require_file docs/benchmarks/2026-06-09-ios-demo.md
+require_file docs/benchmarks/2026-06-09-ios-demo.results.jsonl
 require_file docs/troubleshooting.md
 require_file docs/trace-privacy.md
 require_file docs/ai-agents.md
@@ -421,10 +424,16 @@ require_grep 'Public Android Demo Command' docs/app-integration.md
 require_grep 'React Native' docs/app-integration.md
 require_grep 'Flutter' docs/app-integration.md
 require_grep 'zmr-device-matrix' docs/benchmarking.md
+require_grep '2026-06-09 iOS simulator demo' docs/benchmarking.md
 require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
+require_grep '20 repeated runs of' docs/benchmarks/README.md
+require_grep 'Pass rate | 100.00%' docs/benchmarks/2026-06-09-ios-demo.md
+require_grep 'Mean duration | 4192 ms' docs/benchmarks/2026-06-09-ios-demo.md
+require_grep 'not a comparison against' docs/benchmarks/2026-06-09-ios-demo.md
+require_grep '"run":20' docs/benchmarks/2026-06-09-ios-demo.results.jsonl
 require_grep 'auth/junit.xml' docs/demo.md
 require_grep 'ios-smoke/junit.xml' docs/demo.md
 require_grep 'ios-shim-smoke/junit.xml' docs/demo.md

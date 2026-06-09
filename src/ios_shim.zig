@@ -32,6 +32,16 @@ pub const Command = struct {
     max_chars: ?u32 = null,
 };
 
+pub const SnapshotResponse = struct {
+    nodes: []types.UiNode,
+    viewport: types.Viewport = .{},
+
+    pub fn deinit(self: SnapshotResponse, allocator: std.mem.Allocator) void {
+        for (self.nodes) |node| node.deinit(allocator);
+        allocator.free(self.nodes);
+    }
+};
+
 pub fn writeCommandJson(writer: anytype, command: Command) !void {
     try writer.writeAll("{\"cmd\":");
     try trace.writeJsonString(writer, commandName(command.kind));
@@ -54,12 +64,13 @@ pub fn writeCommandJson(writer: anytype, command: Command) !void {
     try writer.writeAll("}\n");
 }
 
-pub fn parseSnapshotNodes(allocator: std.mem.Allocator, content: []const u8) ![]types.UiNode {
+pub fn parseSnapshotResponse(allocator: std.mem.Allocator, content: []const u8) !SnapshotResponse {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
     defer parsed.deinit();
     if (parsed.value != .object) return error.IosShimResponseMustBeObject;
     const status = fieldString(parsed.value.object, "status") orelse return error.IosShimMissingStatus;
     if (!std.mem.eql(u8, status, "ok")) return error.IosShimResponseNotOk;
+    const viewport = parseViewport(parsed.value.object.get("viewport"));
     const nodes_value = parsed.value.object.get("nodes") orelse return error.IosShimMissingNodes;
     if (nodes_value != .array) return error.IosShimNodesMustBeArray;
 
@@ -97,7 +108,15 @@ pub fn parseSnapshotNodes(allocator: std.mem.Allocator, content: []const u8) ![]
         });
     }
 
-    return try nodes.toOwnedSlice(allocator);
+    return .{
+        .nodes = try nodes.toOwnedSlice(allocator),
+        .viewport = viewport,
+    };
+}
+
+pub fn parseSnapshotNodes(allocator: std.mem.Allocator, content: []const u8) ![]types.UiNode {
+    const snapshot = try parseSnapshotResponse(allocator, content);
+    return snapshot.nodes;
 }
 
 pub fn parseOkResponse(content: []const u8) !void {
@@ -275,6 +294,21 @@ fn intField(object: std.json.ObjectMap, key: []const u8) !i32 {
     const value = object.get(key) orelse return error.IosShimBoundsMissingField;
     if (value != .integer) return error.IosShimBoundsFieldMustBeInteger;
     if (value.integer < std.math.minInt(i32) or value.integer > std.math.maxInt(i32)) return error.IosShimBoundsFieldMustBeInteger;
+    return @intCast(value.integer);
+}
+
+fn parseViewport(value: ?std.json.Value) types.Viewport {
+    const actual = value orelse return .{};
+    if (actual != .object) return .{};
+    const width = optionalU32Field(actual.object, "width") orelse return .{};
+    const height = optionalU32Field(actual.object, "height") orelse return .{};
+    return .{ .width = width, .height = height };
+}
+
+fn optionalU32Field(object: std.json.ObjectMap, key: []const u8) ?u32 {
+    const value = object.get(key) orelse return null;
+    if (value != .integer) return null;
+    if (value.integer < 0 or value.integer > std.math.maxInt(u32)) return null;
     return @intCast(value.integer);
 }
 

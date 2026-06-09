@@ -113,6 +113,7 @@ final class ZMRShimUITestCase: XCTestCase {
         case "snapshot":
             return [
                 "status": "ok",
+                "viewport": ZMRShim.viewport(app: app).json,
                 "nodes": ZMRShim.snapshot(app: app).map { $0.json }
             ]
         case "screenshot":
@@ -558,6 +559,15 @@ private extension ZMRShimBounds {
         [
             "x": x,
             "y": y,
+            "width": width,
+            "height": height
+        ]
+    }
+}
+
+private extension ZMRShimViewport {
+    var json: [String: Any] {
+        [
             "width": width,
             "height": height
         ]

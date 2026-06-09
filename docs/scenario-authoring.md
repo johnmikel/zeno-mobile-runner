@@ -83,8 +83,10 @@ The example directory includes templates for common app flows:
 - `examples/android-app-onboarding.json`
 - `examples/android-app-referral-deep-link.json`
 - `examples/android-app-error-state.json`
+- `examples/android-workflow.json`
 - `examples/ios-dev-client-open-link.json`
 - `examples/ios-dev-client-route-snapshot.json`
+- `examples/ios-shim-workflow.json`
 
 Run `zmr validate --json <scenario.json>` before touching a device. Invalid
 scenarios report `fieldPath`, `line`, and `column` when ZMR can identify the

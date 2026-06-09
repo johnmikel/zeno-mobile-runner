@@ -580,9 +580,13 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.match(tarList.stdout, /package\/skills\/zmr-mobile-testing\/SKILL\.md/);
     assert.match(tarList.stdout, new RegExp("package/docs/benchmarks/2026-06-09-ios-app" + "ium-comparison.md"));
     assert.match(tarList.stdout, new RegExp("package/docs/benchmarks/2026-06-09-ios-app" + "ium-comparison.results.jsonl"));
+    assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-workflow-comparison\.md/);
+    assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-workflow-comparison\.results\.jsonl/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.md/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-ios-xctest-floor\.results\.jsonl/);
     assert.match(tarList.stdout, /package\/docs\/benchmarks\/2026-06-09-framework-baseline-status\.md/);
+    assert.match(tarList.stdout, /package\/examples\/ios-shim-workflow\.json/);
+    assert.match(tarList.stdout, /package\/examples\/android-workflow\.json/);
     assert.doesNotMatch(tarList.stdout, /__pycache__|\.pyc/);
 
     const appDir = path.join(tmp, "app");

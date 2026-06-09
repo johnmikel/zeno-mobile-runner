@@ -12,6 +12,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   same generated demo app.
 - Added a second public-safe iOS baseline comparison plus a native shim floor
   evidence pack for the generated demo app.
+- Added a richer public-safe iOS workflow benchmark pack covering profile
+  entry, catalog selection, save, review, and final-state assertion on the
+  generated demo app.
 
 ### Fixed
 

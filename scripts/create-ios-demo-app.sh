@@ -37,6 +37,7 @@ After generation:
   xcodebuild -project ios/ZMRDemo.xcodeproj -scheme ZMRDemo -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData build
   xcrun simctl install booted DerivedData/Build/Products/Debug-iphonesimulator/ZMRDemo.app
   zmr run .zmr/ios-shim-smoke.json --platform ios --device booted --app-id com.example.mobiletest --ios-shim ./.zmr/ios-shim --trace-dir traces/zmr-ios-demo
+  zmr run .zmr/ios-shim-workflow.json --platform ios --device booted --app-id com.example.mobiletest --ios-shim ./.zmr/ios-shim --trace-dir traces/zmr-ios-workflow
 USAGE
 }
 
@@ -110,12 +111,75 @@ EOF
 cat > "$SOURCE_DIR/ContentView.swift" <<'EOF'
 import SwiftUI
 
+private enum DemoScreen {
+    case welcome
+    case profile
+    case catalog
+    case detail
+    case review
+}
+
+private struct CatalogItem: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+}
+
 struct ContentView: View {
     @State private var input = ""
     @State private var status = "Ready"
+    @State private var screen: DemoScreen = .welcome
+    @State private var profileName = ""
+    @State private var profileEmail = ""
+    @State private var selectedItem = CatalogItem(id: "north_ridge_pack", title: "North Ridge Pack", subtitle: "Weatherproof day pack")
     @FocusState private var inputFocused: Bool
 
+    private let catalogItems = [
+        CatalogItem(id: "trail_lamp", title: "Trail Lamp", subtitle: "Compact campsite light"),
+        CatalogItem(id: "river_bottle", title: "River Bottle", subtitle: "Insulated hydration bottle"),
+        CatalogItem(id: "north_ridge_pack", title: "North Ridge Pack", subtitle: "Weatherproof day pack"),
+        CatalogItem(id: "summit_shell", title: "Summit Shell", subtitle: "Lightweight rain layer"),
+        CatalogItem(id: "basecamp_roll", title: "Basecamp Roll", subtitle: "Modular storage roll"),
+        CatalogItem(id: "maple_organizer", title: "Maple Organizer", subtitle: "Cable and tool pouch"),
+        CatalogItem(id: "canyon_sling", title: "Canyon Sling", subtitle: "Cross-body field bag"),
+        CatalogItem(id: "harbor_tote", title: "Harbor Tote", subtitle: "Daily carry tote"),
+        CatalogItem(id: "studio_stand", title: "Studio Stand", subtitle: "Fold-flat work stand")
+    ]
+
     var body: some View {
+        VStack(spacing: 16) {
+            switch screen {
+            case .welcome:
+                welcomeView
+            case .profile:
+                profileView
+            case .catalog:
+                catalogView
+            case .detail:
+                detailView
+            case .review:
+                reviewView
+            }
+
+            VStack(spacing: 4) {
+                Text(status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("demo_status")
+
+                Text(status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("workflow_status")
+            }
+        }
+        .padding()
+        .onOpenURL { _ in
+            status = "Deep link opened"
+        }
+    }
+
+    private var welcomeView: some View {
         VStack(spacing: 20) {
             Text("ZMR iOS Demo")
                 .font(.title)
@@ -123,24 +187,126 @@ struct ContentView: View {
 
             Button("Continue") {
                 status = "Continue tapped"
-                inputFocused = true
+                screen = .profile
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("continue_button")
+        }
+    }
+
+    private var profileView: some View {
+        VStack(spacing: 14) {
+            Text("Profile")
+                .font(.title2)
+                .accessibilityIdentifier("profile_title")
 
             TextField("Type here", text: $input)
                 .textFieldStyle(.roundedBorder)
                 .focused($inputFocused)
                 .accessibilityIdentifier("demo_input")
-                .padding(.horizontal, 32)
 
-            Text(status)
-                .accessibilityIdentifier("demo_status")
+            TextField("Name", text: $profileName)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("profile_name_input")
+
+            TextField("Email", text: $profileEmail)
+                .textFieldStyle(.roundedBorder)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("profile_email_input")
+
+            Button("Save profile") {
+                status = "Profile saved"
+                screen = .catalog
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("save_profile_button")
         }
-        .padding()
-        .onOpenURL { _ in
-            status = "Deep link opened"
+    }
+
+    private var catalogView: some View {
+        VStack(spacing: 14) {
+            Text("Catalog")
+                .font(.title2)
+                .accessibilityIdentifier("catalog_title")
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(catalogItems) { item in
+                        Button {
+                            selectedItem = item
+                            status = "Selected \(item.title)"
+                            screen = .detail
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.title)
+                                    .font(.headline)
+                                Text(item.subtitle)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier(catalogAccessibilityIdentifier(for: item))
+                    }
+                }
+            }
+            .frame(maxHeight: 340)
+            .accessibilityIdentifier("catalog_list")
         }
+    }
+
+    private var detailView: some View {
+        VStack(spacing: 16) {
+            Text(selectedItem.title)
+                .font(.title2)
+                .accessibilityIdentifier("detail_title")
+
+            Text(selectedItem.subtitle)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("detail_subtitle")
+
+            Button("Save item") {
+                status = "Saved \(selectedItem.title)"
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("detail_save_button")
+
+            Button("Review order") {
+                status = "Workflow complete"
+                screen = .review
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("review_button")
+        }
+    }
+
+    private var reviewView: some View {
+        VStack(spacing: 16) {
+            Text("Review")
+                .font(.title2)
+                .accessibilityIdentifier("review_title")
+
+            Text("Workflow complete")
+                .font(.headline)
+                .accessibilityIdentifier("review_complete")
+
+            Text(selectedItem.title)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("review_item")
+        }
+    }
+
+    private func catalogAccessibilityIdentifier(for item: CatalogItem) -> String {
+        if item.id == "north_ridge_pack" {
+            return "catalog_item_north_ridge_pack"
+        }
+        return "catalog_item_\(item.id)"
     }
 }
 EOF
@@ -253,6 +419,7 @@ RUBY
 
 cp "$ROOT/examples/ios-smoke.json" "$OUT/.zmr/ios-smoke.json"
 cp "$ROOT/examples/ios-shim-smoke.json" "$OUT/.zmr/ios-shim-smoke.json"
+cp "$ROOT/examples/ios-shim-workflow.json" "$OUT/.zmr/ios-shim-workflow.json"
 
 echo "created iOS demo app at $OUT"
 echo "project: $PROJECT_PATH"

@@ -31,6 +31,7 @@ Options:
 After generation:
   adb install -r <dir>/build/app-debug.apk
   zmr run <dir>/.zmr/android-smoke.json --device emulator-5554 --app-id com.example.mobiletest --trace-dir <dir>/traces/android-demo
+  zmr run <dir>/.zmr/android-workflow.json --device emulator-5554 --app-id com.example.mobiletest --trace-dir <dir>/traces/android-workflow
 USAGE
 }
 
@@ -199,6 +200,29 @@ write_file "$RES_DIR/values/ids.xml" "$(cat <<'EOF'
   <item name="continue_button" type="id" />
   <item name="demo_input" type="id" />
   <item name="demo_status" type="id" />
+  <item name="profile_title" type="id" />
+  <item name="profile_name_input" type="id" />
+  <item name="profile_email_input" type="id" />
+  <item name="save_profile_button" type="id" />
+  <item name="catalog_title" type="id" />
+  <item name="catalog_list" type="id" />
+  <item name="catalog_item_trail_lamp" type="id" />
+  <item name="catalog_item_river_bottle" type="id" />
+  <item name="catalog_item_summit_shell" type="id" />
+  <item name="catalog_item_basecamp_roll" type="id" />
+  <item name="catalog_item_maple_organizer" type="id" />
+  <item name="catalog_item_canyon_sling" type="id" />
+  <item name="catalog_item_harbor_tote" type="id" />
+  <item name="catalog_item_north_ridge_pack" type="id" />
+  <item name="catalog_item_studio_stand" type="id" />
+  <item name="detail_title" type="id" />
+  <item name="detail_subtitle" type="id" />
+  <item name="detail_save_button" type="id" />
+  <item name="review_button" type="id" />
+  <item name="review_title" type="id" />
+  <item name="review_complete" type="id" />
+  <item name="review_item" type="id" />
+  <item name="workflow_status" type="id" />
 </resources>
 EOF
 )"
@@ -217,66 +241,252 @@ import android.content.Context;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
-    private TextView status;
-    private EditText input;
+    private LinearLayout root;
+    private TextView demoStatus;
+    private TextView workflowStatus;
+    private String currentStatus = "Ready";
+    private CatalogItem selectedItem = new CatalogItem("north_ridge_pack", "North Ridge Pack", "Weatherproof day pack", R.id.catalog_item_north_ridge_pack);
+
+    private static class CatalogItem {
+        final String key;
+        final String title;
+        final String subtitle;
+        final int viewId;
+
+        CatalogItem(String key, String title, String subtitle, int viewId) {
+            this.key = key;
+            this.title = title;
+            this.subtitle = subtitle;
+            this.viewId = viewId;
+        }
+    }
+
+    private final CatalogItem[] catalogItems = new CatalogItem[] {
+        new CatalogItem("trail_lamp", "Trail Lamp", "Compact campsite light", R.id.catalog_item_trail_lamp),
+        new CatalogItem("river_bottle", "River Bottle", "Insulated hydration bottle", R.id.catalog_item_river_bottle),
+        new CatalogItem("north_ridge_pack", "North Ridge Pack", "Weatherproof day pack", R.id.catalog_item_north_ridge_pack),
+        new CatalogItem("summit_shell", "Summit Shell", "Lightweight rain layer", R.id.catalog_item_summit_shell),
+        new CatalogItem("basecamp_roll", "Basecamp Roll", "Modular storage roll", R.id.catalog_item_basecamp_roll),
+        new CatalogItem("maple_organizer", "Maple Organizer", "Cable and tool pouch", R.id.catalog_item_maple_organizer),
+        new CatalogItem("canyon_sling", "Canyon Sling", "Cross-body field bag", R.id.catalog_item_canyon_sling),
+        new CatalogItem("harbor_tote", "Harbor Tote", "Daily carry tote", R.id.catalog_item_harbor_tote),
+        new CatalogItem("studio_stand", "Studio Stand", "Fold-flat work stand", R.id.catalog_item_studio_stand)
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setGravity(Gravity.CENTER_HORIZONTAL);
-        int padding = dp(24);
-        layout.setPadding(padding, padding, padding, padding);
+        root = new LinearLayout(this);
+        setContentView(root);
+        showWelcome();
 
+        Uri data = getIntent().getData();
+        if (data != null) {
+            setStatus("Deep link opened");
+        }
+    }
+
+    private void resetRoot() {
+        root.removeAllViews();
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        int padding = dp(24);
+        root.setPadding(padding, padding, padding, padding);
+    }
+
+    private TextView title(String text, int id) {
         TextView title = new TextView(this);
-        title.setId(R.id.demo_title);
-        title.setText("ZMR Android Demo");
+        title.setId(id);
+        title.setText(text);
         title.setTextSize(24);
         title.setTextColor(Color.rgb(17, 24, 39));
         title.setGravity(Gravity.CENTER);
-        layout.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        return title;
+    }
+
+    private EditText input(String hint, int id) {
+        EditText input = new EditText(this);
+        input.setId(id);
+        input.setHint(hint);
+        input.setSingleLine(true);
+        return input;
+    }
+
+    private Button button(String text, int id) {
+        Button button = new Button(this);
+        button.setId(id);
+        button.setText(text);
+        button.setAllCaps(false);
+        return button;
+    }
+
+    private void addStatusViews() {
+        demoStatus = new TextView(this);
+        demoStatus.setId(R.id.demo_status);
+        demoStatus.setText(currentStatus);
+        demoStatus.setTextSize(16);
+        demoStatus.setGravity(Gravity.CENTER);
+        root.addView(demoStatus, new LinearLayout.LayoutParams(-1, -2));
+
+        workflowStatus = new TextView(this);
+        workflowStatus.setId(R.id.workflow_status);
+        workflowStatus.setText(currentStatus);
+        workflowStatus.setTextSize(16);
+        workflowStatus.setGravity(Gravity.CENTER);
+        root.addView(workflowStatus, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void setStatus(String value) {
+        currentStatus = value;
+        if (demoStatus != null) {
+            demoStatus.setText(value);
+        }
+        if (workflowStatus != null) {
+            workflowStatus.setText(value);
+        }
+    }
+
+    private void showWelcome() {
+        resetRoot();
+        root.addView(title("ZMR Android Demo", R.id.demo_title), new LinearLayout.LayoutParams(-1, -2));
 
         Button button = new Button(this);
         button.setId(R.id.continue_button);
         button.setText("Continue");
-        layout.addView(button, new LinearLayout.LayoutParams(-1, dp(56)));
-
-        input = new EditText(this);
-        input.setId(R.id.demo_input);
-        input.setHint("Type here");
-        input.setSingleLine(true);
-        layout.addView(input, new LinearLayout.LayoutParams(-1, dp(56)));
-
-        status = new TextView(this);
-        status.setId(R.id.demo_status);
-        status.setText("Ready");
-        status.setTextSize(18);
-        status.setGravity(Gravity.CENTER);
-        layout.addView(status, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(button, new LinearLayout.LayoutParams(-1, dp(56)));
+        addStatusViews();
 
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                status.setText("Continue tapped");
-                input.requestFocus();
+                showProfile("Continue tapped");
+            }
+        });
+    }
+
+    private void showProfile(String statusText) {
+        currentStatus = statusText;
+        resetRoot();
+        root.addView(title("Profile", R.id.profile_title), new LinearLayout.LayoutParams(-1, -2));
+
+        final EditText quickInput = input("Type here", R.id.demo_input);
+        root.addView(quickInput, new LinearLayout.LayoutParams(-1, dp(56)));
+
+        EditText profileName = input("Name", R.id.profile_name_input);
+        root.addView(profileName, new LinearLayout.LayoutParams(-1, dp(56)));
+
+        EditText profileEmail = input("Email", R.id.profile_email_input);
+        root.addView(profileEmail, new LinearLayout.LayoutParams(-1, dp(56)));
+
+        Button save = button("Save profile", R.id.save_profile_button);
+        root.addView(save, new LinearLayout.LayoutParams(-1, dp(56)));
+        addStatusViews();
+
+        quickInput.requestFocus();
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(quickInput, InputMethodManager.SHOW_IMPLICIT);
+        }
+
+        save.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
                 InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                 if (imm != null) {
-                    imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+                    imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
                 }
+                showCatalog("Profile saved");
+            }
+        });
+    }
+
+    private void showCatalog(String statusText) {
+        currentStatus = statusText;
+        resetRoot();
+        root.addView(title("Catalog", R.id.catalog_title), new LinearLayout.LayoutParams(-1, -2));
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setId(R.id.catalog_list);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(list, new ScrollView.LayoutParams(-1, -2));
+
+        for (final CatalogItem item : catalogItems) {
+            Button itemButton = button(item.title, item.viewId);
+            itemButton.setContentDescription(item.subtitle);
+            list.addView(itemButton, new LinearLayout.LayoutParams(-1, dp(56)));
+            itemButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    selectedItem = item;
+                    showDetail("Selected " + item.title);
+                }
+            });
+        }
+
+        root.addView(scrollView, new LinearLayout.LayoutParams(-1, 0, 1));
+        addStatusViews();
+    }
+
+    private void showDetail(String statusText) {
+        currentStatus = statusText;
+        resetRoot();
+        root.addView(title(selectedItem.title, R.id.detail_title), new LinearLayout.LayoutParams(-1, -2));
+
+        TextView subtitle = new TextView(this);
+        subtitle.setId(R.id.detail_subtitle);
+        subtitle.setText(selectedItem.subtitle);
+        subtitle.setTextSize(18);
+        subtitle.setGravity(Gravity.CENTER);
+        root.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
+
+        Button save = button("Save item", R.id.detail_save_button);
+        root.addView(save, new LinearLayout.LayoutParams(-1, dp(56)));
+
+        Button review = button("Review order", R.id.review_button);
+        root.addView(review, new LinearLayout.LayoutParams(-1, dp(56)));
+        addStatusViews();
+
+        save.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                setStatus("Saved " + selectedItem.title);
             }
         });
 
-        Uri data = getIntent().getData();
-        if (data != null) {
-            status.setText("Deep link opened");
-        }
+        review.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                showReview();
+            }
+        });
+    }
 
-        setContentView(layout);
+    private void showReview() {
+        currentStatus = "Workflow complete";
+        resetRoot();
+        root.addView(title("Review", R.id.review_title), new LinearLayout.LayoutParams(-1, -2));
+
+        TextView complete = new TextView(this);
+        complete.setId(R.id.review_complete);
+        complete.setText("Workflow complete");
+        complete.setTextSize(20);
+        complete.setGravity(Gravity.CENTER);
+        root.addView(complete, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView item = new TextView(this);
+        item.setId(R.id.review_item);
+        item.setText(selectedItem.title);
+        item.setTextSize(18);
+        item.setGravity(Gravity.CENTER);
+        root.addView(item, new LinearLayout.LayoutParams(-1, -2));
+
+        addStatusViews();
     }
 
     private int dp(int value) {
@@ -296,6 +506,89 @@ write_file "$OUT/.zmr/android-smoke.json" "$(cat <<EOF
     { "action": "tap", "selector": { "resourceId": "$APP_ID:id/continue_button" } },
     { "action": "waitVisible", "selector": { "text": "Continue tapped" }, "timeoutMs": 10000 },
     { "action": "typeText", "selector": { "resourceId": "$APP_ID:id/demo_input" }, "text": "hello from zmr" },
+    { "action": "snapshot" }
+  ]
+}
+EOF
+)"
+
+write_file "$OUT/.zmr/android-workflow.json" "$(cat <<EOF
+{
+  "name": "ZMR Android workflow demo",
+  "appId": "$APP_ID",
+  "steps": [
+    { "action": "stop" },
+    { "action": "launch" },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "ZMR Android Demo" },
+      "timeoutMs": 30000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "$APP_ID:id/continue_button" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "Profile" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "typeText",
+      "selector": { "resourceId": "$APP_ID:id/profile_name_input" },
+      "text": "Riley"
+    },
+    {
+      "action": "typeText",
+      "selector": { "resourceId": "$APP_ID:id/profile_email_input" },
+      "text": "riley@example.test"
+    },
+    { "action": "hideKeyboard" },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "$APP_ID:id/save_profile_button" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "Catalog" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "scrollUntilVisible",
+      "selector": { "resourceId": "$APP_ID:id/catalog_item_north_ridge_pack" },
+      "direction": "down",
+      "timeoutMs": 10000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "$APP_ID:id/catalog_item_north_ridge_pack" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "North Ridge Pack" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "$APP_ID:id/detail_save_button" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "Saved North Ridge Pack" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "$APP_ID:id/review_button" }
+    },
+    {
+      "action": "assertVisible",
+      "selector": {
+        "resourceId": "$APP_ID:id/workflow_status",
+        "text": "Workflow complete"
+      },
+      "timeoutMs": 10000
+    },
     { "action": "snapshot" }
   ]
 }

@@ -8,6 +8,49 @@ const listPhysicalDevices = ios.listPhysicalDevices;
 const parseDevicesJson = ios.parseDevicesJson;
 const parsePhysicalDevicesJson = ios.parsePhysicalDevicesJson;
 
+test "ios shim viewport overrides retina screenshot pixels with app frame points" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache/test-ios-shim-viewport";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var shim = try tmp.dir.createFile("fake-ios-shim-viewport.sh", .{ .truncate = true });
+    try shim.writeAll(
+        \\#!/usr/bin/env bash
+        \\set -euo pipefail
+        \\request="$(cat)"
+        \\case "$request" in
+        \\  *'"cmd":"snapshot"'*)
+        \\    cat <<'JSON'
+        \\{"status":"ok","viewport":{"width":390,"height":844},"nodes":[{"id":"id:catalog_title","type":"staticText","label":"Catalog","value":"","identifier":"catalog_title","bounds":{"x":24,"y":64,"width":342,"height":34},"enabled":true,"visible":true,"selected":false}]}
+        \\JSON
+        \\    ;;
+        \\  *) printf '{"status":"ok"}\n' ;;
+        \\esac
+        \\
+    );
+    try shim.chmod(0o755);
+    shim.close();
+
+    const shim_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-ios-shim-viewport.sh", .{tmp.sub_path});
+    defer allocator.free(shim_path);
+
+    var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    defer device.deinit();
+
+    var writer = try trace.TraceWriter.init(allocator, dir);
+    defer writer.deinit();
+
+    var snapshot = try device.snapshot(&writer);
+    defer snapshot.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 390), snapshot.viewport.width);
+    try std.testing.expectEqual(@as(u32, 844), snapshot.viewport.height);
+}
+
 test "ios simulator adapter lists devices and supports lifecycle snapshot smoke" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-ios-trace";

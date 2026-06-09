@@ -51,6 +51,7 @@ turn every snapshot into a full hierarchy crawl:
 ```json
 {
   "status": "ok",
+  "viewport": { "width": 390, "height": 844 },
   "nodes": [
     {
       "id": "button-continue",

@@ -1,0 +1,79 @@
+{
+  "name": "ZMR Android workflow demo",
+  "appId": "com.example.mobiletest",
+  "steps": [
+    { "action": "stop" },
+    { "action": "launch" },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "ZMR Android Demo" },
+      "timeoutMs": 30000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "com.example.mobiletest:id/continue_button" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "Profile" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "typeText",
+      "selector": { "resourceId": "com.example.mobiletest:id/profile_name_input" },
+      "text": "Riley"
+    },
+    {
+      "action": "typeText",
+      "selector": { "resourceId": "com.example.mobiletest:id/profile_email_input" },
+      "text": "riley@example.test"
+    },
+    { "action": "hideKeyboard" },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "com.example.mobiletest:id/save_profile_button" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "Catalog" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "scrollUntilVisible",
+      "selector": { "resourceId": "com.example.mobiletest:id/catalog_item_north_ridge_pack" },
+      "direction": "down",
+      "timeoutMs": 10000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "com.example.mobiletest:id/catalog_item_north_ridge_pack" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "North Ridge Pack" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "com.example.mobiletest:id/detail_save_button" }
+    },
+    {
+      "action": "waitVisible",
+      "selector": { "text": "Saved North Ridge Pack" },
+      "timeoutMs": 10000
+    },
+    {
+      "action": "tap",
+      "selector": { "resourceId": "com.example.mobiletest:id/review_button" }
+    },
+    {
+      "action": "assertVisible",
+      "selector": {
+        "resourceId": "com.example.mobiletest:id/workflow_status",
+        "text": "Workflow complete"
+      },
+      "timeoutMs": 10000
+    },
+    { "action": "snapshot" }
+  ]
+}

@@ -21,6 +21,9 @@ comparison and a native shim floor. The floor is not a product comparison; it
 shows the warmed platform path ZMR can approach after runner and trace overhead
 are reduced.
 
+A richer iOS workflow pack is also committed there: 20 ZMR rows and 20 baseline
+runner rows against the same generated app build, covering profile entry, catalog item selection, save, review, and final-state assertion.
+
 ## Single Tool Benchmark
 
 ```bash

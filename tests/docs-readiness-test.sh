@@ -58,6 +58,8 @@ runner_b_doc="docs/benchmarks/2026-06-09-ios-app""ium-comparison.md"
 runner_b_results="docs/benchmarks/2026-06-09-ios-app""ium-comparison.results.jsonl"
 runner_b_name="App""ium"
 runner_b_tool="app""ium"
+workflow_doc="docs/benchmarks/2026-06-09-ios-workflow-comparison.md"
+workflow_results="docs/benchmarks/2026-06-09-ios-workflow-comparison.results.jsonl"
 det_name="Det""ox"
 xctest_doc="docs/benchmarks/2026-06-09-ios-xctest-floor.md"
 xctest_results="docs/benchmarks/2026-06-09-ios-xctest-floor.results.jsonl"
@@ -66,6 +68,8 @@ require_file "$baseline_doc"
 require_file "$baseline_results"
 require_file "$runner_b_doc"
 require_file "$runner_b_results"
+require_file "$workflow_doc"
+require_file "$workflow_results"
 require_file "$xctest_doc"
 require_file "$xctest_results"
 require_file "$framework_status_doc"
@@ -445,11 +449,14 @@ require_grep 'Flutter' docs/app-integration.md
 require_grep 'zmr-device-matrix' docs/benchmarking.md
 require_grep '2026-06-09 iOS simulator demo' docs/benchmarking.md
 require_grep '20 ZMR runs and 20 baseline runner' docs/benchmarking.md
+require_grep 'richer iOS workflow pack' docs/benchmarking.md
+require_grep 'profile entry, catalog item selection, save, review' docs/benchmarking.md
 require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
 require_grep 'zmr-compare-benchmarks' docs/benchmarking.md
 require_grep '20 repeated runs of' docs/benchmarks/README.md
+require_grep '2026-06-09 iOS simulator workflow comparison' docs/benchmarks/README.md
 require_grep 'Pass rate | 100.00%' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep 'Mean duration | 4192 ms' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep 'not a comparison against' docs/benchmarks/2026-06-09-ios-demo.md
@@ -461,6 +468,13 @@ require_grep "\"tool\":\"$baseline_tool\",\"run\":8,\"status\":\"failed\"" "$bas
 require_grep "$runner_b_name | 20 | 100.00%" "$runner_b_doc"
 require_grep 'Mean speedup: 1.66x' "$runner_b_doc"
 require_grep "\"tool\":\"$runner_b_tool\",\"run\":20,\"status\":\"ok\"" "$runner_b_results"
+require_grep 'profile form, opens a catalog item, saves it, reviews the order' "$workflow_doc"
+require_grep 'ZMR | 20 | 100.00% | 0 | 19539 ms | 22970 ms' "$workflow_doc"
+require_grep "$baseline_name | 20 | 100.00% | 0 | 36240 ms | 47502 ms" "$workflow_doc"
+require_grep 'Mean speedup: 1.85x' "$workflow_doc"
+require_grep 'connect ECONNREFUSED 127.0.0.1:8100' "$workflow_doc"
+require_grep '"tool":"zmr","run":20,"status":"ok"' "$workflow_results"
+require_grep "\"tool\":\"$baseline_tool\",\"run\":20,\"status\":\"ok\"" "$workflow_results"
 require_grep 'Direct XCTest shim floor | 20 | 100.00%' "$xctest_doc"
 require_grep 'ZMR is now roughly 2.0x the direct warmed shim mean' "$xctest_doc"
 require_grep '"tool":"xctest-shim","run":20,"status":"ok"' "$xctest_results"
@@ -470,6 +484,8 @@ require_grep 'Espresso' "$framework_status_doc"
 require_grep 'auth/junit.xml' docs/demo.md
 require_grep 'ios-smoke/junit.xml' docs/demo.md
 require_grep 'ios-shim-smoke/junit.xml' docs/demo.md
+require_grep 'zmr validate examples/ios-shim-workflow.json' docs/demo.md
+require_grep 'zmr validate examples/android-workflow.json' docs/demo.md
 require_grep 'explore-output.schema.json' schemas/README.md
 
 require_not_grep 'market-claim' docs/ai-agents.md

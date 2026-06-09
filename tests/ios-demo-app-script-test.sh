@@ -38,13 +38,43 @@ test -x "$TMPDIR/demo-app/.zmr/ios-shim"
 test -x "$TMPDIR/demo-app/.zmr/ensure-ios-shim-target.sh"
 test -f "$TMPDIR/demo-app/.zmr/ios-smoke.json"
 test -f "$TMPDIR/demo-app/.zmr/ios-shim-smoke.json"
+test -f "$TMPDIR/demo-app/.zmr/ios-shim-workflow.json"
 
 grep -q 'accessibilityIdentifier("continue_button")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
 grep -q 'accessibilityIdentifier("demo_input")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q 'accessibilityIdentifier("profile_name_input")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q 'accessibilityIdentifier("profile_email_input")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q 'accessibilityIdentifier("catalog_list")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q '"catalog_item_north_ridge_pack"' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q 'accessibilityIdentifier("detail_save_button")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q 'accessibilityIdentifier("review_button")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
+grep -q 'accessibilityIdentifier("workflow_status")' "$TMPDIR/demo-app/ios/ZMRDemo/ContentView.swift"
 grep -q '<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>' "$TMPDIR/demo-app/ios/ZMRDemo/Info.plist"
 grep -q '<string>exampleapp</string>' "$TMPDIR/demo-app/ios/ZMRDemo/Info.plist"
 grep -q 'xcodebuild test-without-building' "$TMPDIR/demo-app/.zmr/ios-shim"
 grep -q 'ZMR_SHIM_MODE="server"' "$TMPDIR/demo-app/.zmr/ios-shim"
+
+"$ROOT/zig-out/bin/zmr" validate "$TMPDIR/demo-app/.zmr/ios-shim-workflow.json"
+python3 - "$TMPDIR/demo-app/.zmr/ios-shim-workflow.json" <<'PY'
+import json
+import sys
+
+scenario = json.load(open(sys.argv[1], encoding="utf-8"))
+assert scenario["name"] == "ZMR iOS shim workflow demo"
+actions = [step["action"] for step in scenario["steps"]]
+assert "scrollUntilVisible" in actions
+assert "assertVisible" in actions
+assert scenario["steps"][-1]["action"] == "snapshot"
+assert any(
+    step.get("selector", {}).get("resourceId") == "catalog_item_north_ridge_pack"
+    for step in scenario["steps"]
+)
+assert any(
+    step.get("selector", {}).get("resourceId") == "workflow_status"
+    and step["selector"].get("text") == "Workflow complete"
+    for step in scenario["steps"]
+)
+PY
 
 ruby - "$TMPDIR/demo-app/ios/ZMRDemo.xcodeproj" <<'RUBY'
 require "xcodeproj"

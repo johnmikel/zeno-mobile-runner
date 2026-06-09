@@ -21,6 +21,8 @@ The script builds `zig-out/bin/zmr`, then runs:
 - `zmr validate examples/ios-dev-client-open-link.json`
 - `zmr validate examples/ios-dev-client-route-snapshot.json`
 - `zmr validate examples/ios-shim-smoke.json`
+- `zmr validate examples/ios-shim-workflow.json`
+- `zmr validate examples/android-workflow.json`
 - expected-failing `zmr validate --json` output that shows `fieldPath`, `line`,
   and `column` for invalid scenarios covered by `schemas/validate-output.schema.json`
 - `zmr doctor --adb ./tests/fake-adb.sh --xcrun ./tests/fake-xcrun.sh --ios-shim ./tests/fake-ios-shim.sh`

@@ -22,6 +22,11 @@ struct ZMRShimBounds: Encodable {
     let height: Int
 }
 
+struct ZMRShimViewport: Encodable {
+    let width: Int
+    let height: Int
+}
+
 struct ZMRShimNode: Encodable {
     let id: String
     let type: String
@@ -35,6 +40,11 @@ struct ZMRShimNode: Encodable {
 }
 
 enum ZMRShim {
+    static func viewport(app: XCUIApplication) -> ZMRShimViewport {
+        let frame = app.frame
+        return ZMRShimViewport(width: Int(frame.size.width), height: Int(frame.size.height))
+    }
+
     static func snapshot(app: XCUIApplication) -> [ZMRShimNode] {
         let queries: [(XCUIElement.ElementType, XCUIElementQuery)] = [
             (.button, app.buttons),

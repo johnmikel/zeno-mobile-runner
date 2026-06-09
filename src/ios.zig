@@ -214,15 +214,23 @@ pub const IosDevice = struct {
 
         const active_package = try self.allocator.dupe(u8, self.app_id);
         errdefer self.allocator.free(active_package);
-        const nodes = if (self.shim_path != null)
-            self.snapshotNodesFromShim() catch |err| blk: {
+        var shim_viewport: ?types.Viewport = null;
+        const nodes = if (self.shim_path != null) blk: {
+            const shim_snapshot = self.snapshotFromShim() catch |err| {
                 if (screenshot_artifact == null) return err;
                 if (writer) |tw| try self.recordSnapshotSemanticFailure(tw, screenshot_artifact.?, err);
                 break :blk try self.allocator.alloc(types.UiNode, 0);
-            }
-        else
+            };
+            shim_viewport = shim_snapshot.viewport;
+            break :blk shim_snapshot.nodes;
+        } else
             try self.allocator.alloc(types.UiNode, 0);
         errdefer self.allocator.free(nodes);
+        if (shim_viewport) |value| {
+            if (value.width > 0 and value.height > 0) {
+                viewport = value;
+            }
+        }
 
         return .{
             .id = id,
@@ -262,10 +270,10 @@ pub const IosDevice = struct {
         return try self.allocator.dupe(u8, result.stdout);
     }
 
-    fn snapshotNodesFromShim(self: *IosDevice) ![]types.UiNode {
+    fn snapshotFromShim(self: *IosDevice) !ios_shim.SnapshotResponse {
         const response = try self.runShim(.{ .kind = .snapshot });
         defer self.allocator.free(response);
-        return try ios_shim.parseSnapshotNodes(self.allocator, response);
+        return try ios_shim.parseSnapshotResponse(self.allocator, response);
     }
 
     fn recordSnapshotSemanticFailure(self: *IosDevice, writer: *trace.TraceWriter, screenshot_artifact: []const u8, err: anyerror) !void {

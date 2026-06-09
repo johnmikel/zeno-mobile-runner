@@ -42,6 +42,7 @@ required = [
     "d8",
     "apksigner sign",
     ".zmr/android-smoke.json",
+    ".zmr/android-workflow.json",
 ]
 
 for needle in required:
@@ -64,8 +65,17 @@ if command -v javac >/dev/null 2>&1 && [[ -d "${ANDROID_HOME:-$HOME/Library/Andr
   test -f "$TMPDIR/android-demo-real/android/src/dev/zmr/demo/MainActivity.java"
   test -f "$TMPDIR/android-demo-real/build/app-debug.apk"
   test -f "$TMPDIR/android-demo-real/.zmr/android-smoke.json"
+  test -f "$TMPDIR/android-demo-real/.zmr/android-workflow.json"
 
   "$ROOT/zig-out/bin/zmr" validate "$TMPDIR/android-demo-real/.zmr/android-smoke.json"
+  "$ROOT/zig-out/bin/zmr" validate "$TMPDIR/android-demo-real/.zmr/android-workflow.json"
+  grep -q 'profile_name_input' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
+  grep -q 'profile_email_input' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
+  grep -q 'catalog_list' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
+  grep -q 'catalog_item_north_ridge_pack' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
+  grep -q 'detail_save_button' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
+  grep -q 'review_button' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
+  grep -q 'workflow_status' "$TMPDIR/android-demo-real/android/res/values/ids.xml"
   python3 - "$TMPDIR/android-demo-real/.zmr/android-smoke.json" <<'PY'
 import json
 import sys
@@ -78,6 +88,26 @@ assert tap["action"] == "tap"
 assert tap["selector"]["resourceId"] == "com.example.mobiletest:id/continue_button"
 assert scenario["steps"][3]["timeoutMs"] == 10000
 assert scenario["steps"][4]["selector"]["resourceId"] == "com.example.mobiletest:id/demo_input"
+PY
+  python3 - "$TMPDIR/android-demo-real/.zmr/android-workflow.json" <<'PY'
+import json
+import sys
+
+scenario = json.load(open(sys.argv[1], encoding="utf-8"))
+assert scenario["name"] == "ZMR Android workflow demo"
+actions = [step["action"] for step in scenario["steps"]]
+assert "scrollUntilVisible" in actions
+assert "assertVisible" in actions
+assert scenario["steps"][-1]["action"] == "snapshot"
+assert any(
+    step.get("selector", {}).get("resourceId") == "com.example.mobiletest:id/catalog_item_north_ridge_pack"
+    for step in scenario["steps"]
+)
+assert any(
+    step.get("selector", {}).get("resourceId") == "com.example.mobiletest:id/workflow_status"
+    and step["selector"].get("text") == "Workflow complete"
+    for step in scenario["steps"]
+)
 PY
   apk_listing="$(unzip -l "$TMPDIR/android-demo-real/build/app-debug.apk")"
   grep -q 'classes.dex' <<< "$apk_listing"

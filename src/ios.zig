@@ -223,8 +223,7 @@ pub const IosDevice = struct {
             };
             shim_viewport = shim_snapshot.viewport;
             break :blk shim_snapshot.nodes;
-        } else
-            try self.allocator.alloc(types.UiNode, 0);
+        } else try self.allocator.alloc(types.UiNode, 0);
         errdefer self.allocator.free(nodes);
         if (shim_viewport) |value| {
             if (value.width > 0 and value.height > 0) {

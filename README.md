@@ -241,6 +241,33 @@ drafts, replay drafts, live and offline guarded trace exploration, and traced
 run `nextCommands` today. Built-in exploration is review-first and
 trace-backed, not an unbounded autonomous crawler.
 
+## Reliability And Benchmarks
+
+ZMR ships repeat-run benchmark tools for app teams that need reliability gates,
+duration thresholds, and baseline comparisons in CI:
+
+```bash
+bun run zmr:android:reliability
+bun run zmr:ios:reliability
+```
+
+For custom comparisons, collect ZMR rows and baseline command rows into the
+same `results.jsonl`, then compare them:
+
+```bash
+zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --runs 20 --results traces/bench-comparison/results.jsonl --replace
+zmr-benchmark-command --tool baseline --runs 20 --results traces/bench-comparison/results.jsonl -- npm run e2e:android
+zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline baseline
+```
+
+ZMR also includes `zmr-device-matrix` for running scenarios across multiple
+local emulators, simulators, or attached devices. Public speed or reliability
+claims should come from the same app build, same device state, same scenario,
+repeated runs, and trace-backed failure evidence.
+
+See [docs/benchmarking.md](docs/benchmarking.md) for benchmark reports, JUnit
+output, gates, and baseline comparison guidance.
+
 ## Optional Protocol Clients
 
 Clients are thin wrappers around `zmr serve --transport stdio`. They do not
@@ -289,6 +316,7 @@ Current release: `0.1.8` developer preview. Protocol version:
 - [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
 - [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery and scenario authoring loop
+- [docs/benchmarking.md](docs/benchmarking.md): repeat-run gates, reports, device matrix, and baseline comparisons
 - [docs/protocol.md](docs/protocol.md): JSON-RPC methods and schemas
 - [docs/ai-agents.md](docs/ai-agents.md): JSON-RPC and MCP agent workflows
 - [docs/clients.md](docs/clients.md): language client guide

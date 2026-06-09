@@ -104,6 +104,12 @@ require_grep 'zmr discover --from-trace traces/zmr-agent' README.md
 require_grep 'zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
 require_grep 'zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json' README.md
+require_grep '## Reliability And Benchmarks' README.md
+require_grep 'bun run zmr:android:reliability' README.md
+require_grep 'zmr-benchmark-command --tool baseline' README.md
+require_grep 'zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl' README.md
+require_grep 'zmr-device-matrix' README.md
+require_grep 'claims should come from the same app build' README.md
 require_grep 'It does not crawl the app' README.md
 require_grep 'Unsupported or underspecified events are' README.md
 require_grep 'skipped with warnings instead of guessed' README.md

@@ -8,6 +8,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 - Added a public-safe iOS simulator benchmark evidence pack with 20 repeated
   runs of the generated iOS smoke scenario.
+- Added a public-safe iOS simulator baseline runner benchmark comparison on the
+  same generated demo app.
 
 ### Fixed
 

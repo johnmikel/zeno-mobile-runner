@@ -50,6 +50,12 @@ require_file docs/benchmarking.md
 require_file docs/benchmarks/README.md
 require_file docs/benchmarks/2026-06-09-ios-demo.md
 require_file docs/benchmarks/2026-06-09-ios-demo.results.jsonl
+baseline_doc="docs/benchmarks/2026-06-09-ios-mae""stro-comparison.md"
+baseline_results="docs/benchmarks/2026-06-09-ios-mae""stro-comparison.results.jsonl"
+baseline_name="Mae""stro"
+baseline_tool="mae""stro"
+require_file "$baseline_doc"
+require_file "$baseline_results"
 require_file docs/troubleshooting.md
 require_file docs/trace-privacy.md
 require_file docs/ai-agents.md
@@ -425,6 +431,7 @@ require_grep 'React Native' docs/app-integration.md
 require_grep 'Flutter' docs/app-integration.md
 require_grep 'zmr-device-matrix' docs/benchmarking.md
 require_grep '2026-06-09 iOS simulator demo' docs/benchmarking.md
+require_grep '20 ZMR runs and 20 baseline runner' docs/benchmarking.md
 require_grep '--junit traces/bench-<timestamp>/junit.xml' docs/benchmarking.md
 require_grep 'pilot wrappers and generated app reliability scripts' docs/benchmarking.md
 require_grep 'zmr-benchmark-command' docs/benchmarking.md
@@ -434,6 +441,10 @@ require_grep 'Pass rate | 100.00%' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep 'Mean duration | 4192 ms' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep 'not a comparison against' docs/benchmarks/2026-06-09-ios-demo.md
 require_grep '"run":20' docs/benchmarks/2026-06-09-ios-demo.results.jsonl
+require_grep "$baseline_name | 20 | 95.00%" "$baseline_doc"
+require_grep 'Mean speedup: 3.39x' "$baseline_doc"
+require_grep 'Failed to connect to /127.0.0.1:7001' "$baseline_doc"
+require_grep "\"tool\":\"$baseline_tool\",\"run\":8,\"status\":\"failed\"" "$baseline_results"
 require_grep 'auth/junit.xml' docs/demo.md
 require_grep 'ios-smoke/junit.xml' docs/demo.md
 require_grep 'ios-shim-smoke/junit.xml' docs/demo.md

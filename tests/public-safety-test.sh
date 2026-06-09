@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-deny_terms=(
+private_terms=(
   "bri""ck"
   "(^|[^[:alpha:]])ren""tly([^[:alpha:]]|$)"
   "uk[.]co[.]ren""tly"
@@ -13,6 +13,9 @@ deny_terms=(
   "zig"" mobile runner"
   "zig""_mobile_runner"
   "cod""ex"
+)
+
+comparison_terms=(
   "app""ium"
   "mae""stro"
   "det""ox"
@@ -29,17 +32,33 @@ deny_terms=(
 
 while IFS= read -r -d '' path; do
   lower="$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')"
-  for term in "${deny_terms[@]}"; do
+  for term in "${private_terms[@]}"; do
     if [[ "$lower" =~ $term ]]; then
       echo "denied private term in path: $path" >&2
       exit 1
     fi
   done
 
-  for term in "${deny_terms[@]}"; do
+  for term in "${comparison_terms[@]}"; do
+    if [[ "$lower" =~ $term && "$path" != docs/benchmarks/* ]]; then
+      echo "denied comparison term outside benchmark evidence path: $path" >&2
+      exit 1
+    fi
+  done
+
+  for term in "${private_terms[@]}"; do
     if LC_ALL=C grep -nI -i -E "$term" "$path" >/dev/null 2>&1; then
       echo "denied private term in file contents: $path" >&2
       exit 1
+    fi
+  done
+
+  for term in "${comparison_terms[@]}"; do
+    if LC_ALL=C grep -nI -i -E "$term" "$path" >/dev/null 2>&1; then
+      if [[ "$path" != docs/benchmarks/* ]]; then
+        echo "denied comparison term outside benchmark evidence contents: $path" >&2
+        exit 1
+      fi
     fi
   done
 done < <(git ls-files -z)

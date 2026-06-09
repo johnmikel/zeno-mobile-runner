@@ -12,6 +12,10 @@ The first committed pack is
 runs of the generated iOS smoke scenario with a 100% pass rate. It is a
 single-tool reliability benchmark, not a competitive speed claim.
 
+The first baseline comparison is documented in
+[docs/benchmarks](benchmarks/README.md): 20 ZMR runs and 20 baseline runner
+runs against the same generated iOS demo app.
+
 ## Single Tool Benchmark
 
 ```bash

@@ -16,3 +16,5 @@ Evidence here is intentionally narrow:
 
 - [2026-06-09 iOS simulator demo](2026-06-09-ios-demo.md): 20 repeated runs of
   the public iOS smoke scenario on a booted simulator.
+- [2026-06-09 iOS simulator ZMR vs Maestro comparison](2026-06-09-ios-maestro-comparison.md):
+  command-level comparison against Maestro on the same generated iOS demo app.

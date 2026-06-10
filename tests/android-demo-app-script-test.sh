@@ -81,13 +81,15 @@ import json
 import sys
 
 scenario = json.load(open(sys.argv[1], encoding="utf-8"))
-assert scenario["steps"][1]["action"] == "waitVisible"
-assert scenario["steps"][1]["timeoutMs"] == 30000
-tap = scenario["steps"][2]
+assert scenario["steps"][0]["action"] == "clearState"
+assert scenario["steps"][1]["action"] == "launch"
+assert scenario["steps"][2]["action"] == "waitVisible"
+assert scenario["steps"][2]["timeoutMs"] == 30000
+tap = scenario["steps"][3]
 assert tap["action"] == "tap"
 assert tap["selector"]["resourceId"] == "com.example.mobiletest:id/continue_button"
-assert scenario["steps"][3]["timeoutMs"] == 10000
-assert scenario["steps"][4]["selector"]["resourceId"] == "com.example.mobiletest:id/demo_input"
+assert scenario["steps"][4]["timeoutMs"] == 10000
+assert scenario["steps"][5]["selector"]["resourceId"] == "com.example.mobiletest:id/demo_input"
 PY
   python3 - "$TMPDIR/android-demo-real/.zmr/android-workflow.json" <<'PY'
 import json

@@ -11,6 +11,16 @@ trace-backed, not an unbounded crawler: it does not launch devices, invent
 missing actions, discover credentials, or commit files. Keep autonomous
 planning in the agent, and keep ZMR as the deterministic mobile control plane.
 
+```mermaid
+flowchart LR
+    SESSION["Live agent session<br/>or zmr run"] --> TRACE["Trace directory"]
+    TRACE --> DISCOVER["zmr discover / draft / explore<br/>--from-trace"]
+    DISCOVER --> CANDIDATE["Scenario candidate<br/>.zmr/discovered/*.json"]
+    CANDIDATE --> REVIEW["Human / agent review"]
+    REVIEW --> VALIDATE["zmr validate --json"]
+    VALIDATE --> CI["zmr run in CI<br/>report.html · junit.xml"]
+```
+
 ## Recommended Loop
 
 1. Validate local setup:

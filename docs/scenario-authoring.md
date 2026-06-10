@@ -4,6 +4,19 @@ ZMR scenarios are JSON so agents can generate and mutate them without a second
 DSL. JSON is strict, schema-validatable, and easy for agents and code generators
 to emit. Keep scenarios explicit, short, and biased toward stable selectors.
 
+Scenarios can be written by hand, or generated review-first from the trace of
+a live session:
+
+```mermaid
+flowchart LR
+    SESSION["Live agent session<br/>or zmr run"] --> TRACE["Trace directory"]
+    TRACE --> DISCOVER["zmr discover / draft / explore<br/>--from-trace"]
+    DISCOVER --> CANDIDATE["Scenario candidate<br/>.zmr/discovered/*.json"]
+    CANDIDATE --> REVIEW["Human / agent review"]
+    REVIEW --> VALIDATE["zmr validate --json"]
+    VALIDATE --> CI["zmr run in CI<br/>report.html · junit.xml"]
+```
+
 ## Selector Strategy
 
 Prefer selectors in this order:

@@ -175,6 +175,8 @@ Benchmark reports include:
 
 Before making public performance claims, run the same scenario repeatedly on a clean emulator image and include the raw `results.jsonl` plus the redacted trace bundle for any failure.
 
+![ZMR HTML trace report showing the trace summary and per-event timeline](assets/report-html.png)
+
 ## Compare Against A Baseline
 
 Use `zmr-compare-benchmarks` when a private app repo has benchmark rows from

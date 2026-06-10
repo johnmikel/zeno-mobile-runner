@@ -3,6 +3,15 @@
 ZMR traces are debugging artifacts. They can contain sensitive app state even
 when scenario files are generic.
 
+```mermaid
+flowchart LR
+    RUN["zmr run / live session"] --> DIR["Trace directory<br/>events.jsonl · screenshots ·<br/>UI trees · logs · timings"]
+    DIR --> REPORT["zmr report<br/>report.html · junit.xml"]
+    DIR --> EXPLAIN["zmr explain<br/>failure diagnosis"]
+    DIR --> EXPORT["zmr export --redact<br/>.zmrtrace bundle"]
+    EXPORT --> VIEWER["Static trace viewer<br/>or shared evidence"]
+```
+
 Raw trace directories may include:
 
 - screenshots

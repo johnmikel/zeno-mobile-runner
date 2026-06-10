@@ -4,6 +4,24 @@ ZMR is built for external agents. The runner provides device state, typed
 actions, waits, assertions, trace explanation, and trace export; the agent
 decides the next step.
 
+```mermaid
+sequenceDiagram
+    participant Agent as AI agent
+    participant ZMR
+    participant Device as Emulator / simulator
+    Agent->>ZMR: semantic_snapshot
+    ZMR->>Device: capture UI + screenshot
+    ZMR-->>Agent: roles, stable selectors, bounds
+    Agent->>ZMR: tap / type / swipe / open_link
+    ZMR->>Device: execute + settle
+    Agent->>ZMR: wait_visible / assert_visible
+    ZMR-->>Agent: typed result + trace events
+    Agent->>ZMR: trace_discover
+    ZMR-->>Agent: reviewable replay scenario
+    Agent->>ZMR: trace_export --redact
+    ZMR-->>Agent: .zmrtrace evidence bundle
+```
+
 ## Agent Setup Loop
 
 Start inside the app checkout:

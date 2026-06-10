@@ -93,7 +93,11 @@ snapshot handling.
 
 Load any generated `.zmrtrace` in `viewer/index.html` to inspect the replay
 timeline, payloads, screenshot, UI tree, selected node details, and raw
-artifacts side-by-side.
+artifacts side-by-side. When the viewer and the bundle are served over HTTP,
+link straight to a loaded trace with `viewer/index.html?bundle=<url>` — useful
+for CI artifact links and shared triage.
+
+![ZMR trace viewer with a loaded Android demo trace showing the timeline, device screenshot, and UI tree](assets/viewer-android.png)
 
 ## Real Android Pilot Demo
 

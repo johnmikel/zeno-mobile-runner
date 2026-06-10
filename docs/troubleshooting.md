@@ -188,6 +188,12 @@ app targets. Pass `--project` explicitly for still-ambiguous multi-project
 workspaces. Run with `--ios-shim ./.zmr/ios-shim` or set
 `tools.iosShimPath` in `.zmr/config.json`.
 
+A clean prebuild can push the shim's first `build-for-testing` through a full
+native dependency compile. ZMR waits up to 90 minutes by default; on slower CI
+hardware, raise the ceiling with the `ZMR_IOS_SHIM_TIMEOUT_MS` environment
+variable (milliseconds), for example `ZMR_IOS_SHIM_TIMEOUT_MS=10800000` for
+three hours.
+
 If a real iOS run fails with CoreSimulator or Xcode cache errors such as
 `Operation not permitted`, `CoreSimulatorService connection became invalid`, or
 an unexpected workspace/build database error, rerun from a normal terminal or CI

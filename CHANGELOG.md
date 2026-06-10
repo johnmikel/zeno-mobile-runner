@@ -4,6 +4,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.0 (2026-06-10)
+
 ### Added
 
 - Added a public-safe iOS simulator benchmark evidence pack with 20 repeated
@@ -20,8 +22,29 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Added a generated React Native/Expo benchmark fixture with stable `testID`
   values, accessibility labels, deep-link setup, and Android/iOS ZMR workflow
   scenarios.
+- The trace viewer loads a served bundle directly from
+  `viewer/index.html?bundle=<url>`, so CI artifact links and shared triage can
+  open a trace without manual file selection.
+- The iOS XCTest shim cold-build timeout is tunable with the
+  `ZMR_IOS_SHIM_TIMEOUT_MS` environment variable for slower CI hardware.
+- Added a nightly `device-smoke` GitHub Actions workflow that runs the public
+  demo apps on a real Android emulator and iOS simulator and uploads traces,
+  reports, and redacted bundles as evidence artifacts.
+- Added real captured screenshots under `docs/assets/` (trace viewer, device
+  screens, CLI failure-diagnosis loop, HTML report) plus
+  `scripts/capture-screenshots.sh` to regenerate them from fresh demo runs.
+  The assets ship in the repository only, not in the npm package.
+- Added Mermaid architecture, verification-loop, trace-lifecycle, and
+  trace-to-test diagrams to the README and core docs, and rewrote the README
+  around the AI-coding-agent verification workflow.
 
 ### Fixed
+
+- `zmr validate`, `zmr report`, `zmr export`, and `zmr import` now accept
+  flags before positional arguments, matching the documented command forms,
+  and unknown-flag errors print a help hint.
+- Generated Android demo scenarios clear app state before launching so
+  repeated runs no longer fail on leftover screens from a previous session.
 
 - Fixed generated iOS shim one-shot log file creation on macOS by using a
   portable `mktemp` template with `XXXXXX` at the end.

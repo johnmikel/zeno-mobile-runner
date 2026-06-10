@@ -22,7 +22,7 @@ chmod +x "$TMPDIR/bin/codesign"
 
 make_archive() {
   local target="$1"
-  local dir="$DIST/zmr-0.1.8-$target"
+  local dir="$DIST/zmr-0.2.0-$target"
   mkdir -p "$dir"
   printf 'binary for %s\n' "$target" > "$dir/zmr"
   tar -C "$DIST" -czf "$dir.tar.gz" "$(basename "$dir")"
@@ -57,8 +57,8 @@ if grep -q 'x86_64-linux-gnu' "$TMPDIR/codesign.log"; then
 fi
 
 mkdir -p "$TMPDIR/extract"
-tar -C "$TMPDIR/extract" -xzf "$DIST/zmr-0.1.8-aarch64-macos.15.0.tar.gz"
-grep -q 'signed-by-fake-codesign' "$TMPDIR/extract/zmr-0.1.8-aarch64-macos.15.0/zmr"
+tar -C "$TMPDIR/extract" -xzf "$DIST/zmr-0.2.0-aarch64-macos.15.0.tar.gz"
+grep -q 'signed-by-fake-codesign' "$TMPDIR/extract/zmr-0.2.0-aarch64-macos.15.0/zmr"
 
 "$ROOT/scripts/verify-release-artifacts.sh" --dist "$DIST" > "$TMPDIR/verify.out"
 grep -q 'verified release artifacts' "$TMPDIR/verify.out"

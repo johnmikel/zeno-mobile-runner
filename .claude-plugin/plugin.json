@@ -1,0 +1,32 @@
+{
+  "name": "zmr",
+  "displayName": "Zeno Mobile Runner",
+  "version": "0.2.0",
+  "description": "Agent-native mobile UI automation and verification for Expo, React Native, Flutter, and native Android/iOS apps. Gives Claude Code eyes and hands on emulators and simulators: semantic snapshots, typed actions, waits, assertions, and replayable traces.",
+  "author": {
+    "name": "John Mikel",
+    "email": "johnmikelbregida@gmail.com"
+  },
+  "homepage": "https://github.com/johnmikel/zeno-mobile-runner",
+  "repository": "https://github.com/johnmikel/zeno-mobile-runner",
+  "license": "MIT",
+  "keywords": [
+    "mobile",
+    "automation",
+    "testing",
+    "verification",
+    "expo",
+    "react-native",
+    "flutter",
+    "android",
+    "ios",
+    "mcp"
+  ],
+  "mcpServers": {
+    "zmr": {
+      "command": "npx",
+      "args": ["zmr", "mcp"],
+      "cwd": "${CLAUDE_PROJECT_DIR}"
+    }
+  }
+}

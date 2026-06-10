@@ -86,6 +86,14 @@ Hook it up to your coding agent (Claude Code shown; any MCP client works):
 claude mcp add zmr -- npx zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
+Claude Code users can instead install the plugin, which bundles the MCP server
+and a mobile-testing skill:
+
+```text
+/plugin marketplace add johnmikel/zeno-mobile-runner
+/plugin install zmr@zmr-marketplace
+```
+
 Or in an `.mcp.json` / MCP client config:
 
 ```json

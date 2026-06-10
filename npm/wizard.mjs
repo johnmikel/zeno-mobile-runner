@@ -23,7 +23,7 @@ if (!options.json) {
   console.log("================");
 }
 
-if (!options.yes && !options.json) {
+if (!options.yes && !options.json && input.isTTY) {
   await promptForMissingOptions(options);
 }
 

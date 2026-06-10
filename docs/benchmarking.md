@@ -103,6 +103,10 @@ For `--runs 1`, the script exports normal and redacted `.zmrtrace` bundles.
 For `--runs > 1`, the pilot wrappers and generated app reliability scripts
 write benchmark directories with HTML and JUnit reports.
 
+Apps scaffolded by `zmr-wizard` get matching package scripts, so app-local
+reliability gates run as `bun run zmr:android:reliability` and
+`bun run zmr:ios:reliability` (or the npm equivalents).
+
 The iOS pilot wrapper supports the same repeated-run gates:
 
 ```bash

@@ -1,336 +1,230 @@
 # Zeno Mobile Runner
 
-> Agent-native mobile UI automation for React Native, Expo, Flutter, and native Android/iOS apps.
+> The verification loop for AI coding agents building Expo, React Native,
+> Flutter, and native Android/iOS apps.
 
 [![CI](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/johnmikel/zeno-mobile-runner?include_prereleases)](https://github.com/johnmikel/zeno-mobile-runner/releases)
 [![npm](https://img.shields.io/npm/v/zeno-mobile-runner)](https://www.npmjs.com/package/zeno-mobile-runner)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-ZMR gives AI agents and test harnesses a typed mobile control plane. It can
-install and launch apps, observe the UI, choose an action, wait for the screen to
-settle, assert state, and export a replayable trace. The runner does not embed an
-LLM. Agents stay outside and use ZMR through CLI JSON, scenarios, JSON-RPC, MCP,
-or optional protocol clients.
+Your coding agent can write mobile code, but it cannot see the phone. ZMR is
+its eyes and hands: a typed mobile control plane that installs and launches
+apps, observes the UI, taps and types, waits for the screen to settle, asserts
+state, and exports a replayable trace as proof. The runner does not embed an
+LLM. Agents stay outside and drive ZMR through MCP, JSON-RPC, CLI JSON, or
+JSON scenarios.
 
-## Install
+![ZMR trace viewer showing a passed iOS run with timeline, device screenshot, UI tree, and selector payload](docs/assets/viewer-hero.png)
+
+<p align="center">
+  <img src="docs/assets/device-ios-demo.png" width="260" alt="iOS simulator screenshot captured by ZMR during a scenario run" />
+  &nbsp;&nbsp;
+  <img src="docs/assets/device-android-demo.png" width="260" alt="Android emulator screenshot captured by ZMR during a scenario run" />
+</p>
+
+<p align="center"><em>Real on-device screenshots from ZMR traces: the same demo flow
+driven on an iOS simulator and an Android emulator.</em></p>
+
+## Why agents need this
+
+- **Agents can't verify what they can't observe.** ZMR returns semantic UI
+  trees with stable selectors, screenshots, and typed action results an agent
+  can reason about — not raw pixels it has to guess at.
+- **Evidence, not vibes.** Every session can write a deterministic trace:
+  events, screenshots, UI hierarchies, timings, assertion results, HTML and
+  JUnit reports, and a redacted shareable bundle.
+- **Tests fall out for free.** After a live agent session, `zmr discover`
+  turns the trace into a reviewable JSON scenario that replays in CI without
+  an LLM in the loop.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["AI coding agent<br/>Claude Code · Cursor · custom harness"]
+    subgraph zmr["ZMR — one small Zig binary"]
+        MCP["MCP server<br/><code>zmr mcp</code>"]
+        RPC["JSON-RPC stdio/TCP<br/><code>zmr serve</code>"]
+        CLI["CLI + JSON scenarios<br/><code>zmr run</code>"]
+        CORE["Core engine<br/>selectors · waits · assertions<br/>scenario runner · trace writer"]
+        MCP --> CORE
+        RPC --> CORE
+        CLI --> CORE
+    end
+    subgraph devices["Devices"]
+        AND["Android emulator/device<br/>ADB · UI Automator · optional shim"]
+        IOS["iOS simulator/device<br/>simctl · devicectl · XCTest shim"]
+    end
+    TRACE["Trace<br/>events.jsonl · screenshots · UI trees<br/>report.html · junit.xml · .zmrtrace"]
+    A -- "MCP tools" --> MCP
+    A -- "JSON-RPC" --> RPC
+    A -- "CLI JSON" --> CLI
+    CORE --> AND
+    CORE --> IOS
+    CORE --> TRACE
+```
+
+No app instrumentation is required on Android. iOS selector actions use an
+app-local XCTest shim that the wizard scaffolds. ZMR works below the
+JavaScript/Dart layer, so React Native, Expo, Flutter, and fully native apps
+are all driven the same way. See [docs/frameworks.md](docs/frameworks.md).
+
+## Five-minute start
 
 Inside a mobile app repo:
 
 ```bash
-bun add --dev zeno-mobile-runner
-bunx zmr-wizard --app-id com.example.mobiletest --package-json
-bunx zmr doctor --strict --json --config .zmr/config.json
+npm install --save-dev zeno-mobile-runner   # bun add --dev zeno-mobile-runner
+npx zmr-wizard --app-id com.example.mobiletest --package-json
+npx zmr doctor --strict --json --config .zmr/config.json
 ```
 
-Run a generated smoke scenario:
+Hook it up to your coding agent (Claude Code shown; any MCP client works):
 
 ```bash
-bun run zmr:validate
-bun run zmr:android
-bun run zmr:ios
+claude mcp add zmr -- npx zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
-## React Native, Expo, and Flutter
+Or in an `.mcp.json` / MCP client config:
 
-ZMR works below the JavaScript or Dart framework layer. It drives the installed
-Android or iOS app through platform lifecycle commands, deep links, accessibility
-semantics, screenshots, logs, selector actions, waits, assertions, and traces.
+```json
+{
+  "mcpServers": {
+    "zmr": {
+      "command": "npx",
+      "args": ["zmr", "mcp", "--config", ".zmr/config.json", "--trace-dir", "traces/zmr-agent"]
+    }
+  }
+}
+```
 
-- **React Native:** prefer `testID`, `accessibilityLabel`, stable text, and deep
-  links for direct navigation into important states.
-- **Expo development builds:** pass `--expo-dev-client-scheme <scheme>` to the
-  wizard so ZMR scaffolds dev-client open-link scenarios.
-- **Generated RN/Expo fixture:** run
-  `bunx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo` to
-  inspect a public app with stable selectors and matching ZMR workflow files.
-- **Flutter:** ZMR supports Flutter apps at the Android and iOS app level when
-  the app exposes stable semantics labels, text, deep links, or native ids. It is
-  not a Flutter widget-tree driver and does not inspect Flutter internals.
-- **Native Android/iOS:** use resource ids, content descriptions, accessibility
-  identifiers, XCTest labels, and app-owned deep links.
+Then ask the agent to verify its own work: *"launch the app, walk through
+onboarding, and show me the trace."*
 
-See [docs/frameworks.md](docs/frameworks.md) and
-[docs/app-integration.md](docs/app-integration.md) for app-side setup guidance.
+## The agent verification loop
 
-## Why ZMR
+```mermaid
+sequenceDiagram
+    participant Agent as AI agent
+    participant ZMR
+    participant Device as Emulator / simulator
+    Agent->>ZMR: semantic_snapshot
+    ZMR->>Device: capture UI + screenshot
+    ZMR-->>Agent: roles, stable selectors, bounds
+    Agent->>ZMR: tap / type / swipe / open_link
+    ZMR->>Device: execute + settle
+    Agent->>ZMR: wait_visible / assert_visible
+    ZMR-->>Agent: typed result + trace events
+    Agent->>ZMR: trace_discover
+    ZMR-->>Agent: reviewable replay scenario
+    Agent->>ZMR: trace_export --redact
+    ZMR-->>Agent: .zmrtrace evidence bundle
+```
 
-- **Agent-native protocol:** structured snapshots, semantic mobile trees,
-  actions, waits, assertions, live trace events, trace explanation, and
-  redacted trace export over JSON-RPC or MCP.
-- **Trace-first debugging:** every run can produce screenshots, UI trees, logs,
-  timings, action inputs, assertion results, and HTML/JUnit reports.
-- **Benchmark Lab:** public fixture manifests define framework-level evidence,
-  timing modes, runner-adapter labels, and claim boundaries.
-- **Fast local core:** Zig owns orchestration, subprocess control, selectors,
-  waits, retries, scenario execution, and packaged binaries.
-- **App-local setup:** `.zmr/config.json`, smoke scenarios, shim commands, and
-  traces live in the app repo.
-- **Android and iOS:** Android uses ADB/UI Automator plus an optional native
-  shim. iOS simulators use `simctl`; physical iOS devices use `devicectl`;
-  selector-grade iOS automation uses the XCTest/XCUIAutomation shim.
+The MCP server exposes the full loop as mobile-native tools:
 
-## Scenario Example
+| Group | Tools |
+| --- | --- |
+| Observe | `snapshot`, `semantic_snapshot` |
+| App lifecycle | `install_app`, `launch_app`, `stop_app`, `clear_state`, `open_link` |
+| Act | `tap`, `type`, `erase_text`, `hide_keyboard`, `swipe`, `press_back` |
+| Wait | `wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible` |
+| Assert | `assert_visible`, `assert_not_visible`, `assert_healthy` |
+| Evidence | `trace_events`, `trace_explain`, `trace_discover`, `trace_explore`, `trace_export`, `scenario_validate` |
 
-ZMR scenarios are JSON so agents and build scripts can generate, validate, and
-mutate them without a second DSL.
+The same surface is available over JSON-RPC for harnesses that embed ZMR
+directly — see [docs/protocol.md](docs/protocol.md) and
+[docs/ai-agents.md](docs/ai-agents.md). When a run fails, `zmr explain`
+diagnoses the trace for humans and agents alike:
+
+![Terminal session showing a failed run, zmr explain diagnosing the failure with visible texts, and the fixed run passing](docs/assets/cli-run-explain.png)
+
+## Deterministic scenarios for CI
+
+Scenarios are plain JSON — agents and build scripts generate, validate, and
+mutate them without a second DSL, and they replay in CI with no LLM cost:
 
 ```json
 {
   "name": "Login smoke",
   "appId": "com.example.mobiletest",
   "steps": [
+    { "action": "clearState" },
     { "action": "launch" },
     { "action": "assertHealthy", "timeoutMs": 5000 },
     { "action": "tap", "selector": { "resourceId": "email" } },
     { "action": "typeText", "text": "user@example.com" },
-    { "action": "tap", "selector": { "resourceId": "password" } },
-    { "action": "typeText", "text": "password" },
     { "action": "tap", "selector": { "text": "Login" } },
     { "action": "waitVisible", "selector": { "text": "Welcome" }, "timeoutMs": 30000 }
   ]
 }
 ```
 
-Useful commands:
-
 ```bash
-zmr version --json
-zmr schemas --json
-zmr devices --json
-zmr inspect --json
-zmr explore --from-trace traces/zmr-agent --out .zmr/discovered/login-smoke.json --goal "find a stable login smoke" --include-actions --validate --json
-zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json
-zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/surface-smoke.json --json
-zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json
-zmr init --app --json --dir . --app-id com.example.mobiletest
 zmr validate --json .zmr/login-smoke.json
 zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke
-zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke --discover-out .zmr/discovered/login-smoke.json
-zmr explain --json traces/login-smoke
 zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml
-zmr import flow-yaml .zmr/legacy-flow.yaml --out .zmr/legacy-flow.json
-zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact
+zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact
 ```
 
-For traced runs, `zmr run --json` returns executable `nextCommands` for
-HTML and JUnit reporting, failure explanation, `zmr discover --from-trace`,
-and redacted export so agents can continue from a run summary without guessing
-the next handoff. The generated report handoff writes `report.html` and
-`junit.xml` beside the trace for CI artifact collection.
+Traced `zmr run --json` responses include executable `nextCommands` so agents
+can continue to reporting, explanation, discovery, or export without guessing.
+Open any exported bundle in the static [trace viewer](viewer/index.html) — or
+serve it and link straight to it with `viewer/index.html?bundle=<url>`.
 
-When an agent should produce the reviewable scenario in the same command, add
-`--discover-out .zmr/discovered/<name>.json`. ZMR still treats the generated
-file as review-first: it writes from trace evidence, validates the file, and
-returns the embedded `discovery` result without crawling or committing tests.
-The `discovery.replay` object shows how many trace action events were
-considered for replay, how many became scenario steps, and how many were
-skipped.
+For repeat-run reliability gates, p95 duration thresholds, baseline
+comparisons against your current E2E tool, and multi-device matrices, see
+[docs/benchmarking.md](docs/benchmarking.md) and the public
+[Benchmark Lab](docs/benchmarks/README.md) evidence.
 
-See [docs/scenario-authoring.md](docs/scenario-authoring.md) for selector and
-wait guidance.
-
-## Agent Workflow
-
-Agents can use the CLI, JSON-RPC, or MCP surface. Start JSON-RPC over stdio:
-
-```bash
-zmr inspect --json --dir .
-```
-
-`zmr inspect --json` gives agents a read-only handoff for the app checkout:
-config status, generated agent instructions, configured platform scenarios, and
-recommended next commands. It does not launch devices or write tests.
-
-After a live session has produced trace artifacts, agents can ask ZMR to turn
-the trace into a validated, reviewable scenario candidate. `zmr explore` is
-the agent-facing handoff: it records the goal, writes from existing trace
-evidence, validates the candidate, and returns guardrails that make the limits
-machine-readable:
-
-```bash
-zmr explore --from-trace traces/zmr-agent \
-  --out .zmr/discovered/login-smoke.json \
-  --goal "find a stable login smoke" \
-  --include-actions \
-  --validate \
-  --json
-```
-
-`zmr explore` is not an autonomous crawler. It does not launch devices, invent
-missing actions, discover credentials, or commit tests. Its JSON includes
-`autonomous:false`, `reviewRequired:true`, `guardrails`, and the same replay
-coverage and validation fields as `zmr discover`.
-
-When an agent wants the lower-level trace-to-test primitive directly, use
-`zmr discover`:
-
-```bash
-zmr discover --from-trace traces/zmr-agent \
-  --out .zmr/discovered/replay-smoke.json \
-  --include-actions \
-  --validate \
-  --json
-```
-
-`zmr discover` is offline and review-first. It writes a scenario from stable
-trace evidence, optionally validates it immediately, and returns next commands
-for deterministic reruns. It does not crawl the app, discover credentials, or
-commit tests. Its JSON includes `replay` coverage metadata so agents can report
-which trace action events became replay steps and which were skipped.
-
-For CLI-driven agent loops, `zmr run --json --trace-dir traces/zmr-agent
---discover-out .zmr/discovered/replay-smoke.json` performs the same
-trace-backed discovery after the run and embeds the discover result in the run
-JSON response.
-
-For the lower-level draft primitive, agents can still ask ZMR to write a
-conservative surface-smoke scenario from the latest snapshot:
-
-```bash
-zmr draft --from-trace traces/zmr-agent \
-  --out .zmr/discovered/surface-smoke.json \
-  --json
-zmr validate --json .zmr/discovered/surface-smoke.json
-```
-
-`zmr draft` writes `launch`, `snapshot`, and `assertVisible` steps from stable
-visible selectors. It does not tap controls or type into fields unless
-`--include-actions` is explicitly requested.
-
-When the trace was produced by an agent or JSON-RPC/MCP session that took typed
-actions, add `--include-actions` to replay successful supported actions before
-the final snapshot assertions:
-
-```bash
-zmr draft --from-trace traces/zmr-agent \
-  --out .zmr/discovered/replay-smoke.json \
-  --include-actions \
-  --json
-zmr validate --json .zmr/discovered/replay-smoke.json
-```
-
-Replay drafts only use trace events with enough stable data to reproduce them,
-such as launch, deep links, selector taps, selector text entry,
-selector/timeout-preserving waits, back, keyboard hiding, coordinate-complete
-swipes, direction/timeout-preserving selector scrolls, `assertNoneVisible`
-selector arrays, selector/timeout-preserving `assertVisible` and
-`assertNotVisible`, and timed `assertHealthy` checks.
-Native selector wait traces include timeout context for successful waits and
-timeout diagnostics.
-Unsupported or underspecified events are skipped with warnings instead of guessed.
-Text entry events whose text was redacted from the trace are also skipped.
-
-```bash
-zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
-```
-
-Agents that support the Model Context Protocol can use the native MCP surface:
-
-```bash
-zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
-```
-
-The MCP server exposes mobile-specific tools such as `semantic_snapshot`,
-`install_app`, `launch_app`, `stop_app`, `clear_state`, `tap`, `type`,
-`erase_text`, `hide_keyboard`, `swipe`, `press_back`, `open_link`,
-`wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible`,
-`assert_visible`, `assert_not_visible`, `assert_healthy`, `scenario_validate`,
-`trace_events`, `trace_explain`, `trace_explore`, `trace_discover`, and
-`trace_export`.
-
-For agent-led discovery and test authoring, see
-[docs/agent-discovery.md](docs/agent-discovery.md). ZMR supports that loop
-through MCP, JSON-RPC, trace events, in-band trace discovery, offline surface
-drafts, replay drafts, live and offline guarded trace exploration, and traced
-run `nextCommands` today. Built-in exploration is review-first and
-trace-backed, not an unbounded autonomous crawler.
-
-## Reliability And Benchmarks
-
-ZMR ships repeat-run benchmark tools for app teams that need reliability gates,
-duration thresholds, and baseline comparisons in CI:
-
-```bash
-bun run zmr:android:reliability
-bun run zmr:ios:reliability
-```
-
-For custom comparisons, collect ZMR rows and baseline command rows into the
-same `results.jsonl`, then compare them:
-
-```bash
-bunx zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --runs 20 --results traces/bench-comparison/results.jsonl --replace
-bunx zmr-benchmark-command --tool baseline --runs 20 --results traces/bench-comparison/results.jsonl -- bun run e2e:android
-bunx zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline baseline
-bunx zmr-benchmark-lab --manifest node_modules/zeno-mobile-runner/docs/benchmarks/benchmark-lab-v1.json --format markdown
-```
-
-ZMR also includes `zmr-device-matrix` for running scenarios across multiple
-local emulators, simulators, or attached devices. Public speed or reliability
-claims should come from the same app build, same device state, same scenario,
-repeated runs, and trace-backed failure evidence.
-
-See [docs/benchmarking.md](docs/benchmarking.md) for benchmark reports, JUnit
-output, gates, and baseline comparison guidance.
-
-## Optional Protocol Clients
-
-Clients are thin wrappers around `zmr serve --transport stdio`. They do not
-replace the runner; they make it easier for agents and test code to call the
-same JSON-RPC protocol.
-
-TypeScript and Python are the most common starting points for app teams and
-agent harnesses. Go, Rust, Swift, and Kotlin clients are reference integrations
-for teams that want to embed the protocol from those ecosystems. Go and Rust
-also include typed trace discovery and scenario validation helpers for
-host-side agent loops. Swift and Kotlin include lightweight discovery and
-validation helpers for host-side automation.
-
-| Language | Entry point | Example |
-| --- | --- | --- |
-| TypeScript | `clients/typescript/index.mjs` + `index.d.ts` | `node clients/typescript/examples/fake-session.mjs` |
-| Python | `clients/python/zmr_client.py` + `pyproject.toml` | `python3 clients/python/examples/fake_session.py` |
-| Go | `clients/go/zmr/client.go` | `go run ./clients/go/examples/fake-session` |
-| Rust | `clients/rust/src/lib.rs` | `cargo run --manifest-path clients/rust/Cargo.toml --example fake_session` |
-| Swift | `clients/swift/Sources/ZMRClient` | `swift build --package-path clients/swift` |
-| Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr` | `gradle -p clients/kotlin build` |
-
-See [clients/README.md](clients/README.md), [docs/clients.md](docs/clients.md),
-and [docs/client-installation.md](docs/client-installation.md).
-
-## Platform Support
+## Platform support
 
 | Target | Status | Notes |
 | --- | --- | --- |
 | Android emulator | Supported | ADB/UI Automator, optional Android shim, emulator lifecycle helpers |
 | Android physical device | Supported | Requires ADB connection and app build/install surface |
-| iOS simulator | Supported | `simctl` plus app-local XCTest/XCUIAutomation shim for native selector actions, native waits, and bounded snapshots |
-| iOS physical device | Supported, validate locally | `devicectl` lifecycle plus app-local XCTest/XCUIAutomation shim; run pilots on your own app/device before relying on it in CI |
-| Cloud device farms | Not included | ZMR is focused on local and self-managed device targets in this preview |
+| iOS simulator | Supported | `simctl` plus app-local XCTest/XCUIAutomation shim for native selector actions |
+| iOS physical device | Supported, validate locally | `devicectl` lifecycle plus XCTest shim; pilot on your own app/device before relying on it in CI |
+| Cloud device farms | Not included | ZMR focuses on local and self-managed device targets in this preview |
 
-Current release: `0.1.8` developer preview. Protocol version:
-`2026-04-28`.
+Slow CI hardware can extend the iOS shim cold-build timeout with
+`ZMR_IOS_SHIM_TIMEOUT_MS`. Current release: `0.1.8` developer preview.
+Protocol version: `2026-04-28`.
+
+## Optional protocol clients
+
+TypeScript and Python clients are the common starting points; Go, Rust, Swift,
+and Kotlin reference clients embed the same JSON-RPC protocol from those
+ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
+[docs/clients.md](docs/clients.md) and
+[docs/client-installation.md](docs/client-installation.md).
 
 ## Documentation
 
-- [FEATURES.md](FEATURES.md): complete feature list and limitations
+**For agents**
+
+- [docs/ai-agents.md](docs/ai-agents.md): JSON-RPC and MCP agent workflows
+- [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery, `zmr explore`/`discover`/`draft`, and the trace-to-test loop
+- [skills/zmr-mobile-testing/SKILL.md](skills/zmr-mobile-testing/SKILL.md): reusable agent skill
+
+**For test authors**
+
 - [docs/install.md](docs/install.md): source, npm, Homebrew, and app setup
 - [docs/frameworks.md](docs/frameworks.md): React Native, Expo, Flutter, and native app guidance
-- [docs/expo-smoke.md](docs/expo-smoke.md): reproducible Expo and iOS smoke test
-- [docs/production-readiness.md](docs/production-readiness.md): release, reliability, framework, and agent-readiness gates
-- [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
-- [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery and scenario authoring loop
-- [docs/benchmarking.md](docs/benchmarking.md): repeat-run gates, reports, device matrix, and baseline comparisons
-- [docs/benchmarks](docs/benchmarks/README.md): public-safe benchmark evidence
+- [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
+- [docs/expo-smoke.md](docs/expo-smoke.md): reproducible Expo and iOS smoke test
+- [docs/benchmarking.md](docs/benchmarking.md): repeat-run gates, reports, device matrix, baselines
+
+**Reference**
+
+- [FEATURES.md](FEATURES.md): complete feature list and limitations
 - [docs/protocol.md](docs/protocol.md): JSON-RPC methods and schemas
-- [docs/ai-agents.md](docs/ai-agents.md): JSON-RPC and MCP agent workflows
-- [docs/clients.md](docs/clients.md): language client guide
-- [docs/client-installation.md](docs/client-installation.md): npm, Homebrew, TS, Python, Go, Rust, Swift, and Kotlin setup
 - [docs/trace-privacy.md](docs/trace-privacy.md): safe trace export
+- [docs/production-readiness.md](docs/production-readiness.md): release, reliability, and agent-readiness gates
 - [docs/troubleshooting.md](docs/troubleshooting.md): common setup and runtime issues
-- [skills/zmr-mobile-testing/SKILL.md](skills/zmr-mobile-testing/SKILL.md): reusable agent skill
+- [docs/benchmarks](docs/benchmarks/README.md): public-safe benchmark evidence
 
 ## License
 

@@ -3,6 +3,22 @@
 ZMR clients are reference implementations for the JSON-RPC protocol used by
 `zmr serve`. They are intentionally small and dependency-light.
 
+TypeScript and Python are the most common starting points for app teams and
+agent harnesses. Go, Rust, Swift, and Kotlin clients are reference integrations
+for teams that want to embed the protocol from those ecosystems. Go and Rust
+include typed trace discovery and scenario validation helpers for host-side
+agent loops; Swift and Kotlin include lightweight discovery and validation
+helpers for host-side automation.
+
+| Language | Entry point | Example |
+| --- | --- | --- |
+| TypeScript | `clients/typescript/index.mjs` + `index.d.ts` | `node clients/typescript/examples/fake-session.mjs` |
+| Python | `clients/python/zmr_client.py` + `pyproject.toml` | `python3 clients/python/examples/fake_session.py` |
+| Go | `clients/go/zmr/client.go` | `go run ./clients/go/examples/fake-session` |
+| Rust | `clients/rust/src/lib.rs` | `cargo run --manifest-path clients/rust/Cargo.toml --example fake_session` |
+| Swift | `clients/swift/Sources/ZMRClient` | `swift build --package-path clients/swift` |
+| Kotlin | `clients/kotlin/src/main/kotlin/dev/zmr` | `gradle -p clients/kotlin build` |
+
 ## What Clients Mean
 
 The runner is still the Zig binary. A client starts or connects to:

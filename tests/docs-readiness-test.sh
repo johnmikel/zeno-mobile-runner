@@ -116,65 +116,43 @@ for internal_doc in \
 done
 
 require_grep '^# Zeno Mobile Runner$' README.md
+require_grep 'verification loop for AI coding agents' README.md
+require_grep 'docs/assets/viewer-hero.png' README.md
+require_grep 'docs/assets/device-ios-demo.png' README.md
+require_grep 'docs/assets/device-android-demo.png' README.md
+require_grep 'docs/assets/cli-run-explain.png' README.md
+require_grep 'flowchart LR' README.md
+require_grep 'sequenceDiagram' README.md
+require_grep 'npm install --save-dev zeno-mobile-runner' README.md
 require_grep 'bun add --dev zeno-mobile-runner' README.md
-require_grep 'React Native, Expo, and Flutter' README.md
-require_grep 'Flutter apps at the Android and iOS app level' README.md
-require_grep 'not a Flutter widget-tree driver' README.md
-require_grep 'Expo development builds' README.md
-require_grep 'zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo' README.md
-require_grep '## Scenario Example' README.md
+require_grep 'npx zmr-wizard --app-id com.example.mobiletest --package-json' README.md
+require_grep 'claude mcp add zmr' README.md
+require_grep 'mcpServers' README.md
+require_grep '## Why agents need this' README.md
+require_grep '## The agent verification loop' README.md
+require_grep '## Deterministic scenarios for CI' README.md
+require_grep 'clearState' README.md
 require_grep 'assertHealthy' README.md
-require_grep 'zmr validate --json' README.md
-require_grep 'zmr devices --json' README.md
-require_grep 'zmr schemas --json' README.md
-require_grep 'zmr inspect --json' README.md
-require_grep 'zmr explore --from-trace traces/zmr-agent --out .zmr/discovered/login-smoke.json --goal "find a stable login smoke" --include-actions --validate --json' README.md
-require_grep '--discover-out .zmr/discovered/login-smoke.json' README.md
+require_grep 'zmr validate --json .zmr/login-smoke.json' README.md
+require_grep 'zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke' README.md
 require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' README.md
-require_grep 'The generated report handoff writes `report.html` and' README.md
-require_grep '`junit.xml` beside the trace for CI artifact collection' README.md
-require_grep 'zmr discover --from-trace traces/zmr-agent' README.md
-require_grep 'zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json' README.md
-require_grep 'zmr draft --from-trace traces/zmr-agent' README.md
-require_grep 'zmr draft --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --json' README.md
-require_grep '## Reliability And Benchmarks' README.md
-require_grep 'bun run zmr:android:reliability' README.md
-require_grep 'bunx zmr-benchmark-command --tool baseline' README.md
-require_grep 'bunx zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl' README.md
-require_grep 'bunx zmr-benchmark-lab --manifest node_modules/zeno-mobile-runner/docs/benchmarks/benchmark-lab-v1.json --format markdown' README.md
-require_grep 'zmr-device-matrix' README.md
-require_grep 'claims should come from the same app build' README.md
-require_grep 'It does not crawl the app' README.md
-require_grep 'Unsupported or underspecified events are' README.md
-require_grep 'skipped with warnings instead of guessed' README.md
-require_grep 'redacted from the trace are also skipped' README.md
-require_grep 'timed `assertHealthy` checks' README.md
-require_grep 'selector/timeout-preserving `assertVisible` and' README.md
-require_grep 'Native selector wait traces include timeout context' README.md
-require_grep 'zmr export traces/login-smoke --out traces/login-smoke-redacted.zmrtrace --redact' README.md
-require_grep 'For traced runs, `zmr run --json` returns executable `nextCommands`' README.md
-require_grep 'When an agent should produce the reviewable scenario in the same command' README.md
-require_grep 'zmr discover --from-trace' README.md
-require_grep 'discovery.replay' README.md
-require_grep '## Optional Protocol Clients' README.md
-require_grep 'TypeScript and Python are the most common starting points' README.md
-require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' README.md
-require_grep 'Go and Rust' README.md
-require_grep 'scenario validation helpers for' README.md
-require_grep 'Swift and Kotlin include lightweight discovery and' README.md
-require_grep 'physical iOS devices use `devicectl`' README.md
+require_grep 'zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact' README.md
+require_grep 'nextCommands' README.md
+require_grep 'viewer/index.html?bundle=' README.md
+require_grep 'ZMR_IOS_SHIM_TIMEOUT_MS' README.md
 require_grep 'iOS physical device' README.md
+require_grep 'devicectl' README.md
 require_grep 'Current release: `0.1.8` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
-require_grep '`zmr explore` is not an autonomous crawler' README.md
-require_grep '`autonomous:false`, `reviewRequired:true`, `guardrails`' README.md
 require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
+require_grep 'docs/benchmarking.md' README.md
 require_grep 'skills/zmr-mobile-testing/SKILL.md' README.md
+require_grep 'semantic_snapshot' README.md
 require_grep 'install_app' README.md
 require_grep 'launch_app' README.md
 require_grep 'stop_app' README.md
@@ -188,6 +166,25 @@ require_grep 'scroll_until_visible' README.md
 require_grep 'assert_visible' README.md
 require_grep 'assert_not_visible' README.md
 require_grep 'assert_healthy' README.md
+require_grep 'trace_explain' README.md
+require_grep 'trace_discover' README.md
+require_grep 'trace_explore' README.md
+require_grep 'trace_export' README.md
+require_grep 'scenario_validate' README.md
+
+# Detail moved out of the README must stay in its canonical docs.
+require_grep 'zmr explore --from-trace' docs/agent-discovery.md
+require_grep 'replay' docs/agent-discovery.md
+require_grep 'crawl' docs/agent-discovery.md
+require_grep 'zmr:android:reliability' docs/benchmarking.md
+require_grep 'zmr:ios:reliability' docs/benchmarking.md
+require_grep 'zmr-benchmark-lab' docs/benchmarking.md
+require_grep 'zmr-benchmark-command' docs/benchmarking.md
+require_grep 'does not inspect Flutter widget trees' docs/frameworks.md
+require_grep 'zmr-create-react-native-expo-demo-app' docs/frameworks.md
+require_grep 'Expo development builds' docs/frameworks.md
+require_grep 'TypeScript and Python are the most common starting points' docs/clients.md
+require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' docs/clients.md
 
 require_not_grep 'registry package is pending publish' README.md
 require_not_grep 'Available after the npm registry package is published' README.md

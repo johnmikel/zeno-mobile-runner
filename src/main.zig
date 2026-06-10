@@ -16,6 +16,9 @@ const errors = @import("errors.zig");
 
 pub fn main() void {
     mainInner() catch |err| {
+        // stdout's consumer went away (e.g. `zmr ... | head`); exit quietly
+        // with the conventional SIGPIPE status instead of reporting an error.
+        if (err == error.BrokenPipe) std.process.exit(141);
         writeTopLevelError(err);
         std.process.exit(exitCodeForError(err));
     };

@@ -53,3 +53,38 @@ if grep -Eq 'src/|error return trace|\.zig:' "$TMPDIR/unknown-stderr.txt"; then
   cat "$TMPDIR/unknown-stderr.txt" >&2
   exit 1
 fi
+
+# A consumer closing the pipe early (`zmr schemas --json | head -c 200`) must
+# not surface internal.error. The read end is closed before zmr starts so the
+# EPIPE is deterministic regardless of output size vs the pipe buffer.
+set +e
+python3 - "$ZMR" > "$TMPDIR/epipe-stderr.txt" <<'PY'
+import os, subprocess, sys
+
+read_fd, write_fd = os.pipe()
+os.close(read_fd)
+os.set_inheritable(write_fd, True)
+proc = subprocess.run(
+    [sys.argv[1], "schemas", "--json"],
+    stdout=write_fd,
+    stderr=subprocess.PIPE,
+    close_fds=False,
+)
+os.close(write_fd)
+sys.stdout.write(proc.stderr.decode())
+sys.exit(proc.returncode)
+PY
+STATUS=$?
+set -e
+
+if [[ "$STATUS" -ne 141 ]]; then
+  echo "expected exit status 141 on closed stdout pipe, got $STATUS" >&2
+  cat "$TMPDIR/epipe-stderr.txt" >&2
+  exit 1
+fi
+
+if [[ -s "$TMPDIR/epipe-stderr.txt" ]]; then
+  echo "closed stdout pipe should exit quietly, but stderr was:" >&2
+  cat "$TMPDIR/epipe-stderr.txt" >&2
+  exit 1
+fi

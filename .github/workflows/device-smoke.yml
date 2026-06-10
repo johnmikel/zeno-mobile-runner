@@ -1,0 +1,106 @@
+name: Device Smoke
+
+# Real-device evidence lane: boots an actual Android emulator and iOS
+# simulator and runs the public demo apps end-to-end. Scheduled and manual
+# only — PR gates stay on the fake-device suite in ci.yml.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  android-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ZIG_VERSION: "0.15.2"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install Zig
+        run: |
+          case "$(uname -m)" in
+            aarch64) zig_arch="aarch64" ;;
+            x86_64) zig_arch="x86_64" ;;
+            *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -L -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-${zig_arch}-linux-${ZIG_VERSION}.tar.xz"
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-${zig_arch}-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Install Android platform and build-tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.1" > /dev/null
+      - name: Build zmr
+        run: |
+          mkdir -p zig-out/bin
+          zig build-exe src/main.zig -target x86_64-linux-gnu -O Debug -femit-bin=zig-out/bin/zmr
+          ./zig-out/bin/zmr version --json
+      - name: Run Android demo smoke on a real emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-snapshot -no-window -no-audio -no-boot-anim
+          disable-animations: true
+          script: ./scripts/demo-android-real.sh --out /tmp/zmr-android-demo --device emulator-5554 --no-auto-boot-emulator --trace-root /tmp/zmr-android-demo/traces/pilot
+      - name: Export report and redacted bundle
+        run: |
+          ./zig-out/bin/zmr report /tmp/zmr-android-demo/traces/pilot/zmr-1 --out /tmp/zmr-android-demo/traces/pilot/zmr-1/report.html --junit /tmp/zmr-android-demo/traces/pilot/zmr-1/junit.xml
+          ./zig-out/bin/zmr export /tmp/zmr-android-demo/traces/pilot/zmr-1 --out /tmp/zmr-android-demo/traces/pilot/android-demo-redacted.zmrtrace --redact
+      - name: Upload Android smoke traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: device-smoke-android
+          path: /tmp/zmr-android-demo/traces/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  ios-simulator:
+    runs-on: macos-15
+    timeout-minutes: 110
+    env:
+      ZIG_VERSION: "0.15.2"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: |
+          gem install xcodeproj
+          case "$(uname -m)" in
+            arm64) zig_arch="aarch64" ;;
+            x86_64) zig_arch="x86_64" ;;
+            *) echo "unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -L -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-${zig_arch}-macos-${ZIG_VERSION}.tar.xz"
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-${zig_arch}-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Build zmr
+        run: |
+          case "$(uname -m)" in
+            arm64) zig_target="aarch64-macos.15.0" ;;
+            *) zig_target="x86_64-macos.15.0" ;;
+          esac
+          mkdir -p zig-out/bin
+          zig build-exe src/main.zig -target "$zig_target" -O Debug -femit-bin=zig-out/bin/zmr
+          ./zig-out/bin/zmr version --json
+      - name: Run iOS demo smoke on a real simulator
+        run: ./scripts/demo-ios-real.sh --out /tmp/zmr-ios-demo --trace-root /tmp/zmr-ios-demo/traces/pilot --cleanup-build-products
+      - name: Upload iOS smoke traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: device-smoke-ios
+          path: /tmp/zmr-ios-demo/traces/
+          if-no-files-found: ignore
+          retention-days: 14

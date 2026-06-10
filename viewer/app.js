@@ -73,20 +73,40 @@ els.dropTarget.addEventListener("drop", async (event) => {
 });
 
 async function loadBundleFile(file) {
-  setStatus(`Loading ${file.name}`);
+  await loadBundle(file.name, () => file.arrayBuffer());
+}
+
+async function loadBundleFromUrl(url) {
+  const name = url.split("/").pop() || url;
+  await loadBundle(name, async () => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
+    }
+    return await response.arrayBuffer();
+  });
+}
+
+async function loadBundle(name, getBuffer) {
+  setStatus(`Loading ${name}`);
   try {
     stopReplay();
     revokeObjectUrls();
-    const entries = parseTarArchive(await file.arrayBuffer());
+    const entries = parseTarArchive(await getBuffer());
     const model = buildTraceModel(entries);
     state.model = model;
     state.selectedFrameIndex = 0;
     state.selectedEvent = model.replayFrames[0]?.event ?? model.events[0] ?? null;
-    renderModel(file.name);
+    renderModel(name);
   } catch (error) {
     console.error(error);
     setStatus(error instanceof Error ? error.message : String(error), true);
   }
+}
+
+const bundleParam = new URLSearchParams(window.location.search).get("bundle");
+if (bundleParam) {
+  loadBundleFromUrl(bundleParam);
 }
 
 function renderModel(fileName) {

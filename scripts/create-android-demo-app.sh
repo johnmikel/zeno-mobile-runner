@@ -501,6 +501,7 @@ write_file "$OUT/.zmr/android-smoke.json" "$(cat <<EOF
   "name": "ZMR Android demo smoke",
   "appId": "$APP_ID",
   "steps": [
+    { "action": "clearState" },
     { "action": "launch" },
     { "action": "waitVisible", "selector": { "text": "ZMR Android Demo" }, "timeoutMs": 30000 },
     { "action": "tap", "selector": { "resourceId": "$APP_ID:id/continue_button" } },
@@ -518,6 +519,7 @@ write_file "$OUT/.zmr/android-workflow.json" "$(cat <<EOF
   "appId": "$APP_ID",
   "steps": [
     { "action": "stop" },
+    { "action": "clearState" },
     { "action": "launch" },
     {
       "action": "waitVisible",

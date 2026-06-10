@@ -88,6 +88,9 @@ fn writeTopLevelError(err: anyerror) void {
     if (err == error.CommandFailed) {
         stderr.writeAll("hint: run `zmr doctor --json` for setup diagnostics.\n") catch {};
     }
+    if (err == error.UnknownFlag) {
+        stderr.writeAll("hint: run `zmr help` for each command's flags and arguments.\n") catch {};
+    }
 }
 
 fn exitCodeForError(err: anyerror) u8 {

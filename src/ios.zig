@@ -10,8 +10,10 @@ const types = @import("types.zig");
 
 const default_max_output = 32 * 1024 * 1024;
 // Clean iOS prebuilds can force the XCTest shim script through a full native
-// dependency build before it can answer the first selector query.
-const shim_timeout_ms = 5_400_000;
+// dependency build before it can answer the first selector query. Slower CI
+// hardware can override the default with ZMR_IOS_SHIM_TIMEOUT_MS.
+const default_shim_timeout_ms = 5_400_000;
+const shim_timeout_env = "ZMR_IOS_SHIM_TIMEOUT_MS";
 const shim_best_effort_timeout_ms = 10_000;
 const shim_command_attempts = 2;
 const shim_bootstrap_retry_delay_ms = 500;
@@ -328,7 +330,7 @@ pub const IosDevice = struct {
     }
 
     fn runShim(self: *IosDevice, shim_command: ios_shim.Command) ![]u8 {
-        return self.runShimWithTimeout(shim_command, shim_timeout_ms);
+        return self.runShimWithTimeout(shim_command, shimTimeoutMs());
     }
 
     fn runShimWithTimeout(self: *IosDevice, shim_command: ios_shim.Command, timeout_ms: u64) ![]u8 {
@@ -393,6 +395,17 @@ fn isTransientShimBootstrapFailure(result: command.ExecResult) bool {
         std.mem.indexOf(u8, result.stderr, "operation never finished bootstrapping") != null;
 }
 
+fn shimTimeoutMs() u64 {
+    return parseShimTimeoutMs(std.posix.getenv(shim_timeout_env));
+}
+
+fn parseShimTimeoutMs(raw: ?[]const u8) u64 {
+    const value = raw orelse return default_shim_timeout_ms;
+    const parsed = std.fmt.parseInt(u64, value, 10) catch return default_shim_timeout_ms;
+    if (parsed == 0) return default_shim_timeout_ms;
+    return parsed;
+}
+
 fn urlMayNeedOpenConfirmation(url: []const u8) bool {
     return startsWithIgnoreCase(url, "http://") or startsWithIgnoreCase(url, "https://");
 }
@@ -418,6 +431,13 @@ pub fn parsePhysicalDevicesJson(allocator: std.mem.Allocator, content: []const u
 }
 
 test "ios xctest shim timeout allows cold xcodebuild startup" {
-    try std.testing.expect(shim_timeout_ms >= 5_400_000);
+    try std.testing.expect(default_shim_timeout_ms >= 5_400_000);
     try std.testing.expect(shim_best_effort_timeout_ms <= 15_000);
+}
+
+test "ios xctest shim timeout env override" {
+    try std.testing.expectEqual(@as(u64, default_shim_timeout_ms), parseShimTimeoutMs(null));
+    try std.testing.expectEqual(@as(u64, 600_000), parseShimTimeoutMs("600000"));
+    try std.testing.expectEqual(@as(u64, default_shim_timeout_ms), parseShimTimeoutMs("not-a-number"));
+    try std.testing.expectEqual(@as(u64, default_shim_timeout_ms), parseShimTimeoutMs("0"));
 }

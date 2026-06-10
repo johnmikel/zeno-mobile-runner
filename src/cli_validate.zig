@@ -9,17 +9,23 @@ pub const ParsedArgs = struct {
 };
 
 pub fn parseArgs(args: []const []const u8) !ParsedArgs {
-    if (args.len == 0) return error.MissingScenarioPath;
-
-    var parsed = ParsedArgs{ .path = args[0] };
-    for (args[1..]) |arg| {
+    var path: ?[]const u8 = null;
+    var json = false;
+    for (args) |arg| {
         if (std.mem.eql(u8, arg, "--json")) {
-            parsed.json = true;
+            json = true;
+        } else if (std.mem.startsWith(u8, arg, "--")) {
+            return error.UnknownFlag;
+        } else if (path == null) {
+            path = arg;
         } else {
             return error.UnknownFlag;
         }
     }
-    return parsed;
+    return ParsedArgs{
+        .path = path orelse return error.MissingScenarioPath,
+        .json = json,
+    };
 }
 
 pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {

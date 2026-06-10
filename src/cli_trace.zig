@@ -22,24 +22,34 @@ pub const ExportArgs = struct {
 };
 
 pub fn parseReportArgs(args: []const []const u8) !ReportArgs {
-    if (args.len == 0) return error.MissingReportInput;
-    var parsed = ReportArgs{ .input_path = args[0] };
+    var input_path: ?[]const u8 = null;
+    var out_path: ?[]const u8 = null;
+    var junit_path: ?[]const u8 = null;
 
-    var index: usize = 1;
+    var index: usize = 0;
     while (index < args.len) : (index += 1) {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--out")) {
             index += 1;
-            parsed.out_path = if (index < args.len) args[index] else return error.MissingReportOutput;
+            out_path = if (index < args.len) args[index] else return error.MissingReportOutput;
         } else if (std.mem.eql(u8, arg, "--junit")) {
             index += 1;
-            parsed.junit_path = if (index < args.len) args[index] else return error.MissingJUnitOutput;
+            junit_path = if (index < args.len) args[index] else return error.MissingJUnitOutput;
+        } else if (std.mem.startsWith(u8, arg, "--")) {
+            return error.UnknownFlag;
+        } else if (input_path == null) {
+            input_path = arg;
         } else {
             return error.UnknownFlag;
         }
     }
-    if (parsed.out_path == null) return error.MissingReportOutput;
-    return parsed;
+    if (input_path == null) return error.MissingReportInput;
+    if (out_path == null) return error.MissingReportOutput;
+    return ReportArgs{
+        .input_path = input_path.?,
+        .out_path = out_path,
+        .junit_path = junit_path,
+    };
 }
 
 pub fn parseExplainArgs(args: []const []const u8) !ExplainArgs {
@@ -58,26 +68,38 @@ pub fn parseExplainArgs(args: []const []const u8) !ExplainArgs {
 }
 
 pub fn parseExportArgs(args: []const []const u8) !ExportArgs {
-    if (args.len == 0) return error.MissingTraceDir;
-    var parsed = ExportArgs{ .trace_dir = args[0] };
+    var trace_dir: ?[]const u8 = null;
+    var out_path: ?[]const u8 = null;
+    var redact = false;
+    var omit_screenshots = false;
 
-    var index: usize = 1;
+    var index: usize = 0;
     while (index < args.len) : (index += 1) {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--out")) {
             index += 1;
-            parsed.out_path = if (index < args.len) args[index] else return error.MissingTraceBundleOutput;
+            out_path = if (index < args.len) args[index] else return error.MissingTraceBundleOutput;
         } else if (std.mem.eql(u8, arg, "--redact")) {
-            parsed.redact = true;
+            redact = true;
         } else if (std.mem.eql(u8, arg, "--omit-screenshots")) {
-            parsed.redact = true;
-            parsed.omit_screenshots = true;
+            redact = true;
+            omit_screenshots = true;
+        } else if (std.mem.startsWith(u8, arg, "--")) {
+            return error.UnknownFlag;
+        } else if (trace_dir == null) {
+            trace_dir = arg;
         } else {
             return error.UnknownFlag;
         }
     }
-    if (parsed.out_path == null) return error.MissingTraceBundleOutput;
-    return parsed;
+    if (trace_dir == null) return error.MissingTraceDir;
+    if (out_path == null) return error.MissingTraceBundleOutput;
+    return ExportArgs{
+        .trace_dir = trace_dir.?,
+        .out_path = out_path,
+        .redact = redact,
+        .omit_screenshots = omit_screenshots,
+    };
 }
 
 pub fn runReport(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {

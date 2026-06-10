@@ -21,3 +21,14 @@ test "parse report args accepts junit output" {
     try std.testing.expectEqualStrings("traces/run/report.html", parsed.out_path.?);
     try std.testing.expectEqualStrings("traces/run/junit.xml", parsed.junit_path.?);
 }
+
+test "parse report and export args accept flags before the positional" {
+    const report = try cli_trace.parseReportArgs(&.{ "--out", "report.html", "traces/run" });
+    try std.testing.expectEqualStrings("traces/run", report.input_path);
+    try std.testing.expectEqualStrings("report.html", report.out_path.?);
+
+    const exported = try cli_trace.parseExportArgs(&.{ "--out", "run.zmrtrace", "--redact", "traces/run" });
+    try std.testing.expectEqualStrings("traces/run", exported.trace_dir);
+    try std.testing.expectEqualStrings("run.zmrtrace", exported.out_path.?);
+    try std.testing.expect(exported.redact);
+}

@@ -14,36 +14,52 @@ pub const ParsedArgs = struct {
 };
 
 pub fn parseArgs(args: []const []const u8) !ParsedArgs {
-    if (args.len == 0) return error.MissingImportFormat;
-    if (args.len == 1) return error.MissingImportPath;
+    var format: ?[]const u8 = null;
+    var source_path: ?[]const u8 = null;
+    var out_path: ?[]const u8 = null;
+    var name: ?[]const u8 = null;
+    var app_id: ?[]const u8 = null;
+    var force = false;
+    var json = false;
 
-    var parsed = ParsedArgs{
-        .format = args[0],
-        .source_path = args[1],
-    };
-
-    var index: usize = 2;
+    var index: usize = 0;
     while (index < args.len) : (index += 1) {
         const arg = args[index];
         if (std.mem.eql(u8, arg, "--out")) {
             index += 1;
-            parsed.out_path = if (index < args.len) args[index] else return error.MissingImportOut;
+            out_path = if (index < args.len) args[index] else return error.MissingImportOut;
         } else if (std.mem.eql(u8, arg, "--name")) {
             index += 1;
-            parsed.name = if (index < args.len) args[index] else return error.MissingImportName;
+            name = if (index < args.len) args[index] else return error.MissingImportName;
         } else if (std.mem.eql(u8, arg, "--app-id")) {
             index += 1;
-            parsed.app_id = if (index < args.len) args[index] else return error.MissingAppId;
+            app_id = if (index < args.len) args[index] else return error.MissingAppId;
         } else if (std.mem.eql(u8, arg, "--force")) {
-            parsed.force = true;
+            force = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
-            parsed.json = true;
+            json = true;
+        } else if (std.mem.startsWith(u8, arg, "--")) {
+            return error.UnknownFlag;
+        } else if (format == null) {
+            format = arg;
+        } else if (source_path == null) {
+            source_path = arg;
         } else {
             return error.UnknownFlag;
         }
     }
-    if (parsed.out_path == null) return error.MissingImportOut;
-    return parsed;
+    if (format == null) return error.MissingImportFormat;
+    if (source_path == null) return error.MissingImportPath;
+    if (out_path == null) return error.MissingImportOut;
+    return ParsedArgs{
+        .format = format.?,
+        .source_path = source_path.?,
+        .out_path = out_path,
+        .name = name,
+        .app_id = app_id,
+        .force = force,
+        .json = json,
+    };
 }
 
 pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {

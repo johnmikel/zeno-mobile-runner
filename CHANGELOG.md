@@ -4,6 +4,8 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.1 (2026-06-10)
+
 ### Fixed
 
 - iOS simulator `openLink` now asks the XCTest shim to accept the SpringBoard

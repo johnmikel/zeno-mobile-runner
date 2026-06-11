@@ -1,7 +1,7 @@
 {
   "name": "zmr",
   "displayName": "Zeno Mobile Runner",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent-native mobile UI automation and verification for Expo, React Native, Flutter, and native Android/iOS apps. Gives Claude Code eyes and hands on emulators and simulators: semantic snapshots, typed actions, waits, assertions, and replayable traces.",
   "author": {
     "name": "John Mikel",

@@ -27,7 +27,7 @@ gradle -p clients/kotlin runFakeSession \
 ```
 
 ```kotlin
-implementation(files("path/to/zeno-mobile-runner/clients/kotlin/build/libs/zmr-client-0.2.0.jar"))
+implementation(files("path/to/zeno-mobile-runner/clients/kotlin/build/libs/zmr-client-0.2.1.jar"))
 ```
 
 ```kotlin

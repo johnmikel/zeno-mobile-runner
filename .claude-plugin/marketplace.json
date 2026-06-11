@@ -10,7 +10,7 @@
       "name": "zmr",
       "source": "./",
       "description": "Agent-native mobile UI automation and verification for Expo, React Native, Flutter, and native Android/iOS apps.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "John Mikel"
       },

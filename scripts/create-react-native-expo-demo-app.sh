@@ -229,7 +229,7 @@ export default function App() {
       <View style={styles.shell}>
         {screen === "welcome" ? (
           <View style={styles.centered}>
-            <Text style={styles.title} testID="demo_title" accessibilityLabel="demo_title">
+            <Text style={styles.title} testID="demo_title">
               Zeno Expo Demo
             </Text>
             <Text style={styles.copy}>A generated React Native and Expo workflow surface.</Text>
@@ -246,7 +246,7 @@ export default function App() {
 
         {screen === "profile" ? (
           <View style={styles.form}>
-            <Text style={styles.heading} testID="profile_title" accessibilityLabel="profile_title">
+            <Text style={styles.heading} testID="profile_title">
               Profile
             </Text>
             <TextInput
@@ -257,7 +257,7 @@ export default function App() {
               autoCorrect={false}
               style={styles.input}
               testID="profile_name_input"
-              accessibilityLabel="profile_name_input"
+             
             />
             <TextInput
               value={profileEmail}
@@ -268,7 +268,7 @@ export default function App() {
               keyboardType="email-address"
               style={styles.input}
               testID="profile_email_input"
-              accessibilityLabel="profile_email_input"
+             
             />
             <PrimaryButton
               label="Save profile"
@@ -283,20 +283,19 @@ export default function App() {
 
         {screen === "catalog" ? (
           <View style={styles.flex}>
-            <Text style={styles.heading} testID="catalog_title" accessibilityLabel="catalog_title">
+            <Text style={styles.heading} testID="catalog_title">
               Catalog
             </Text>
             <ScrollView
               style={styles.list}
               contentContainerStyle={styles.listContent}
               testID="catalog_list"
-              accessibilityLabel="catalog_list"
+             
             >
               {catalogItems.map((item) => (
                 <Pressable
                   key={item.id}
                   testID={\`catalog_item_\${item.id}\`}
-                  accessibilityLabel={\`catalog_item_\${item.id}\`}
                   accessibilityRole="button"
                   style={styles.row}
                   onPress={() => {
@@ -315,10 +314,10 @@ export default function App() {
 
         {screen === "detail" ? (
           <View style={styles.form}>
-            <Text style={styles.heading} testID="detail_title" accessibilityLabel="detail_title">
+            <Text style={styles.heading} testID="detail_title">
               {selectedItem.title}
             </Text>
-            <Text style={styles.copy} testID="detail_subtitle" accessibilityLabel="detail_subtitle">
+            <Text style={styles.copy} testID="detail_subtitle">
               {selectedItem.subtitle}
             </Text>
             <PrimaryButton
@@ -334,10 +333,10 @@ export default function App() {
 
         {screen === "review" ? (
           <View style={styles.form}>
-            <Text style={styles.heading} testID="review_title" accessibilityLabel="review_title">
+            <Text style={styles.heading} testID="review_title">
               Review
             </Text>
-            <Text style={styles.copy} testID="review_summary" accessibilityLabel="review_summary">
+            <Text style={styles.copy} testID="review_summary">
               {profileName || "Riley"} saved {selectedItem.title}
             </Text>
             <PrimaryButton
@@ -348,7 +347,7 @@ export default function App() {
           </View>
         ) : null}
 
-        <Text style={styles.status} testID="workflow_status" accessibilityLabel="workflow_status">
+        <Text style={styles.status} testID="workflow_status">
           {status}
         </Text>
       </View>
@@ -368,7 +367,6 @@ function PrimaryButton({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={testID}
       testID={testID}
       onPress={onPress}
       style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}

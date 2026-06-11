@@ -49,8 +49,13 @@ grep -q 'testID="detail_save_button"' "$TMPDIR/rn-expo-demo/App.tsx"
 grep -q 'testID="review_button"' "$TMPDIR/rn-expo-demo/App.tsx"
 grep -q 'testID="workflow_status"' "$TMPDIR/rn-expo-demo/App.tsx"
 grep -q 'testID="continue_button"' "$TMPDIR/rn-expo-demo/App.tsx"
-grep -q 'accessibilityLabel={testID}' "$TMPDIR/rn-expo-demo/App.tsx"
-grep -q 'accessibilityLabel={`catalog_item_${item.id}`}' "$TMPDIR/rn-expo-demo/App.tsx"
+# accessibilityLabel must NOT duplicate testID: on iOS the label overrides the
+# visible text in the XCUI tree, which breaks every text selector against the
+# generated app and teaches an accessibility antipattern.
+if grep -q 'accessibilityLabel' "$TMPDIR/rn-expo-demo/App.tsx"; then
+  echo "generated App.tsx must not set accessibilityLabel to a testID" >&2
+  exit 1
+fi
 
 "$ROOT/zig-out/bin/zmr" validate "$TMPDIR/rn-expo-demo/.zmr/react-native-expo-workflow.json"
 "$ROOT/zig-out/bin/zmr" validate "$TMPDIR/rn-expo-demo/.zmr/react-native-expo-android-workflow.json"

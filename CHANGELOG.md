@@ -4,6 +4,24 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Fixed
+
+- The generated React Native/Expo demo app no longer sets `accessibilityLabel`
+  to its own `testID` values. On iOS the label overrides the visible text in
+  the accessibility tree, which made every text selector in the generated iOS
+  workflow scenario unmatchable against the generated app itself (and modeled
+  an accessibility antipattern — screen readers announced "demo_title" instead
+  of the title). Found while recording real demo footage; the fixture's text
+  waits now pass on iOS.
+
+### Added
+
+- Added `scripts/record-demo-video.sh` (maintainer-only, npm-excluded): a
+  reproducible pipeline that records the launch-demo footage from the
+  generated Expo demo app — a passing workflow run, a copy-change break with
+  the `zmr explain` diagnosis, and the repaired green run — plus the
+  storyboard in `docs/demo-video-storyboard.md`.
+
 ## 0.2.1 (2026-06-10)
 
 ### Fixed

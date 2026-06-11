@@ -4,6 +4,27 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Fixed
+
+- iOS simulator `openLink` now asks the XCTest shim to accept the SpringBoard
+  "Open in <App>?" confirmation for custom URL schemes too, not just
+  http/https universal links. Custom schemes are the common Expo dev-client
+  deep-link case (`exp+scheme://expo-development-client/...`), and the
+  unaccepted dialog previously blocked navigation entirely. The shim's
+  `acceptSystemAlert` also gained a single alert-existence probe so the
+  best-effort accept stays fast when no dialog appears.
+- The generated Expo dev-client scenarios no longer pass when only the Expo
+  dev launcher rendered. The old `waitAny` markers also matched launcher
+  chrome ("Home", "Continue", "Sign in"), so runs exited green even though
+  the app's JS bundle never loaded. The scenarios now wait for the launcher's
+  persistent marker to be gone (`waitNotVisible` on "evelopment servers",
+  covering both case-sensitive spellings) — passing immediately when the deep
+  link navigates, and failing when the launcher is stuck — then assert no
+  bundle-error screen ("Unable to load" / "There was a problem loading") is
+  visible before `assertHealthy` and `snapshot`. Verified both directions
+  against a real Expo SDK 56 app: passes in ~24s with Metro serving, fails
+  with a wait timeout when the bundler is down.
+
 ## 0.2.0 (2026-06-10)
 
 ### Added

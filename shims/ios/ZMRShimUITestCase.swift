@@ -241,10 +241,16 @@ final class ZMRShimUITestCase: XCTestCase {
         var acceptedCount = 0
         var lastAcceptedLabel = ""
         for _ in 0..<3 {
+            // One existence probe on the alert container keeps the no-dialog
+            // path to a single short wait instead of a per-label wait, so the
+            // best-effort accept after every openLink stays cheap.
+            guard springboard.alerts.firstMatch.waitForExistence(timeout: 2) else {
+                break
+            }
             var tapped = false
             for label in labels {
                 let button = springboard.buttons[label].firstMatch
-                if button.waitForExistence(timeout: 2), button.isHittable {
+                if button.exists, button.isHittable {
                     button.tap()
                     acceptedCount += 1
                     lastAcceptedLabel = label

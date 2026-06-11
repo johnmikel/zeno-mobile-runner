@@ -193,7 +193,30 @@ test("scaffold helpers centralize generated app commands and scenarios", () => {
   ]);
   const devClient = devClientScenario("iOS Expo dev-client open-link smoke", "com.example.demo", "mobiletest", "http://127.0.0.1:8081");
   assert.equal(devClient.steps[1].url, "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
-  assert.equal(devClient.steps[2].action, "waitAny");
+  // Waiting for the launcher's persistent marker to be GONE proves the deep
+  // link navigated; transient loading overlays and launcher-ambiguous tokens
+  // ("Home", "Continue", "Sign in") previously produced false greens or false
+  // timeouts. "evelopment servers" covers both case-sensitive spellings.
+  assert.deepEqual(devClient.steps[2], {
+    action: "waitNotVisible",
+    selector: { textContains: "evelopment servers" },
+    timeoutMs: 120000,
+  });
+  assert.deepEqual(devClient.steps[3], {
+    action: "assertNoneVisible",
+    selectors: [
+      { textContains: "Unable to load" },
+      { textContains: "There was a problem loading" },
+    ],
+  });
+  assert.deepEqual(devClient.steps.map((step) => step.action), [
+    "stop",
+    "openLink",
+    "waitNotVisible",
+    "assertNoneVisible",
+    "assertHealthy",
+    "snapshot",
+  ]);
   assert.equal(devClientRunCommand({ platform: "android" }), "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client");
   assert.equal(devClientRunCommand({ platform: "ios" }), "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client");
   assert.deepEqual(scenarioFiles("com.example.demo", { android: true, ios: true }).map((file) => file.path), [

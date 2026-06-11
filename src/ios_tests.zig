@@ -497,7 +497,7 @@ test "ios simulator openLink asks XCTest shim to accept universal link confirmat
     try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);
 }
 
-test "ios simulator openLink skips XCTest confirmation for custom URL schemes" {
+test "ios simulator openLink asks XCTest shim to accept custom scheme open confirmation" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -527,7 +527,22 @@ test "ios simulator openLink skips XCTest confirmation for custom URL schemes" {
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
     defer device.deinit();
 
-    try device.openLink("exampleapp:///e2e-auth?probe=1");
+    // SpringBoard raises an "Open in <App>?" confirmation for custom schemes
+    // too (the Expo dev-client deep-link case), so the best-effort accept must
+    // not be limited to http/https universal links.
+    try device.openLink("exp+exampleapp://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
 
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(log_path, .{}));
+    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
+    defer allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"cmd\":\"acceptSystemAlert\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);
+}
+
+test "ios simulator openLink skips confirmation acceptance without a shim" {
+    const allocator = std.testing.allocator;
+    var device = try IosDevice.init(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest");
+    defer device.deinit();
+
+    try device.openLink("exampleapp:///e2e-auth?probe=1");
+    try device.openLink("https://example.com/e2e-auth?probe=1");
 }

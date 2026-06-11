@@ -64,6 +64,14 @@ export function scenarioFiles(appId, { android = true, ios = true, expoDevClient
 }
 
 export function devClientScenario(name, appId, scheme, metroUrl) {
+  // The Expo dev-launcher chrome shares tokens with common app copy ("Home",
+  // "Continue", "Sign in"), and bundle-loading overlays ("Downloading") can
+  // flash faster than a snapshot poll, so neither can prove the app's JS
+  // bundle loaded. Instead wait for the launcher's persistent marker to be
+  // GONE: "evelopment servers" matches both "Development servers" and "No
+  // development servers found" (matching is case-sensitive), passes
+  // immediately when the deep link navigates without showing the launcher,
+  // and times out — failing the run — when the launcher is stuck on screen.
   return {
     name,
     appId,
@@ -74,17 +82,16 @@ export function devClientScenario(name, appId, scheme, metroUrl) {
         url: `exp+${scheme}://expo-development-client/?url=${encodeURIComponent(metroUrl)}`,
       },
       {
-        action: "waitAny",
-        selectors: [
-          { textContains: "Downloading" },
-          { textContains: "Connected to:" },
-          { textContains: "Reload" },
-          { textContains: "Continue" },
-          { textContains: "Sign in" },
-          { textContains: "Home" },
-          { textContains: "Unable to load" },
-        ],
+        action: "waitNotVisible",
+        selector: { textContains: "evelopment servers" },
         timeoutMs: 120000,
+      },
+      {
+        action: "assertNoneVisible",
+        selectors: [
+          { textContains: "Unable to load" },
+          { textContains: "There was a problem loading" },
+        ],
       },
       { action: "assertHealthy" },
       { action: "snapshot" },

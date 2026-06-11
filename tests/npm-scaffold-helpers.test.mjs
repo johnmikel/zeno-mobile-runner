@@ -62,10 +62,21 @@ test("scenario helper module owns generated scenarios and matrix data", async ()
     "android-dev-client-smoke.json",
     "ios-dev-client-open-link.json",
   ]);
-  assert.equal(
-    scenarios.devClientScenario("iOS Expo dev-client open-link smoke", "com.example.demo", "mobiletest", "http://127.0.0.1:8081").steps[1].url,
-    "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081",
-  );
+  const devClient = scenarios.devClientScenario("iOS Expo dev-client open-link smoke", "com.example.demo", "mobiletest", "http://127.0.0.1:8081");
+  assert.equal(devClient.steps[1].url, "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
+  assert.deepEqual(devClient.steps.map((step) => step.action), [
+    "stop",
+    "openLink",
+    "waitNotVisible",
+    "assertNoneVisible",
+    "assertHealthy",
+    "snapshot",
+  ]);
+  assert.deepEqual(devClient.steps[2].selector, { textContains: "evelopment servers" });
+  assert.deepEqual(devClient.steps[3].selectors, [
+    { textContains: "Unable to load" },
+    { textContains: "There was a problem loading" },
+  ]);
 });
 
 test("scaffold helper module owns init JSON metadata", async () => {

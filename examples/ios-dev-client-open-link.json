@@ -2,25 +2,36 @@
   "name": "iOS Expo dev-client open-link smoke",
   "appId": "com.example.mobiletest",
   "steps": [
-    { "action": "stop" },
+    {
+      "action": "stop"
+    },
     {
       "action": "openLink",
       "url": "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081"
     },
     {
-      "action": "waitAny",
-      "selectors": [
-        { "textContains": "Downloading" },
-        { "textContains": "Connected to:" },
-        { "textContains": "Reload" },
-        { "textContains": "Continue" },
-        { "textContains": "Sign in" },
-        { "textContains": "Home" },
-        { "textContains": "Unable to load" }
-      ],
+      "action": "waitNotVisible",
+      "selector": {
+        "textContains": "evelopment servers"
+      },
       "timeoutMs": 120000
     },
-    { "action": "assertHealthy" },
-    { "action": "snapshot" }
+    {
+      "action": "assertNoneVisible",
+      "selectors": [
+        {
+          "textContains": "Unable to load"
+        },
+        {
+          "textContains": "There was a problem loading"
+        }
+      ]
+    },
+    {
+      "action": "assertHealthy"
+    },
+    {
+      "action": "snapshot"
+    }
   ]
 }

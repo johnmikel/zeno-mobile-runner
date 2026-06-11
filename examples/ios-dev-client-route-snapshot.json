@@ -2,23 +2,48 @@
   "name": "iOS Expo dev-client route snapshot",
   "appId": "com.example.mobiletest",
   "steps": [
-    { "action": "stop" },
+    {
+      "action": "stop"
+    },
     {
       "action": "openLink",
       "url": "exampleapp:///settings?mode=manage&source=zmr"
     },
     {
+      "action": "waitNotVisible",
+      "selector": {
+        "textContains": "evelopment servers"
+      },
+      "timeoutMs": 60000
+    },
+    {
       "action": "waitAny",
       "selectors": [
-        { "textContains": "Settings" },
-        { "textContains": "Manage" },
-        { "textContains": "Home" },
-        { "textContains": "Sign in" },
-        { "textContains": "Unable to load" }
+        {
+          "textContains": "Settings"
+        },
+        {
+          "textContains": "Manage"
+        }
       ],
       "timeoutMs": 60000
     },
-    { "action": "assertHealthy" },
-    { "action": "snapshot" }
+    {
+      "action": "assertNoneVisible",
+      "selectors": [
+        {
+          "textContains": "Unable to load"
+        },
+        {
+          "textContains": "There was a problem loading"
+        }
+      ]
+    },
+    {
+      "action": "assertHealthy"
+    },
+    {
+      "action": "snapshot"
+    }
   ]
 }

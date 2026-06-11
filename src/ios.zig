@@ -128,9 +128,13 @@ pub const IosDevice = struct {
         const result = try self.runSimctl(&.{ "openurl", self.target(), url }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
-        if (urlMayNeedOpenConfirmation(url)) {
-            self.acceptOpenURLConfirmationBestEffort();
-        }
+        // Opening a URL on the simulator can raise a SpringBoard "Open in <App>?"
+        // confirmation for universal links (http/https) and, just as often, for
+        // custom schemes — the common Expo dev-client case
+        // (exp+scheme://expo-development-client/...). Attempt a best-effort accept
+        // whenever a shim is configured; the shim probes briefly and returns fast
+        // when no dialog is present, so this stays cheap on the no-prompt path.
+        self.acceptOpenURLConfirmationBestEffort();
     }
 
     pub fn tap(self: *IosDevice, x: i32, y: i32) !void {
@@ -404,14 +408,6 @@ fn parseShimTimeoutMs(raw: ?[]const u8) u64 {
     const parsed = std.fmt.parseInt(u64, value, 10) catch return default_shim_timeout_ms;
     if (parsed == 0) return default_shim_timeout_ms;
     return parsed;
-}
-
-fn urlMayNeedOpenConfirmation(url: []const u8) bool {
-    return startsWithIgnoreCase(url, "http://") or startsWithIgnoreCase(url, "https://");
-}
-
-fn startsWithIgnoreCase(value: []const u8, prefix: []const u8) bool {
-    return value.len >= prefix.len and std.ascii.eqlIgnoreCase(value[0..prefix.len], prefix);
 }
 
 pub fn listDevices(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {

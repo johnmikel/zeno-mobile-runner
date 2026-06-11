@@ -278,11 +278,26 @@ test "pilot scenario examples parse" {
     try std.testing.expectEqualStrings("com.example.mobiletest", ios_dev_client.app_id.?);
     try std.testing.expect(ios_dev_client.steps.len > ios_smoke.steps.len);
     try std.testing.expectEqual(@as(std.meta.Tag(scenario.Step), .open_link), std.meta.activeTag(ios_dev_client.steps[1]));
+    // The dev-client smoke must prove the launcher is gone before declaring
+    // health: tokens like "Home" or "Continue" also match dev-launcher chrome
+    // and would turn the run green without the app's JS bundle ever loading.
+    try std.testing.expectEqual(@as(std.meta.Tag(scenario.Step), .wait_any), std.meta.activeTag(ios_dev_client.steps[2]));
+    for (ios_dev_client.steps[2].wait_any.selectors) |wanted| {
+        if (wanted.text_contains) |needle| {
+            try std.testing.expect(!std.mem.eql(u8, needle, "Home"));
+            try std.testing.expect(!std.mem.eql(u8, needle, "Continue"));
+            try std.testing.expect(!std.mem.eql(u8, needle, "Sign in"));
+        }
+    }
+    try std.testing.expectEqual(@as(std.meta.Tag(scenario.Step), .assert_none_visible), std.meta.activeTag(ios_dev_client.steps[3]));
+    try std.testing.expectEqualStrings("Development servers", ios_dev_client.steps[3].assert_none_visible.selectors[0].text_contains.?);
+    try std.testing.expectEqualStrings("No development servers", ios_dev_client.steps[3].assert_none_visible.selectors[1].text_contains.?);
 
     const ios_dev_client_route = try scenario.parseFile(allocator, "examples/ios-dev-client-route-snapshot.json");
     defer ios_dev_client_route.deinit(allocator);
     try std.testing.expectEqualStrings("com.example.mobiletest", ios_dev_client_route.app_id.?);
     try std.testing.expectEqual(@as(std.meta.Tag(scenario.Step), .open_link), std.meta.activeTag(ios_dev_client_route.steps[1]));
+    try std.testing.expectEqual(@as(std.meta.Tag(scenario.Step), .assert_none_visible), std.meta.activeTag(ios_dev_client_route.steps[3]));
     try std.testing.expectEqual(@as(std.meta.Tag(scenario.Step), .snapshot), std.meta.activeTag(ios_dev_client_route.steps[ios_dev_client_route.steps.len - 1]));
 }
 

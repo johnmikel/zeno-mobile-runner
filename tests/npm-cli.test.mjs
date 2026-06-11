@@ -352,6 +352,9 @@ test("init command can target selected platforms and Expo dev-client scenarios",
     assert.ok(fs.existsSync(path.join(tmp, ".zmr", "ios-smoke.json")));
     const devClient = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "ios-dev-client-open-link.json"), "utf8"));
     assert.equal(devClient.steps[1].url, "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
+    assert.equal(devClient.steps[2].action, "waitNotVisible");
+    assert.deepEqual(devClient.steps[2].selector, { textContains: "evelopment servers" });
+    assert.equal(devClient.steps[3].action, "assertNoneVisible");
     const matrix = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "device-matrix.json"), "utf8"));
     assert.deepEqual(matrix.devices.map((device) => device.name), ["ios-simulator"]);
     const agentInstructions = fs.readFileSync(path.join(tmp, ".zmr", "AGENTS.md"), "utf8");
@@ -749,7 +752,9 @@ test("wizard can scaffold Expo dev-client open-link scenarios", () => {
     assert.equal(iosScenario.appId, "com.example.demo");
     assert.equal(androidScenario.steps[1].url, "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8081");
     assert.equal(iosScenario.steps[1].url, "exp+mobiletest://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
-    assert.equal(iosScenario.steps[2].action, "waitAny");
+    assert.equal(iosScenario.steps[2].action, "waitNotVisible");
+    assert.equal(iosScenario.steps[3].action, "assertNoneVisible");
+    assert.equal(androidScenario.steps[3].action, "assertNoneVisible");
 
     const config = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "config.json"), "utf8"));
     assert.equal(config.scripts.androidDevClient, "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client");

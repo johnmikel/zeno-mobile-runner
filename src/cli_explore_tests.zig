@@ -32,7 +32,7 @@ test "explore parse args supports trace-backed goal and validation flags" {
     try std.testing.expectError(error.MissingTraceDir, cli_explore.parseArgs(&.{ "--out", "explore.json" }));
     try std.testing.expectError(error.MissingDraftOut, cli_explore.parseArgs(&.{ "--from-trace", "traces/login" }));
     try std.testing.expectError(error.MissingParam, cli_explore.parseArgs(&.{ "--from-trace", "traces/login", "--out", "explore.json", "--goal" }));
-    try std.testing.expectError(error.UnknownFlag, cli_explore.parseArgs(&.{ "--crawl", "true" }));
+    try std.testing.expectError(error.unknownFlag, cli_explore.parseArgs(&.{ "--crawl", "true" }));
 }
 
 test "explore from trace writes reviewable validated candidate with guardrails" {
@@ -45,7 +45,7 @@ test "explore from trace writes reviewable validated candidate with guardrails" 
     try std.fs.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
-        \\{"schemaVersion":1,"runnerVersion":"0.2.1","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":2,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
+        \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":2,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });

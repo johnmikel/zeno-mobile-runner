@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const runner_config = @import("runner_config.zig");
 const runner_events = @import("runner_events.zig");
 const runner_native = @import("runner_native.zig");
@@ -16,7 +17,7 @@ pub fn tapSelector(
 ) !void {
     if (try runner_native.tryTapSelector(device, wanted, writer, options.settle_ms)) return;
 
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(options.action_timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(options.action_timeout_ms));
     var attempts: u32 = 0;
     while (true) {
         attempts += 1;
@@ -25,23 +26,24 @@ pub fn tapSelector(
         if (findActionable(snap, wanted)) |node| {
             try device.tap(node.bounds.centerX(), node.bounds.centerY());
             if (writer) |tw| {
-                var payload = std.ArrayList(u8).empty;
-                defer payload.deinit(tw.allocator);
-                try payload.writer(tw.allocator).print("{{\"snapshotId\":\"{s}\",\"target\":\"{s}\",\"x\":{d},\"y\":{d},\"attempts\":{d},\"selector\":", .{
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                const out = &payload.writer;
+                try out.print("{{\"snapshotId\":\"{s}\",\"target\":\"{s}\",\"x\":{d},\"y\":{d},\"attempts\":{d},\"selector\":", .{
                     snap.id,
                     node.stable_id,
                     node.bounds.centerX(),
                     node.bounds.centerY(),
                     attempts,
                 });
-                try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                try payload.writer(tw.allocator).writeAll("}");
-                try tw.recordEvent("ui.tap", payload.items);
+                try trace.writeSelectorJson(out, wanted);
+                try out.writeAll("}");
+                try tw.recordEvent("ui.tap", out.buffered());
             }
             try settleDevice(device, options);
             return;
         }
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| {
                 try runner_events.recordSelectorMiss(tw, "ui.tap.notFound", wanted, snap);
             }
@@ -62,14 +64,15 @@ pub fn typeTextSelector(
     try tapSelector(device, wanted, writer, options);
     try device.typeText(text);
     if (writer) |tw| {
-        var payload = std.ArrayList(u8).empty;
-        defer payload.deinit(tw.allocator);
-        try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"selector\":");
-        try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-        try payload.writer(tw.allocator).writeAll(",\"text\":");
-        try trace.writeJsonString(payload.writer(tw.allocator), text);
-        try payload.writer(tw.allocator).writeAll("}");
-        try tw.recordEvent("ui.type", payload.items);
+        var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+        defer payload.deinit();
+        const out = &payload.writer;
+        try out.writeAll("{\"status\":\"ok\",\"selector\":");
+        try trace.writeSelectorJson(out, wanted);
+        try out.writeAll(",\"text\":");
+        try trace.writeJsonString(out, text);
+        try out.writeAll("}");
+        try tw.recordEvent("ui.type", out.buffered());
     }
     try settleDevice(device, options);
 }
@@ -115,5 +118,5 @@ fn settleDevice(device: anytype, options: RunOptions) !void {
 }
 
 fn sleepMs(ms: u64) !void {
-    std.Thread.sleep(ms * std.time.ns_per_ms);
+    stdio.sleepNs(ms * std.time.ns_per_ms);
 }

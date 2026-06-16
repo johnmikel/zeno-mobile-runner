@@ -5,35 +5,38 @@ const trace = @import("trace.zig");
 const types = @import("types.zig");
 
 pub fn eventString(allocator: std.mem.Allocator, value: []const u8) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    errdefer buffer.deinit(allocator);
-    try buffer.writer(allocator).writeAll("{\"value\":");
-    try trace.writeJsonString(buffer.writer(allocator), value);
-    try buffer.writer(allocator).writeAll("}");
-    return try buffer.toOwnedSlice(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    errdefer buffer.deinit();
+    const writer = &buffer.writer;
+    try writer.writeAll("{\"value\":");
+    try trace.writeJsonString(writer, value);
+    try writer.writeAll("}");
+    return try buffer.toOwnedSlice();
 }
 
 pub fn recordNativeWait(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector, matched_index: ?usize, timeout_ms: u64) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\"");
-    if (matched_index) |index| try payload.writer(tw.allocator).print(",\"matchedIndex\":{d}", .{index});
-    try payload.writer(tw.allocator).writeAll(",\"selector\":");
-    try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-    try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
-    try tw.recordEvent(kind, payload.items);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\"");
+    if (matched_index) |index| try writer.print(",\"matchedIndex\":{d}", .{index});
+    try writer.writeAll(",\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    try writer.print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 pub fn recordNativeWaitTimeout(tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).print("{{\"status\":\"timeout\",\"strategy\":\"nativeSelector\",\"timeoutMs\":{d},\"selectors\":[", .{timeout_ms});
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.print("{{\"status\":\"timeout\",\"strategy\":\"nativeSelector\",\"timeoutMs\":{d},\"selectors\":[", .{timeout_ms});
     for (selectors, 0..) |wanted, index| {
-        if (index > 0) try payload.writer(tw.allocator).writeAll(",");
-        try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
+        if (index > 0) try writer.writeAll(",");
+        try trace.writeSelectorJson(writer, wanted);
     }
-    try payload.writer(tw.allocator).writeAll("]}");
-    try tw.recordEvent(kind, payload.items);
+    try writer.writeAll("]}");
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 pub fn recordNativeWaitTimeoutWithDiagnostics(device: anytype, tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
@@ -45,10 +48,27 @@ pub fn recordNativeWaitTimeoutWithDiagnostics(device: anytype, tw: *trace.TraceW
     try recordDiagnosticWithStrategyAndTimeout(tw, kind, "timeout", "nativeSelector", selectors, snap, timeout_ms);
 }
 
+pub fn recordNativeSelectorArrayStatus(tw: *trace.TraceWriter, kind: []const u8, status: []const u8, selectors: []const selector.Selector, matched_index: ?usize, timeout_ms: u64) !void {
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
+    try out.writeAll("{\"status\":");
+    try trace.writeJsonString(out, status);
+    try out.writeAll(",\"strategy\":\"nativeSelector\"");
+    if (matched_index) |index| try out.print(",\"matchedIndex\":{d}", .{index});
+    try out.writeAll(",\"selectors\":[");
+    for (selectors, 0..) |wanted, index| {
+        if (index > 0) try out.writeAll(",");
+        try trace.writeSelectorJson(out, wanted);
+    }
+    try out.print("],\"timeoutMs\":{d}}}", .{timeout_ms});
+    try tw.recordEvent(kind, out.buffered());
+}
+
 pub fn recordSelectorArrayStatus(tw: *trace.TraceWriter, kind: []const u8, status: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const out = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
     try out.writeAll("{\"status\":");
     try trace.writeJsonString(out, status);
     try out.writeAll(",\"selectors\":[");
@@ -57,22 +77,35 @@ pub fn recordSelectorArrayStatus(tw: *trace.TraceWriter, kind: []const u8, statu
         try trace.writeSelectorJson(out, wanted);
     }
     try out.print("],\"timeoutMs\":{d}}}", .{timeout_ms});
-    try tw.recordEvent(kind, payload.items);
+    try tw.recordEvent(kind, out.buffered());
 }
 
 pub fn recordSelectorEvent(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).writeAll("{\"selector\":");
-    try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-    try payload.writer(tw.allocator).writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    try writer.writeAll("}");
+    try tw.recordEvent(kind, writer.buffered());
+}
+
+pub fn recordSelectorEventWithError(tw: *trace.TraceWriter, kind: []const u8, wanted: selector.Selector, err: anyerror) !void {
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    try writer.writeAll(",\"error\":");
+    try trace.writeJsonString(writer, @errorName(err));
+    try writer.writeAll("}");
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 pub fn recordActionStatus(tw: *trace.TraceWriter, kind: []const u8, status: []const u8, err: ?anyerror, url: ?[]const u8) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const out = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
     try out.writeAll("{\"status\":");
     try trace.writeJsonString(out, status);
     if (err) |actual| {
@@ -84,7 +117,7 @@ pub fn recordActionStatus(tw: *trace.TraceWriter, kind: []const u8, status: []co
         try trace.writeJsonString(out, value);
     }
     try out.writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    try tw.recordEvent(kind, out.buffered());
 }
 
 pub fn recordSwipe(tw: *trace.TraceWriter, x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) !void {
@@ -98,21 +131,21 @@ pub fn recordSwipe(tw: *trace.TraceWriter, x1: i32, y1: i32, x2: i32, y2: i32, d
 }
 
 pub fn recordTraceDiscover(tw: *trace.TraceWriter, status: []const u8, out_path: []const u8, include_actions: bool, validated: bool) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const out = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
     try out.writeAll("{\"status\":");
     try trace.writeJsonString(out, status);
     try out.writeAll(",\"out\":");
     try trace.writeJsonString(out, out_path);
     try out.print(",\"includeActions\":{},\"validated\":{}}}", .{ include_actions, validated });
-    try tw.recordEvent("trace.discover", payload.items);
+    try tw.recordEvent("trace.discover", out.buffered());
 }
 
 pub fn recordTraceExplore(tw: *trace.TraceWriter, status: []const u8, out_path: []const u8, goal: []const u8, include_actions: bool, validated: bool) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const out = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
     try out.writeAll("{\"status\":");
     try trace.writeJsonString(out, status);
     try out.writeAll(",\"out\":");
@@ -120,7 +153,7 @@ pub fn recordTraceExplore(tw: *trace.TraceWriter, status: []const u8, out_path: 
     try out.writeAll(",\"goal\":");
     try trace.writeJsonString(out, goal);
     try out.print(",\"includeActions\":{},\"validated\":{}}}", .{ include_actions, validated });
-    try tw.recordEvent("trace.explore", payload.items);
+    try tw.recordEvent("trace.explore", out.buffered());
 }
 
 pub fn recordStepError(tw: *trace.TraceWriter, index: usize, err: anyerror) !void {
@@ -140,9 +173,9 @@ pub fn recordScenarioEnd(
     failed_index: ?usize,
     err: ?anyerror,
 ) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const writer = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
     try writer.writeAll("{\"value\":");
     try trace.writeJsonString(writer, name);
     try writer.writeAll(",\"status\":");
@@ -155,7 +188,7 @@ pub fn recordScenarioEnd(
         try trace.writeJsonString(writer, @errorName(actual));
     }
     try writer.writeAll("}");
-    try tw.recordEvent("scenario.end", payload.items);
+    try tw.recordEvent("scenario.end", writer.buffered());
 }
 
 pub fn recordSelectorMiss(
@@ -178,15 +211,15 @@ pub fn recordWaitTimeout(
 }
 
 pub fn recordObservationRetry(tw: *trace.TraceWriter, kind: []const u8, err: anyerror) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const writer = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
     try writer.writeAll("{\"status\":\"retry\",\"kind\":");
     try trace.writeJsonString(writer, kind);
     try writer.writeAll(",\"error\":");
     try trace.writeJsonString(writer, @errorName(err));
     try writer.writeAll("}");
-    try tw.recordEvent("observe.retry", payload.items);
+    try tw.recordEvent("observe.retry", writer.buffered());
 }
 
 pub fn recordDiagnostic(

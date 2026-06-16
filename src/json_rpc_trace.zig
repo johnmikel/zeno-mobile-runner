@@ -4,6 +4,7 @@ const cli_explore = @import("cli_explore.zig");
 const protocol = @import("json_rpc_protocol.zig");
 const report = @import("report.zig");
 const runner_events = @import("runner_events.zig");
+const stdio = @import("stdio.zig");
 const trace = @import("trace.zig");
 
 pub fn writeEventsResult(
@@ -23,7 +24,7 @@ pub fn writeEventsResult(
 
     const events_path = try std.fs.path.join(allocator, &.{ tw.root_dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const content = std.fs.cwd().readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
+    const content = stdio.readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => try allocator.dupe(u8, ""),
         else => return err,
     };
@@ -35,9 +36,9 @@ pub fn writeEventsResult(
     try trace.writeJsonString(writer, tw.root_dir);
     try writer.print(",\"afterSeq\":{d},\"nextSeq\":", .{after_seq});
 
-    var events_json = std.ArrayList(u8).empty;
-    defer events_json.deinit(allocator);
-    var events_writer = events_json.writer(allocator);
+    var events_json: std.Io.Writer.Allocating = .init(allocator);
+    defer events_json.deinit();
+    const events_writer = &events_json.writer;
     var next_seq = after_seq;
     var emitted: u64 = 0;
 
@@ -60,20 +61,20 @@ pub fn writeEventsResult(
     }
 
     try writer.print("{d},\"latestSeq\":{d},\"events\":[", .{ next_seq, tw.event_count });
-    try writer.writeAll(events_json.items);
+    try writer.writeAll(events_writer.buffered());
     try writer.writeAll("]}}\n");
 }
 
 pub fn recordSimplePayload(tw: *trace.TraceWriter, kind: []const u8, key: []const u8, value: []const u8) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const writer = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
     try writer.writeAll("{");
     try trace.writeJsonString(writer, key);
     try writer.writeAll(":");
     try trace.writeJsonString(writer, value);
     try writer.writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 pub fn writeDiscoverResult(
@@ -113,10 +114,10 @@ pub fn writeDiscoverResult(
         discovered.summary.validated,
     );
 
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    try cli_discover.writeJson(payload.writer(allocator), discovered.summary, discovered.validation);
-    try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try cli_discover.writeJson(&payload.writer, discovered.summary, discovered.validation);
+    try protocol.writeResultRaw(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
 }
 
 pub fn writeExploreResult(
@@ -159,10 +160,10 @@ pub fn writeExploreResult(
         explored.discovered.summary.validated,
     );
 
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    try cli_explore.writeJson(payload.writer(allocator), explored.summary, explored.discovered.summary, explored.discovered.validation);
-    try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try cli_explore.writeJson(&payload.writer, explored.summary, explored.discovered.summary, explored.discovered.validation);
+    try protocol.writeResultRaw(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
 }
 
 pub fn writeExplainResult(
@@ -177,9 +178,9 @@ pub fn writeExplainResult(
     };
 
     try tw.flushManifest();
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    try report.writeTraceExplanationJson(allocator, tw.root_dir, payload.writer(allocator));
-    try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try report.writeTraceExplanationJson(allocator, tw.root_dir, &payload.writer);
+    try protocol.writeResultRaw(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
     try tw.recordEvent("trace.explain", "{\"status\":\"ok\"}");
 }

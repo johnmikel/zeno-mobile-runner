@@ -197,7 +197,7 @@ comparisons against your current E2E tool, and multi-device matrices, see
 | Cloud device farms | Not included | ZMR focuses on local and self-managed device targets in this preview |
 
 Slow CI hardware can extend the iOS shim cold-build timeout with
-`ZMR_IOS_SHIM_TIMEOUT_MS`. Current release: `0.2.1` developer preview.
+`ZMR_IOS_SHIM_TIMEOUT_MS`. Current release: `0.2.7` developer preview.
 Protocol version: `2026-04-28`.
 
 ## Optional protocol clients

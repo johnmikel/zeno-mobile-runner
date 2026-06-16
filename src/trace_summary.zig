@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const trace = @import("trace.zig");
 const trace_summary_diagnostic = @import("trace_summary_diagnostic.zig");
 
@@ -59,7 +60,7 @@ const TerminalEvent = struct {
 pub fn read(allocator: std.mem.Allocator, trace_dir: []const u8) !Summary {
     const manifest_path = try std.fs.path.join(allocator, &.{ trace_dir, "trace.json" });
     defer allocator.free(manifest_path);
-    const manifest_content = try std.fs.cwd().readFileAlloc(allocator, manifest_path, 1024 * 1024);
+    const manifest_content = try stdio.readFileAlloc(allocator, manifest_path, 1024 * 1024);
     defer allocator.free(manifest_content);
 
     const manifest = try std.json.parseFromSlice(std.json.Value, allocator, manifest_content, .{});
@@ -91,7 +92,7 @@ pub fn read(allocator: std.mem.Allocator, trace_dir: []const u8) !Summary {
 
     const events_path = try std.fs.path.join(allocator, &.{ trace_dir, events_path_value });
     defer allocator.free(events_path);
-    if (std.fs.cwd().readFileAlloc(allocator, events_path, 64 * 1024 * 1024)) |events_content| {
+    if (stdio.readFileAlloc(allocator, events_path, 64 * 1024 * 1024)) |events_content| {
         defer allocator.free(events_content);
         try scanEvents(allocator, events_content, &terminal, &diagnostic, &partial_failure, &last_kind);
     } else |err| switch (err) {

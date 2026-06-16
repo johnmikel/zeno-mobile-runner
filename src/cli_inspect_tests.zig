@@ -10,7 +10,7 @@ test "inspect parses json config and dir flags" {
 }
 
 test "inspect rejects unknown flags" {
-    try std.testing.expectError(error.UnknownFlag, cli_inspect.parseArgs(&.{"--crawl"}));
+    try std.testing.expectError(error.unknownFlag, cli_inspect.parseArgs(&.{"--crawl"}));
 }
 
 test "inspect json reports app handoff without launching devices" {
@@ -50,7 +50,7 @@ test "inspect json reports app handoff without launching devices" {
 
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"schemaVersion\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"runnerVersion\":\"0.2.1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"runnerVersion\":\"0.2.2\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"protocolVersion\":\"2026-04-28\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"configExists\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\"agentInstructionsExists\":true") != null);

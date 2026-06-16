@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const health = @import("health.zig");
 const runner_config = @import("runner_config.zig");
 const runner_events = @import("runner_events.zig");
@@ -37,14 +38,14 @@ fn untilVisibleKind(
     options: RunOptions,
     kind: []const u8,
 ) !bool {
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
         if (try nativeVisibleBySelector(device, wanted)) |visible| {
             if (visible) {
                 if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
                 return true;
             }
-            if (std.time.milliTimestamp() >= deadline) {
+            if (stdio.nowMs() >= deadline) {
                 if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
                 return false;
             }
@@ -58,16 +59,17 @@ fn untilVisibleKind(
         defer snap.deinit(device.allocator);
         if (selector.find(snap.nodes, wanted)) |node| {
             if (writer) |tw| {
-                var payload = std.ArrayList(u8).empty;
-                defer payload.deinit(tw.allocator);
-                try payload.writer(tw.allocator).print("{{\"status\":\"ok\",\"target\":\"{s}\",\"selector\":", .{node.stable_id});
-                try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
-                try tw.recordEvent(kind, payload.items);
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                const out = &payload.writer;
+                try out.print("{{\"status\":\"ok\",\"target\":\"{s}\",\"selector\":", .{node.stable_id});
+                try trace.writeSelectorJson(out, wanted);
+                try out.print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+                try tw.recordEvent(kind, out.buffered());
             }
             return true;
         }
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| {
                 const selectors = [_]selector.Selector{wanted};
                 try runner_events.recordDiagnosticWithStrategyAndTimeout(tw, kind, "timeout", null, selectors[0..], snap, timeout_ms);
@@ -106,14 +108,14 @@ fn untilNotVisibleKind(
     options: RunOptions,
     kind: []const u8,
 ) !bool {
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
         if (try nativeVisibleBySelector(device, wanted)) |visible| {
             if (!visible) {
                 if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
                 return true;
             }
-            if (std.time.milliTimestamp() >= deadline) {
+            if (stdio.nowMs() >= deadline) {
                 if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
                 return false;
             }
@@ -127,16 +129,17 @@ fn untilNotVisibleKind(
         defer snap.deinit(device.allocator);
         if (selector.find(snap.nodes, wanted) == null) {
             if (writer) |tw| {
-                var payload = std.ArrayList(u8).empty;
-                defer payload.deinit(tw.allocator);
-                try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"selector\":");
-                try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
-                try tw.recordEvent(kind, payload.items);
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                const out = &payload.writer;
+                try out.writeAll("{\"status\":\"ok\",\"selector\":");
+                try trace.writeSelectorJson(out, wanted);
+                try out.print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+                try tw.recordEvent(kind, out.buffered());
             }
             return true;
         }
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| {
                 const selectors = [_]selector.Selector{wanted};
                 try runner_events.recordDiagnosticWithStrategyAndTimeout(tw, kind, "timeout", null, selectors[0..], snap, timeout_ms);
@@ -154,7 +157,7 @@ pub fn waitUntilAnyVisible(
     writer: ?*trace.TraceWriter,
     options: RunOptions,
 ) !?usize {
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
         var all_native = true;
         for (selectors, 0..) |wanted, index| {
@@ -169,7 +172,7 @@ pub fn waitUntilAnyVisible(
             }
         }
         if (all_native) {
-            if (std.time.milliTimestamp() >= deadline) {
+            if (stdio.nowMs() >= deadline) {
                 if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.any", selectors, timeout_ms);
                 return null;
             }
@@ -184,17 +187,18 @@ pub fn waitUntilAnyVisible(
         for (selectors, 0..) |wanted, index| {
             if (selector.find(snap.nodes, wanted)) |node| {
                 if (writer) |tw| {
-                    var payload = std.ArrayList(u8).empty;
-                    defer payload.deinit(tw.allocator);
-                    try payload.writer(tw.allocator).print("{{\"status\":\"ok\",\"matchedIndex\":{d},\"target\":\"{s}\",\"selector\":", .{ index, node.stable_id });
-                    try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                    try payload.writer(tw.allocator).print(",\"timeoutMs\":{d}}}", .{timeout_ms});
-                    try tw.recordEvent("wait.any", payload.items);
+                    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                    defer payload.deinit();
+                    const out = &payload.writer;
+                    try out.print("{{\"status\":\"ok\",\"matchedIndex\":{d},\"target\":\"{s}\",\"selector\":", .{ index, node.stable_id });
+                    try trace.writeSelectorJson(out, wanted);
+                    try out.print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+                    try tw.recordEvent("wait.any", out.buffered());
                 }
                 return index;
             }
         }
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| try runner_events.recordWaitTimeout(tw, "wait.any", selectors, snap);
             return null;
         }
@@ -209,7 +213,7 @@ pub fn assertNoneVisible(
     writer: ?*trace.TraceWriter,
     options: RunOptions,
 ) !bool {
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "assert.noneVisible", writer, deadline, options)) continue;
@@ -230,7 +234,7 @@ pub fn assertNoneVisible(
             return true;
         }
 
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| try runner_events.recordDiagnosticWithStrategyAndTimeout(tw, "assert.noneVisible", "visible", null, selectors, snap, timeout_ms);
             return false;
         }
@@ -246,7 +250,8 @@ pub fn assertHealthy(
     options: RunOptions,
 ) !bool {
     const health_selectors = health.defaultSelectors();
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    if (try nativeAssertHealthy(device, health_selectors, timeout_ms, writer, deadline, options)) |healthy| return healthy;
     while (true) {
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "assert.healthy", writer, deadline, options)) continue;
@@ -263,12 +268,40 @@ pub fn assertHealthy(
             return true;
         }
 
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| try runner_events.recordDiagnosticWithStrategyAndTimeout(tw, "assert.healthy", "unhealthy", null, health_selectors, snap, timeout_ms);
             return false;
         }
 
         try sleepMs(options.poll_ms);
+    }
+}
+
+fn nativeAssertHealthy(
+    device: anytype,
+    health_selectors: []const selector.Selector,
+    timeout_ms: u64,
+    writer: ?*trace.TraceWriter,
+    deadline: i64,
+    options: RunOptions,
+) !?bool {
+    if (!@hasDecl(@TypeOf(device.*), "visibleBySelector")) return null;
+
+    probe: while (true) {
+        for (health_selectors, 0..) |wanted, index| {
+            const result = device.visibleBySelector(wanted) catch |err| {
+                if (try retryTransientObservation(err, "assert.healthy", writer, deadline, options)) continue :probe;
+                return err;
+            };
+            const visible = result orelse return null;
+            if (visible) {
+                if (writer) |tw| try runner_events.recordNativeSelectorArrayStatus(tw, "assert.healthy", "unhealthy", health_selectors, index, timeout_ms);
+                return false;
+            }
+        }
+
+        if (writer) |tw| try runner_events.recordNativeSelectorArrayStatus(tw, "assert.healthy", "ok", health_selectors, null, timeout_ms);
+        return true;
     }
 }
 
@@ -280,7 +313,7 @@ pub fn scrollUntilVisible(
     writer: ?*trace.TraceWriter,
     options: RunOptions,
 ) !bool {
-    const deadline = std.time.milliTimestamp() + @as(i64, @intCast(timeout_ms));
+    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "ui.scrollUntilVisible", writer, deadline, options)) continue;
@@ -289,19 +322,20 @@ pub fn scrollUntilVisible(
         defer snap.deinit(device.allocator);
         if (selector.find(snap.nodes, wanted)) |node| {
             if (writer) |tw| {
-                var payload = std.ArrayList(u8).empty;
-                defer payload.deinit(tw.allocator);
-                try payload.writer(tw.allocator).print("{{\"status\":\"ok\",\"target\":\"{s}\",\"selector\":", .{node.stable_id});
-                try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-                try payload.writer(tw.allocator).print(",\"direction\":\"{s}\",\"timeoutMs\":{d}}}", .{
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                const out = &payload.writer;
+                try out.print("{{\"status\":\"ok\",\"target\":\"{s}\",\"selector\":", .{node.stable_id});
+                try trace.writeSelectorJson(out, wanted);
+                try out.print(",\"direction\":\"{s}\",\"timeoutMs\":{d}}}", .{
                     if (direction == .down) "down" else "up",
                     timeout_ms,
                 });
-                try tw.recordEvent("ui.scrollUntilVisible", payload.items);
+                try tw.recordEvent("ui.scrollUntilVisible", out.buffered());
             }
             return true;
         }
-        if (std.time.milliTimestamp() >= deadline) {
+        if (stdio.nowMs() >= deadline) {
             if (writer) |tw| {
                 const selectors = [_]selector.Selector{wanted};
                 try runner_events.recordWaitTimeout(tw, "ui.scrollUntilVisible", selectors[0..], snap);
@@ -347,8 +381,8 @@ fn retryTransientObservation(
     deadline: i64,
     options: RunOptions,
 ) !bool {
-    if (err != error.CommandTimedOut) return false;
-    if (std.time.milliTimestamp() >= deadline) return false;
+    if (err != error.CommandTimedOut and err != error.CommandFailed) return false;
+    if (stdio.nowMs() >= deadline) return false;
     if (writer) |tw| try runner_events.recordObservationRetry(tw, kind, err);
     try sleepMs(options.poll_ms);
     return true;
@@ -359,5 +393,5 @@ fn settleDevice(device: anytype, options: RunOptions) !void {
 }
 
 fn sleepMs(ms: u64) !void {
-    std.Thread.sleep(ms * std.time.ns_per_ms);
+    stdio.sleepNs(ms * std.time.ns_per_ms);
 }

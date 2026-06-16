@@ -65,7 +65,7 @@ pub fn uninstallPhysicalBestEffort(
 
 pub fn isMissingInstalledApp(result: command.ExecResult) bool {
     switch (result.term) {
-        .Exited => |code| if (code == 0) return false,
+        .exited => |code| if (code == 0) return false,
         else => return false,
     }
     return std.mem.indexOf(u8, result.stderr, "No installed application with bundle identifier") != null;
@@ -73,7 +73,7 @@ pub fn isMissingInstalledApp(result: command.ExecResult) bool {
 
 pub fn isAppNotRunning(result: command.ExecResult) bool {
     switch (result.term) {
-        .Exited => |code| if (code == 0) return false,
+        .exited => |code| if (code == 0) return false,
         else => return false,
     }
     return std.mem.indexOf(u8, result.stderr, "found nothing to terminate") != null;
@@ -89,7 +89,7 @@ test "simctl terminate missing running app is best-effort" {
     try std.testing.expect(isAppNotRunning(.{
         .stdout = stdout,
         .stderr = stderr,
-        .term = .{ .Exited = 3 },
+        .term = .{ .exited = 3 },
     }));
 }
 
@@ -103,6 +103,6 @@ test "simctl terminate success is not classified as already stopped" {
     try std.testing.expect(!isAppNotRunning(.{
         .stdout = stdout,
         .stderr = stderr,
-        .term = .{ .Exited = 0 },
+        .term = .{ .exited = 0 },
     }));
 }

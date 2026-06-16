@@ -27,10 +27,10 @@ pub fn recordWithOptions(
     snap: types.ObservationSnapshot,
     options: DiagnosticOptions,
 ) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try writeSelectorDiagnosticJsonWithOptions(payload.writer(tw.allocator), status, strategy, selectors, snap, options);
-    try tw.recordEvent(kind, payload.items);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    try writeSelectorDiagnosticJsonWithOptions(&payload.writer, status, strategy, selectors, snap, options);
+    try tw.recordEvent(kind, payload.writer.buffered());
 }
 
 pub fn writeSelectorDiagnosticJson(

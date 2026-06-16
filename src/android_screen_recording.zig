@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const command = @import("command.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
@@ -27,11 +28,12 @@ pub fn start(
     const owned_remote_path = try allocator.dupe(u8, remote_path);
     errdefer allocator.free(owned_remote_path);
 
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    try child.spawn();
+    const child = try std.process.spawn(stdio.io(), .{
+        .argv = argv.items,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
 
     return .{
         .allocator = allocator,
@@ -74,8 +76,10 @@ pub const AndroidScreenRecording = struct {
 
     fn stopProcess(self: *AndroidScreenRecording) !void {
         if (self.stopped) return;
-        std.posix.kill(self.child.id, std.posix.SIG.INT) catch {};
-        _ = try self.child.wait();
+        if (self.child.id) |child_id| {
+            std.posix.kill(child_id, std.posix.SIG.INT) catch {};
+            _ = try self.child.wait(stdio.io());
+        }
         self.stopped = true;
     }
 

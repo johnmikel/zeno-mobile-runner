@@ -20,12 +20,13 @@ pub fn writeResult(writer: anytype, id: ?std.json.Value, snap: types.Observation
 pub fn recordArtifact(tw: *trace.TraceWriter, kind: []const u8, snap: types.ObservationSnapshot) !void {
     const path = try tw.writeSnapshot(snap);
     defer tw.allocator.free(path);
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).writeAll("{\"path\":");
-    try trace.writeJsonString(payload.writer(tw.allocator), path);
-    try payload.writer(tw.allocator).writeAll(",\"snapshotId\":");
-    try trace.writeJsonString(payload.writer(tw.allocator), snap.id);
-    try payload.writer(tw.allocator).writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
+    try out.writeAll("{\"path\":");
+    try trace.writeJsonString(out, path);
+    try out.writeAll(",\"snapshotId\":");
+    try trace.writeJsonString(out, snap.id);
+    try out.writeAll("}");
+    try tw.recordEvent(kind, out.buffered());
 }

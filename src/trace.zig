@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const selector = @import("selector.zig");
 const trace_json = @import("trace_json.zig");
 const types = @import("types.zig");
@@ -28,11 +29,11 @@ pub const TraceWriter = struct {
     }
 
     pub fn initWithOptions(allocator: std.mem.Allocator, root_dir: []const u8, capture: CaptureOptions) !TraceWriter {
-        try std.fs.cwd().makePath(root_dir);
+        try std.Io.Dir.cwd().createDirPath(stdio.io(), root_dir);
         try resetTraceDirectory(allocator, root_dir);
         const artifacts_path = try std.fs.path.join(allocator, &.{ root_dir, "artifacts" });
         defer allocator.free(artifacts_path);
-        try std.fs.cwd().makePath(artifacts_path);
+        try std.Io.Dir.cwd().createDirPath(stdio.io(), artifacts_path);
         return .{
             .allocator = allocator,
             .root_dir = try allocator.dupe(u8, root_dir),
@@ -51,7 +52,7 @@ pub const TraceWriter = struct {
             .scenario_name = try self.allocator.dupe(u8, scenario_name),
             .app_id = try dupeOptional(self.allocator, app_id),
             .status = try self.allocator.dupe(u8, "running"),
-            .started_at_ms = std.time.milliTimestamp(),
+            .started_at_ms = stdio.nowMs(),
         };
         try self.writeManifest();
     }
@@ -68,7 +69,7 @@ pub const TraceWriter = struct {
         var manifest = &self.manifest.?;
         self.allocator.free(manifest.status);
         manifest.status = try self.allocator.dupe(u8, options.status);
-        manifest.ended_at_ms = std.time.milliTimestamp();
+        manifest.ended_at_ms = stdio.nowMs();
         manifest.failed_step_index = options.failed_step_index;
         if (manifest.error_name) |value| self.allocator.free(value);
         manifest.error_name = try dupeOptional(self.allocator, options.error_name);
@@ -99,9 +100,9 @@ pub const TraceWriter = struct {
     pub fn writeArtifact(self: *TraceWriter, name: []const u8, bytes: []const u8) ![]const u8 {
         const path = try self.artifactPath(name);
         errdefer self.allocator.free(path);
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
-        try file.writeAll(bytes);
+        var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+        defer file.close(stdio.io());
+        try std.Io.File.writeStreamingAll(file, stdio.io(), bytes);
         return path;
     }
 
@@ -110,15 +111,22 @@ pub const TraceWriter = struct {
         if (isPartialFailureEvent(kind, payload)) self.partial_failure_count += 1;
         const path = try std.fs.path.join(self.allocator, &.{ self.root_dir, "events.jsonl" });
         defer self.allocator.free(path);
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = false });
-        defer file.close();
-        try file.seekFromEnd(0);
+        const existing = stdio.readFileAlloc(self.allocator, path, 64 * 1024 * 1024) catch |err| switch (err) {
+            error.FileNotFound => "",
+            else => return err,
+        };
+        const had_existing_file = existing.ptr != "".ptr;
+        defer if (had_existing_file) self.allocator.free(existing);
+
+        var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+        defer file.close(stdio.io());
         var write_buffer: [4096]u8 = undefined;
-        var file_writer = file.writerStreaming(&write_buffer);
+        var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
         const writer = &file_writer.interface;
+        if (existing.len > 0) try writer.writeAll(existing);
         try writer.print(
             "{{\"seq\":{d},\"timestampMs\":{d},\"kind\":\"{s}\",\"payload\":",
-            .{ self.event_count, std.time.milliTimestamp(), kind },
+            .{ self.event_count, stdio.nowMs(), kind },
         );
         try trace_json.writeRedactedJsonPayload(self.allocator, writer, payload, self.capture.redaction);
         try writer.writeAll("}\n");
@@ -131,10 +139,10 @@ pub const TraceWriter = struct {
         defer self.allocator.free(file_name);
         const path = try self.artifactPath(file_name);
         errdefer self.allocator.free(path);
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
+        var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+        defer file.close(stdio.io());
         var write_buffer: [8192]u8 = undefined;
-        var file_writer = file.writer(&write_buffer);
+        var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
         try trace_json.writeSnapshotJsonRedacted(&file_writer.interface, snapshot, self.capture.redaction);
         try file_writer.interface.flush();
         return path;
@@ -149,10 +157,10 @@ pub const TraceWriter = struct {
         const manifest = self.manifest.?;
         const path = try std.fs.path.join(self.allocator, &.{ self.root_dir, "trace.json" });
         defer self.allocator.free(path);
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
+        var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+        defer file.close(stdio.io());
         var write_buffer: [4096]u8 = undefined;
-        var file_writer = file.writer(&write_buffer);
+        var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
         const writer = &file_writer.interface;
 
         try writer.writeAll("{");
@@ -223,7 +231,7 @@ fn resetTraceDirectory(allocator: std.mem.Allocator, root_dir: []const u8) !void
     for (stale_files) |name| {
         const path = try std.fs.path.join(allocator, &.{ root_dir, name });
         defer allocator.free(path);
-        std.fs.cwd().deleteFile(path) catch |err| switch (err) {
+        std.Io.Dir.cwd().deleteFile(stdio.io(), path) catch |err| switch (err) {
             error.FileNotFound => {},
             else => return err,
         };
@@ -232,11 +240,11 @@ fn resetTraceDirectory(allocator: std.mem.Allocator, root_dir: []const u8) !void
     const artifacts_path = try std.fs.path.join(allocator, &.{ root_dir, "artifacts" });
     defer allocator.free(artifacts_path);
     var artifacts_exists = true;
-    std.fs.cwd().access(artifacts_path, .{}) catch |err| switch (err) {
+    stdio.access(artifacts_path) catch |err| switch (err) {
         error.FileNotFound => artifacts_exists = false,
         else => return err,
     };
-    if (artifacts_exists) try std.fs.cwd().deleteTree(artifacts_path);
+    if (artifacts_exists) try std.Io.Dir.cwd().deleteTree(stdio.io(), artifacts_path);
 }
 
 const Manifest = struct {
@@ -271,7 +279,7 @@ pub fn attachReportPath(allocator: std.mem.Allocator, root_dir: []const u8, repo
     const manifest_path = try std.fs.path.join(allocator, &.{ root_dir, "trace.json" });
     defer allocator.free(manifest_path);
 
-    const content = std.fs.cwd().readFileAlloc(allocator, manifest_path, 1024 * 1024) catch |err| switch (err) {
+    const content = stdio.readFileAlloc(allocator, manifest_path, 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => return,
         else => return err,
     };
@@ -283,12 +291,12 @@ pub fn attachReportPath(allocator: std.mem.Allocator, root_dir: []const u8, repo
 
     const arena_allocator = parsed.arena.allocator();
     const owned_report_path = try arena_allocator.dupe(u8, report_path);
-    try parsed.value.object.put("reportPath", .{ .string = owned_report_path });
+    try parsed.value.object.put(arena_allocator, "reportPath", .{ .string = owned_report_path });
 
-    var file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
-    defer file.close();
+    var file = try std.Io.Dir.cwd().createFile(stdio.io(), manifest_path, .{ .truncate = true });
+    defer file.close(stdio.io());
     var write_buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&write_buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
     try std.json.Stringify.value(parsed.value, .{}, &file_writer.interface);
     try file_writer.interface.writeByte('\n');
     try file_writer.interface.flush();

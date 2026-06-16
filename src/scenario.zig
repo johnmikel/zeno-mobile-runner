@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const fields = @import("scenario_fields.zig");
 const selector = @import("selector.zig");
 
@@ -162,7 +163,7 @@ pub const Scenario = struct {
 };
 
 pub fn parseFile(allocator: std.mem.Allocator, path: []const u8) !Scenario {
-    const content = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, path, 16 * 1024 * 1024);
     defer allocator.free(content);
     return try parseSlice(allocator, content);
 }
@@ -338,7 +339,7 @@ fn parseRawStep(allocator: std.mem.Allocator, object: std.json.ObjectMap) anyerr
         } };
     }
 
-    return error.UnknownScenarioAction;
+    return error.unknownScenarioAction;
 }
 
 fn appendParsedSteps(allocator: std.mem.Allocator, steps: *std.ArrayList(Step), value: std.json.Value) anyerror!void {
@@ -365,7 +366,7 @@ fn optionalDirection(object: std.json.ObjectMap, key: []const u8, default_value:
     if (value != .string) return error.OptionalFieldMustBeString;
     if (std.mem.eql(u8, value.string, "down")) return .down;
     if (std.mem.eql(u8, value.string, "up")) return .up;
-    return error.UnknownScrollDirection;
+    return error.unknownScrollDirection;
 }
 
 fn optionalTimeoutMs(object: std.json.ObjectMap) !?u64 {

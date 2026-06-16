@@ -19,7 +19,7 @@ pub fn hintForCheck(allocator: std.mem.Allocator, name: []const u8, status: Stat
     if (status == .ok) return null;
     const hint =
         if (std.mem.eql(u8, name, "zig"))
-            "Install Zig 0.15.2 or newer, ensure it is on PATH, then run zmr doctor again."
+            "Install Zig 0.16.0 or newer, ensure it is on PATH, then run zmr doctor again."
         else if (std.mem.eql(u8, name, "adb"))
             "Install Android SDK Platform Tools, ensure adb is on PATH, then run adb devices."
         else if (std.mem.eql(u8, name, "android-devices"))

@@ -24,21 +24,21 @@ fn redactTraceManifest(allocator: std.mem.Allocator, bytes: []const u8, options:
     if (parsed.value != .object) return try redactJsonishText(allocator, bytes);
 
     const arena_allocator = parsed.arena.allocator();
-    var redaction = std.json.ObjectMap.init(arena_allocator);
-    try redaction.put("enabled", .{ .bool = true });
-    try redaction.put("screenshots", .{ .string = if (options.omit_screenshots) "omitted" else "placeholder" });
-    try redaction.put("screenRecordings", .{ .string = "omitted" });
-    try redaction.put("textArtifacts", .{ .string = "scrubbed" });
-    try redaction.put("screenshotsOmitted", .{ .bool = options.omit_screenshots });
-    try redaction.put("screenshotsRedacted", .{ .bool = !options.omit_screenshots });
-    try redaction.put("screenRecordingsOmitted", .{ .bool = true });
-    try parsed.value.object.put("redaction", .{ .object = redaction });
+    var redaction = std.json.ObjectMap{};
+    try redaction.put(arena_allocator, "enabled", .{ .bool = true });
+    try redaction.put(arena_allocator, "screenshots", .{ .string = if (options.omit_screenshots) "omitted" else "placeholder" });
+    try redaction.put(arena_allocator, "screenRecordings", .{ .string = "omitted" });
+    try redaction.put(arena_allocator, "textArtifacts", .{ .string = "scrubbed" });
+    try redaction.put(arena_allocator, "screenshotsOmitted", .{ .bool = options.omit_screenshots });
+    try redaction.put(arena_allocator, "screenshotsRedacted", .{ .bool = !options.omit_screenshots });
+    try redaction.put(arena_allocator, "screenRecordingsOmitted", .{ .bool = true });
+    try parsed.value.object.put(arena_allocator, "redaction", .{ .object = redaction });
 
-    var out = std.ArrayList(u8).empty;
-    errdefer out.deinit(allocator);
-    try writeJsonValueRedacted(out.writer(allocator), parsed.value, null);
-    try out.writer(allocator).writeByte('\n');
-    return try out.toOwnedSlice(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try writeJsonValueRedacted(&out.writer, parsed.value, null);
+    try out.writer.writeByte('\n');
+    return try out.toOwnedSlice();
 }
 
 fn redactJsonishText(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
@@ -46,11 +46,11 @@ fn redactJsonishText(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
         return redactFreeText(allocator, bytes);
     };
     defer parsed.deinit();
-    var out = std.ArrayList(u8).empty;
-    errdefer out.deinit(allocator);
-    try writeJsonValueRedacted(out.writer(allocator), parsed.value, null);
-    try out.writer(allocator).writeByte('\n');
-    return try out.toOwnedSlice(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try writeJsonValueRedacted(&out.writer, parsed.value, null);
+    try out.writer.writeByte('\n');
+    return try out.toOwnedSlice();
 }
 
 fn writeJsonValueRedacted(writer: anytype, value: std.json.Value, key_context: ?[]const u8) !void {
@@ -98,8 +98,9 @@ fn writeRedactedJsonStringForKey(writer: anytype, key: []const u8, value: []cons
 }
 
 fn redactFreeText(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).empty;
-    errdefer out.deinit(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    const writer = &out.writer;
     var sensitive_tag = false;
     var index: usize = 0;
     while (index < bytes.len) {
@@ -111,31 +112,31 @@ fn redactFreeText(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
 
         if (sensitive_tag and (startsWithAt(bytes, index, "text=\"") or startsWithAt(bytes, index, "content-desc=\""))) {
             const prefix_len: usize = if (startsWithAt(bytes, index, "text=\"")) 6 else 14;
-            try out.writer(allocator).writeAll(bytes[index .. index + prefix_len]);
-            try out.writer(allocator).writeAll("[REDACTED:secret]");
+            try writer.writeAll(bytes[index .. index + prefix_len]);
+            try writer.writeAll("[REDACTED:secret]");
             index += prefix_len;
             while (index < bytes.len and bytes[index] != '"') : (index += 1) {}
             if (index < bytes.len) {
-                try out.writer(allocator).writeByte('"');
+                try writer.writeByte('"');
                 index += 1;
             }
             continue;
         }
 
         if (emailEnd(bytes, index)) |end| {
-            try out.writer(allocator).writeAll("[REDACTED:email]");
+            try writer.writeAll("[REDACTED:email]");
             index = end;
             continue;
         }
         if (bearerEnd(bytes, index)) |end| {
-            try out.writer(allocator).writeAll("[REDACTED:token]");
+            try writer.writeAll("[REDACTED:token]");
             index = end;
             continue;
         }
-        try out.writer(allocator).writeByte(bytes[index]);
+        try writer.writeByte(bytes[index]);
         index += 1;
     }
-    return try out.toOwnedSlice(allocator);
+    return try out.toOwnedSlice();
 }
 
 fn emailEnd(bytes: []const u8, start: usize) ?usize {

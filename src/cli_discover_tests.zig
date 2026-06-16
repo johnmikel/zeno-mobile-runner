@@ -28,7 +28,7 @@ test "discover parse args supports trace draft and validation flags" {
 
     try std.testing.expectError(error.MissingTraceDir, cli_discover.parseArgs(&.{ "--out", "discover.json" }));
     try std.testing.expectError(error.MissingDraftOut, cli_discover.parseArgs(&.{ "--from-trace", "traces/login" }));
-    try std.testing.expectError(error.UnknownFlag, cli_discover.parseArgs(&.{ "--crawl", "true" }));
+    try std.testing.expectError(error.unknownFlag, cli_discover.parseArgs(&.{ "--crawl", "true" }));
 }
 
 test "discover from trace writes reviewable scenario and validates it" {
@@ -41,7 +41,7 @@ test "discover from trace writes reviewable scenario and validates it" {
     try std.fs.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
-        \\{"schemaVersion":1,"runnerVersion":"0.2.1","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
+        \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });

@@ -46,21 +46,23 @@ enum ZMRShim {
     }
 
     static func snapshot(app: XCUIApplication) -> [ZMRShimNode] {
-        let queries: [(XCUIElement.ElementType, XCUIElementQuery)] = [
-            (.button, app.buttons),
-            (.staticText, app.staticTexts),
-            (.textField, app.textFields),
-            (.secureTextField, app.secureTextFields),
-            (.textView, app.textViews),
-            (.image, app.images),
-            (.switch, app.switches),
-            (.cell, app.cells),
-            (.scrollView, app.scrollViews),
-            (.table, app.tables),
-            (.collectionView, app.collectionViews)
+        let types: [XCUIElement.ElementType] = [
+            .button,
+            .staticText,
+            .textField,
+            .secureTextField,
+            .textView,
+            .image,
+            .switch,
+            .cell,
+            .scrollView,
+            .table,
+            .collectionView
         ]
+        let queries = types.flatMap { type in snapshotQueries(app: app, type: type) }
 
         var nodes: [ZMRShimNode] = []
+        var seen = Set<String>()
         nodes.reserveCapacity(128)
 
         for (type, query) in queries {
@@ -71,6 +73,11 @@ enum ZMRShim {
                 guard element.exists else {
                     continue
                 }
+                let key = elementKey(type: type, element: element)
+                guard !seen.contains(key) else {
+                    continue
+                }
+                seen.insert(key)
                 nodes.append(node(index: nodes.count, type: type, element: element))
             }
         }
@@ -79,6 +86,13 @@ enum ZMRShim {
             nodes.append(node(index: 0, type: .application, element: app))
         }
         return nodes
+    }
+
+    private static func snapshotQueries(app: XCUIApplication, type: XCUIElement.ElementType) -> [(XCUIElement.ElementType, XCUIElementQuery)] {
+        [
+            (type, app.windows.descendants(matching: type)),
+            (type, app.descendants(matching: type))
+        ]
     }
 
     private static func node(index: Int, type: XCUIElement.ElementType, element: XCUIElement) -> ZMRShimNode {
@@ -119,5 +133,19 @@ enum ZMRShim {
             return "label:\(element.label):\(index)"
         }
         return "index:\(index)"
+    }
+
+    private static func elementKey(type: XCUIElement.ElementType, element: XCUIElement) -> String {
+        let frame = element.frame
+        return [
+            String(describing: type),
+            element.identifier,
+            element.label,
+            elementValue(element),
+            String(Int(frame.origin.x)),
+            String(Int(frame.origin.y)),
+            String(Int(frame.size.width)),
+            String(Int(frame.size.height))
+        ].joined(separator: "|")
     }
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const importer_json = @import("importer_json.zig");
 const model = @import("importer_model.zig");
 
@@ -13,20 +14,20 @@ pub fn importFlowYamlFile(
 ) !ImportResult {
     if (!options.force and fileExists(out_path)) return error.ImportOutputExists;
 
-    const content = try std.fs.cwd().readFileAlloc(allocator, source_path, 4 * 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, source_path, 4 * 1024 * 1024);
     defer allocator.free(content);
 
     var imported = try parseFlowYamlSlice(allocator, content, options);
     defer imported.deinit(allocator);
 
     if (std.fs.path.dirname(out_path)) |dir| {
-        if (dir.len > 0) try std.fs.cwd().makePath(dir);
+        if (dir.len > 0) try std.Io.Dir.cwd().createDirPath(stdio.io(), dir);
     }
 
-    var file = try std.fs.cwd().createFile(out_path, .{ .truncate = true });
-    defer file.close();
+    var file = try std.Io.Dir.cwd().createFile(stdio.io(), out_path, .{ .truncate = true });
+    defer file.close(stdio.io());
     var write_buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(&write_buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
     try importer_json.writeScenarioJson(&file_writer.interface, imported);
     try file_writer.interface.flush();
 
@@ -39,7 +40,7 @@ pub fn importFlowYamlFile(
 }
 
 fn fileExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    stdio.access(path) catch return false;
     return true;
 }
 
@@ -59,7 +60,7 @@ fn parseFlowYamlSlice(allocator: std.mem.Allocator, content: []const u8, options
     defer lines.deinit(allocator);
     var split = std.mem.splitScalar(u8, content, '\n');
     while (split.next()) |line| {
-        try lines.append(allocator, std.mem.trimRight(u8, line, "\r"));
+        try lines.append(allocator, std.mem.trimEnd(u8, line, "\r"));
     }
 
     var in_commands = false;

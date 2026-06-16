@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const runner_actions = @import("runner_actions.zig");
 const runner_config = @import("runner_config.zig");
 const runner_events = @import("runner_events.zig");
@@ -6,6 +7,7 @@ const runner_waits = @import("runner_waits.zig");
 const scenario = @import("scenario.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
+const types = @import("types.zig");
 
 pub const RunOptions = runner_config.RunOptions;
 
@@ -147,9 +149,15 @@ pub fn executeStep(
         },
         .when_visible => |block| {
             const visible = if (block.timeout_ms == 0)
-                try isVisibleNow(device, block.selector, writer)
+                isVisibleNow(device, block.selector, writer) catch |err| {
+                    if (writer) |tw| try runner_events.recordSelectorEventWithError(tw, "step.whenVisible.skipped", block.selector, err);
+                    return;
+                }
             else
-                try waitUntilVisible(device, block.selector, block.timeout_ms, writer, options);
+                waitUntilVisible(device, block.selector, block.timeout_ms, writer, options) catch |err| {
+                    if (writer) |tw| try runner_events.recordSelectorEventWithError(tw, "step.whenVisible.skipped", block.selector, err);
+                    return;
+                };
             if (visible) {
                 for (block.steps) |inner| try executeStep(allocator, device, inner, writer, options);
             } else if (writer) |tw| {
@@ -294,9 +302,239 @@ fn isVisibleNow(
 }
 
 fn sleepMs(ms: u64) !void {
-    std.Thread.sleep(ms * std.time.ns_per_ms);
+    stdio.sleepNs(ms * std.time.ns_per_ms);
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {
     try device.settle(options.settle_ms);
+}
+
+test "whenVisible skips the conditional block when the visibility probe command fails" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-when-visible-command-failed";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const ProbeFailureDevice = struct {
+        allocator: std.mem.Allocator,
+        typed: usize = 0,
+
+        pub fn launch(self: *@This()) !void {
+            _ = self;
+        }
+
+        pub fn stop(self: *@This()) !void {
+            _ = self;
+        }
+
+        pub fn clearState(self: *@This()) !void {
+            _ = self;
+        }
+
+        pub fn openLink(self: *@This(), url: []const u8) !void {
+            _ = self;
+            _ = url;
+        }
+
+        pub fn tap(self: *@This(), x: i32, y: i32) !void {
+            _ = self;
+            _ = x;
+            _ = y;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = self;
+            _ = writer;
+            return error.CommandFailed;
+        }
+
+        pub fn typeText(self: *@This(), text: []const u8) !void {
+            _ = text;
+            self.typed += 1;
+        }
+
+        pub fn eraseText(self: *@This(), max_chars: u32) !void {
+            _ = self;
+            _ = max_chars;
+        }
+
+        pub fn pressBack(self: *@This()) !void {
+            _ = self;
+        }
+
+        pub fn hideKeyboard(self: *@This()) !void {
+            _ = self;
+        }
+
+        pub fn swipe(self: *@This(), x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) !void {
+            _ = self;
+            _ = x1;
+            _ = y1;
+            _ = x2;
+            _ = y2;
+            _ = duration_ms;
+        }
+
+        pub fn settle(self: *@This(), ms: u64) !void {
+            _ = self;
+            _ = ms;
+        }
+    };
+
+    const script_json =
+        \\{
+        \\  "name": "conditional probe failure",
+        \\  "steps": [
+        \\    {"action": "whenVisible", "selector": {"text": "Deep link received:"}, "steps": [
+        \\      {"action": "typeText", "text": "not-run"}
+        \\    ]}
+        \\  ]
+        \\}
+    ;
+    const script = try scenario.parseSlice(allocator, script_json);
+    defer script.deinit(allocator);
+
+    var device = ProbeFailureDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try runScenario(allocator, &device, script, &tw, .{ .settle_ms = 0 });
+
+    try std.testing.expectEqual(@as(usize, 0), device.typed);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.whenVisible.skipped\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"error\":\"CommandFailed\"") != null);
+}
+
+test "assertHealthy retries through a transient observation command failure" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assert-healthy-command-failed";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const FlakyHealthDevice = struct {
+        allocator: std.mem.Allocator,
+        snapshots: usize = 0,
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            if (self.snapshots == 1) return error.CommandFailed;
+
+            const nodes = try self.allocator.alloc(types.UiNode, 1);
+            nodes[0] = .{
+                .stable_id = try self.allocator.dupe(u8, "node-ready"),
+                .class_name = try self.allocator.dupe(u8, "android.widget.TextView"),
+                .text = try self.allocator.dupe(u8, "Probe mode"),
+            };
+            return .{
+                .id = try self.allocator.dupe(u8, "snapshot-ready"),
+                .timestamp_ms = 1,
+                .nodes = nodes,
+            };
+        }
+    };
+
+    var device = FlakyHealthDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try assertHealthy(&device, 100, &tw, .{ .settle_ms = 0, .poll_ms = 0 }));
+    try std.testing.expectEqual(@as(usize, 2), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.retry\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"error\":\"CommandFailed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
+}
+
+test "assertHealthy uses native selector probes before broad snapshots" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assert-healthy-native-selector";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeHealthDevice = struct {
+        allocator: std.mem.Allocator,
+        queries: usize = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelector(self: *@This(), wanted: selector.Selector) !?bool {
+            _ = wanted;
+            self.queries += 1;
+            return false;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+    };
+
+    var device = NativeHealthDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try assertHealthy(&device, 100, &tw, .{ .settle_ms = 0, .poll_ms = 0 }));
+    try std.testing.expect(device.queries > 0);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
+}
+
+test "assertHealthy reports unhealthy native selector matches" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assert-healthy-native-unhealthy";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeUnhealthyDevice = struct {
+        allocator: std.mem.Allocator,
+        queries: usize = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelector(self: *@This(), wanted: selector.Selector) !?bool {
+            self.queries += 1;
+            if (wanted.text_contains) |text| return std.mem.eql(u8, text, "ReferenceError");
+            return false;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+    };
+
+    var device = NativeUnhealthyDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(!try assertHealthy(&device, 100, &tw, .{ .settle_ms = 0, .poll_ms = 0 }));
+    try std.testing.expect(device.queries > 0);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"unhealthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"matchedIndex\"") != null);
 }

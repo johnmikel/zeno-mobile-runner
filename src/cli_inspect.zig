@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 const config = @import("config.zig");
 const scaffold = @import("scaffold.zig");
@@ -59,13 +60,13 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
             index += 1;
             parsed.config_path = if (index < args.len) args[index] else return error.MissingParam;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     return parsed;
 }
 
-pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -74,7 +75,10 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     var owned = try inspect(allocator, parsed);
     defer owned.deinit(allocator);
 
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     if (parsed.json) {
         try writeJson(stdout, owned.inspection);
     } else {
@@ -140,7 +144,7 @@ fn appendPlatform(
 }
 
 fn pathExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    stdio.access(path) catch return false;
     return true;
 }
 

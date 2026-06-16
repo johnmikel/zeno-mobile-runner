@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const config_diagnostics = @import("config_diagnostics.zig");
 
 pub const PlatformConfig = struct {
@@ -92,7 +93,7 @@ pub const Config = struct {
 };
 
 pub fn parseFile(allocator: std.mem.Allocator, path: []const u8) !Config {
-    const content = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(content);
     return try parseSlice(allocator, content);
 }

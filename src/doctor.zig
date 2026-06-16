@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const android = @import("android.zig");
 const command = @import("command.zig");
 const config = @import("config.zig");
@@ -137,7 +138,7 @@ pub fn run(allocator: std.mem.Allocator, options: Options) ![]Check {
 }
 
 fn checkPath(allocator: std.mem.Allocator, name: []const u8, path: []const u8) !Check {
-    std.fs.cwd().access(path, .{ .mode = .read_only }) catch |err| {
+    stdio.accessWithOptions(path, .{ .read = true }) catch |err| {
         return .{
             .name = try allocator.dupe(u8, name),
             .status = .missing,
@@ -347,9 +348,9 @@ fn physicalStateBreakdown(allocator: std.mem.Allocator, devices: []const types.D
         }
     }
 
-    var parts = std.ArrayList(u8).empty;
-    defer parts.deinit(allocator);
-    const writer = parts.writer(allocator);
+    var parts: std.Io.Writer.Allocating = .init(allocator);
+    defer parts.deinit();
+    const writer = &parts.writer;
     var wrote = false;
     if (disconnected > 0) {
         try writer.print("disconnected={d}", .{disconnected});
@@ -372,7 +373,7 @@ fn physicalStateBreakdown(allocator: std.mem.Allocator, devices: []const types.D
     }
 
     if (!wrote) return try allocator.dupe(u8, "");
-    return try std.fmt.allocPrint(allocator, " ({s})", .{parts.items});
+    return try std.fmt.allocPrint(allocator, " ({s})", .{parts.writer.buffered()});
 }
 
 pub fn checkCommand(allocator: std.mem.Allocator, name: []const u8, argv: []const []const u8) !Check {
@@ -387,7 +388,7 @@ pub fn checkCommand(allocator: std.mem.Allocator, name: []const u8, argv: []cons
     };
     defer result.deinit(allocator);
 
-    if (result.term == .Exited and result.term.Exited == 0) {
+    if (result.term == .exited and result.term.exited == 0) {
         return .{
             .name = try allocator.dupe(u8, name),
             .status = .ok,
@@ -395,7 +396,7 @@ pub fn checkCommand(allocator: std.mem.Allocator, name: []const u8, argv: []cons
         };
     }
 
-    const code = if (result.term == .Exited) result.term.Exited else 255;
+    const code = if (result.term == .exited) result.term.exited else 255;
     return .{
         .name = try allocator.dupe(u8, name),
         .status = .warning,

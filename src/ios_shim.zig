@@ -128,6 +128,18 @@ pub fn parseOkResponse(content: []const u8) !void {
     if (!std.mem.eql(u8, status, "ok")) return error.IosShimResponseNotOk;
 }
 
+pub fn parseAcceptSystemAlertResponse(content: []const u8) !bool {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), content, .{});
+    if (parsed.value != .object) return error.IosShimResponseMustBeObject;
+    const status = fieldString(parsed.value.object, "status") orelse return error.IosShimMissingStatus;
+    if (!std.mem.eql(u8, status, "ok")) return error.IosShimResponseNotOk;
+    const accepted = parsed.value.object.get("accepted") orelse return false;
+    if (accepted != .bool) return false;
+    return accepted.bool;
+}
+
 pub const SelectorActionResponse = enum {
     ok,
     selector_unavailable,

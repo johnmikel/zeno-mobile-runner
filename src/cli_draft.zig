@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 const cli_output = @import("cli_output.zig");
 const trace = @import("trace.zig");
@@ -100,7 +101,7 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--json")) {
             parsed.json = true;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
 
@@ -109,7 +110,7 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
     return parsed;
 }
 
-pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -118,7 +119,10 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     var draft = try draftFromTrace(allocator, parsed);
     defer draft.deinit(allocator);
 
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     if (parsed.json) {
         try writeJson(stdout, draft.summary);
         return;
@@ -150,7 +154,7 @@ pub fn draftFromTrace(allocator: std.mem.Allocator, parsed: ParsedArgs) !OwnedDr
 
     const manifest_path = try std.fs.path.join(allocator, &.{ from_trace, "trace.json" });
     defer allocator.free(manifest_path);
-    const manifest_content = try std.fs.cwd().readFileAlloc(allocator, manifest_path, 1024 * 1024);
+    const manifest_content = try stdio.readFileAlloc(allocator, manifest_path, 1024 * 1024);
     defer allocator.free(manifest_content);
 
     var parsed_manifest = try std.json.parseFromSlice(std.json.Value, allocator, manifest_content, .{});
@@ -219,7 +223,7 @@ fn parseReplaySteps(
 ) !ReplayDraft {
     const events_path = try std.fs.path.join(allocator, &.{ trace_dir, metadata.events_path });
     defer allocator.free(events_path);
-    const content = std.fs.cwd().readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
+    const content = stdio.readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => {
             try appendWarning(allocator, owned, "trace events were not found; action replay was skipped");
             return .{
@@ -393,14 +397,14 @@ fn latestSnapshotPath(
 
     const artifacts_path = try std.fs.path.join(allocator, &.{ trace_dir, metadata.artifacts_dir });
     defer allocator.free(artifacts_path);
-    var dir = try std.fs.cwd().openDir(artifacts_path, .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(stdio.io(), artifacts_path, .{ .iterate = true });
+    defer dir.close(stdio.io());
 
     var iterator = dir.iterate();
     var best_number: usize = 0;
     var best_name: ?[]u8 = null;
     defer if (best_name) |value| allocator.free(value);
-    while (try iterator.next()) |entry| {
+    while (try iterator.next(stdio.io())) |entry| {
         if (entry.kind != .file) continue;
         const number = snapshotNumber(entry.name) orelse continue;
         if (best_name == null or number > best_number) {
@@ -422,7 +426,7 @@ fn parseSemanticSelectors(
     path: []const u8,
     owned: *OwnedDraft,
 ) ![]DraftSelector {
-    const content = try std.fs.cwd().readFileAlloc(allocator, path, 8 * 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, path, 8 * 1024 * 1024);
     defer allocator.free(content);
 
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
@@ -505,16 +509,16 @@ fn writeScenarioFile(
     force: bool,
 ) !void {
     if (std.fs.path.dirname(out_path)) |dir| {
-        if (dir.len > 0) try std.fs.cwd().makePath(dir);
+        if (dir.len > 0) try std.Io.Dir.cwd().createDirPath(stdio.io(), dir);
     }
     var file = if (force)
-        try std.fs.cwd().createFile(out_path, .{ .truncate = true })
+        try std.Io.Dir.cwd().createFile(stdio.io(), out_path, .{ .truncate = true })
     else
-        try std.fs.cwd().createFile(out_path, .{ .exclusive = true });
-    defer file.close();
+        try std.Io.Dir.cwd().createFile(stdio.io(), out_path, .{ .exclusive = true });
+    defer file.close(stdio.io());
 
     var write_buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(&write_buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
     try writeScenarioJson(&file_writer.interface, name, app_id, action_steps, selectors);
     try file_writer.interface.flush();
 }
@@ -609,9 +613,9 @@ fn actionWithStringField(
     key: []const u8,
     value: []const u8,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":");
     try trace.writeJsonString(writer, action);
     try writer.writeAll(",");
@@ -619,7 +623,7 @@ fn actionWithStringField(
     try writer.writeAll(":");
     try trace.writeJsonString(writer, value);
     try writer.writeAll("}");
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithIntField(
@@ -629,15 +633,15 @@ fn actionWithIntField(
     key: []const u8,
     value: usize,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":");
     try trace.writeJsonString(writer, action);
     try writer.writeAll(",");
     try trace.writeJsonString(writer, key);
     try writer.print(":{d}}}", .{value});
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithSelector(
@@ -646,15 +650,15 @@ fn actionWithSelector(
     action: []const u8,
     selector_value: std.json.Value,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":");
     try trace.writeJsonString(writer, action);
     try writer.writeAll(",\"selector\":");
     try writeJsonValue(writer, selector_value);
     try writer.writeAll("}");
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithSelectorAndString(
@@ -665,9 +669,9 @@ fn actionWithSelectorAndString(
     key: []const u8,
     value: []const u8,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":");
     try trace.writeJsonString(writer, action);
     try writer.writeAll(",\"selector\":");
@@ -677,7 +681,7 @@ fn actionWithSelectorAndString(
     try writer.writeAll(":");
     try trace.writeJsonString(writer, value);
     try writer.writeAll("}");
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithSelectorAndInt(
@@ -688,9 +692,9 @@ fn actionWithSelectorAndInt(
     key: []const u8,
     value: usize,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":");
     try trace.writeJsonString(writer, action);
     try writer.writeAll(",\"selector\":");
@@ -698,7 +702,7 @@ fn actionWithSelectorAndInt(
     try writer.writeAll(",");
     try trace.writeJsonString(writer, key);
     try writer.print(":{d}}}", .{value});
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithSelectors(
@@ -708,16 +712,16 @@ fn actionWithSelectors(
     selectors_value: std.json.Value,
     timeout_ms: ?usize,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":");
     try trace.writeJsonString(writer, action);
     try writer.writeAll(",\"selectors\":");
     try writeJsonValue(writer, selectors_value);
     if (timeout_ms) |actual| try writer.print(",\"timeoutMs\":{d}", .{actual});
     try writer.writeAll("}");
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithSwipe(
@@ -729,13 +733,13 @@ fn actionWithSwipe(
     y2: i32,
     duration_ms: ?usize,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.print("{{\"action\":\"swipe\",\"x1\":{d},\"y1\":{d},\"x2\":{d},\"y2\":{d}", .{ x1, y1, x2, y2 });
     if (duration_ms) |actual| try writer.print(",\"durationMs\":{d}", .{actual});
     try writer.writeAll("}");
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn actionWithScrollUntilVisible(
@@ -745,9 +749,9 @@ fn actionWithScrollUntilVisible(
     direction: ?[]const u8,
     timeout_ms: ?usize,
 ) ![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    const writer = buffer.writer(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
     try writer.writeAll("{\"action\":\"scrollUntilVisible\",\"selector\":");
     try writeJsonValue(writer, selector_value);
     if (direction) |actual| {
@@ -756,7 +760,7 @@ fn actionWithScrollUntilVisible(
     }
     if (timeout_ms) |actual| try writer.print(",\"timeoutMs\":{d}", .{actual});
     try writer.writeAll("}");
-    return try ownBytes(allocator, owned, buffer.items);
+    return try ownBytes(allocator, owned, buffer.writer.buffered());
 }
 
 fn warnMissingReplayField(
@@ -919,6 +923,6 @@ fn snapshotNumber(name: []const u8) ?usize {
 }
 
 fn pathExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    stdio.access(path) catch return false;
     return true;
 }

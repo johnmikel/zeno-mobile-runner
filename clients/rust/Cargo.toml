@@ -1,6 +1,6 @@
 [package]
 name = "zmr-client"
-version = "0.2.1"
+version = "0.2.7"
 edition = "2021"
 license = "MIT"
 description = "Rust JSON-RPC client for Zeno Mobile Runner."

@@ -142,44 +142,46 @@ fn writeJoinedStringArrayJson(writer: anytype, value: []const u8) !void {
 
 fn joinStringArray(allocator: std.mem.Allocator, value: std.json.Value, limit: usize) !?[]u8 {
     if (value != .array or value.array.items.len == 0) return null;
-    var out = std.ArrayList(u8).empty;
-    errdefer out.deinit(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    const writer = &out.writer;
     var written: usize = 0;
     for (value.array.items) |item| {
         if (item != .string) continue;
-        if (written > 0) try out.writer(allocator).writeAll(" | ");
-        try out.writer(allocator).writeAll(item.string);
+        if (written > 0) try writer.writeAll(" | ");
+        try writer.writeAll(item.string);
         written += 1;
         if (written >= limit) break;
     }
     if (written == 0) {
-        out.deinit(allocator);
+        out.deinit();
         return null;
     }
-    return try out.toOwnedSlice(allocator);
+    return try out.toOwnedSlice();
 }
 
 fn joinNearestMatches(allocator: std.mem.Allocator, value: std.json.Value, limit: usize) !?[]u8 {
     if (value != .array or value.array.items.len == 0) return null;
-    var out = std.ArrayList(u8).empty;
-    errdefer out.deinit(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    const writer = &out.writer;
     var written: usize = 0;
     for (value.array.items) |item| {
         if (item != .object) continue;
         const text = stringField(item.object, "text") orelse continue;
-        if (written > 0) try out.writer(allocator).writeAll(" | ");
-        try out.writer(allocator).writeAll(text);
+        if (written > 0) try writer.writeAll(" | ");
+        try writer.writeAll(text);
         if (intField(item.object, "score")) |score| {
-            try out.writer(allocator).print(" (score {d})", .{score});
+            try writer.print(" (score {d})", .{score});
         }
         written += 1;
         if (written >= limit) break;
     }
     if (written == 0) {
-        out.deinit(allocator);
+        out.deinit();
         return null;
     }
-    return try out.toOwnedSlice(allocator);
+    return try out.toOwnedSlice();
 }
 
 fn dupeOptionalString(allocator: std.mem.Allocator, value: ?[]const u8) !?[]u8 {

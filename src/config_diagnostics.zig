@@ -1,7 +1,8 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 pub fn errorFieldPathForFile(allocator: std.mem.Allocator, path: []const u8, err: anyerror) !?[]const u8 {
-    const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch return null;
+    const content = stdio.readFileAlloc(allocator, path, 1024 * 1024) catch return null;
     defer allocator.free(content);
     return try errorFieldPathForSlice(allocator, content, err);
 }

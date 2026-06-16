@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      ZIG_VERSION: "0.15.2"
+      ZIG_VERSION: "0.16.0"
     permissions:
       attestations: write
       contents: write

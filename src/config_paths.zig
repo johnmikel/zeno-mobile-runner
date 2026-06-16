@@ -1,11 +1,12 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const config = @import("config.zig");
 
 pub const default_path = ".zmr/config.json";
 
 pub fn loadIfPresent(allocator: std.mem.Allocator, explicit_path: ?[]const u8) !?config.Config {
     if (explicit_path) |path| return try config.parseFile(allocator, path);
-    std.fs.cwd().access(default_path, .{}) catch |err| switch (err) {
+    stdio.access(default_path) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };

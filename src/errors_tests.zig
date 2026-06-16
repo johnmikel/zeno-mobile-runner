@@ -5,7 +5,7 @@ test "classifies public error codes" {
     try std.testing.expectEqualStrings("scenario.invalid", errors.classify(error.ScenarioMissingSteps).code);
     try std.testing.expectEqualStrings("runner.wait_timeout", errors.classify(error.WaitTimeout).code);
     try std.testing.expectEqualStrings("ios.xctest_shim_required", errors.classify(error.IosXCTestShimRequired).code);
-    try std.testing.expectEqualStrings("cli.unknown_command", errors.classify(error.UnknownCommand).code);
+    try std.testing.expectEqualStrings("cli.unknown_command", errors.classify(error.unknownCommand).code);
     try std.testing.expectEqualStrings("cli.missing_discover_out", errors.classify(error.MissingDiscoverOut).code);
     try std.testing.expectEqualStrings("cli.missing_report_input", errors.classify(error.MissingReportInput).code);
     try std.testing.expectEqualStrings("cli.missing_report_output", errors.classify(error.MissingReportOutput).code);

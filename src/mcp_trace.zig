@@ -5,6 +5,7 @@ const cli_explore = @import("cli_explore.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
 const report = @import("report.zig");
 const runner_events = @import("runner_events.zig");
+const stdio = @import("stdio.zig");
 const trace = @import("trace.zig");
 
 pub fn writeEventsToolResult(
@@ -16,30 +17,30 @@ pub fn writeEventsToolResult(
     limit: u64,
 ) !void {
     const tw = live_trace orelse {
-        var no_trace_payload = std.ArrayList(u8).empty;
-        defer no_trace_payload.deinit(allocator);
-        try no_trace_payload.writer(allocator).print("{{\"traceDir\":null,\"afterSeq\":{d},\"nextSeq\":{d},\"latestSeq\":0,\"events\":[]}}", .{ after_seq, after_seq });
-        try mcp_protocol.writeToolTextResult(writer, id, no_trace_payload.items);
+        var no_trace_payload: std.Io.Writer.Allocating = .init(allocator);
+        defer no_trace_payload.deinit();
+        try no_trace_payload.writer.print("{{\"traceDir\":null,\"afterSeq\":{d},\"nextSeq\":{d},\"latestSeq\":0,\"events\":[]}}", .{ after_seq, after_seq });
+        try mcp_protocol.writeToolTextResult(writer, id, no_trace_payload.writer.buffered());
         return;
     };
 
     const events_path = try std.fs.path.join(allocator, &.{ tw.root_dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const content = std.fs.cwd().readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
+    const content = stdio.readFileAlloc(allocator, events_path, 64 * 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => try allocator.dupe(u8, ""),
         else => return err,
     };
     defer allocator.free(content);
 
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    const payload_writer = payload.writer(allocator);
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    const payload_writer = &payload.writer;
     try payload_writer.writeAll("{\"traceDir\":");
     try trace.writeJsonString(payload_writer, tw.root_dir);
     try payload_writer.print(",\"afterSeq\":{d},\"nextSeq\":", .{after_seq});
-    var events_json = std.ArrayList(u8).empty;
-    defer events_json.deinit(allocator);
-    const events_writer = events_json.writer(allocator);
+    var events_json: std.Io.Writer.Allocating = .init(allocator);
+    defer events_json.deinit();
+    const events_writer = &events_json.writer;
     var next_seq = after_seq;
     var emitted: u64 = 0;
     var lines = std.mem.splitScalar(u8, content, '\n');
@@ -60,9 +61,9 @@ pub fn writeEventsToolResult(
         emitted += 1;
     }
     try payload_writer.print("{d},\"latestSeq\":{d},\"events\":[", .{ next_seq, tw.event_count });
-    try payload_writer.writeAll(events_json.items);
+    try payload_writer.writeAll(events_writer.buffered());
     try payload_writer.writeAll("]}");
-    try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+    try mcp_protocol.writeToolTextResult(writer, id, payload_writer.buffered());
 }
 
 pub fn writeExportToolResult(
@@ -85,15 +86,15 @@ pub fn writeExportToolResult(
         .omit_screenshots = omit_screenshots,
     });
 
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    const payload_writer = payload.writer(allocator);
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    const payload_writer = &payload.writer;
     try payload_writer.writeAll("{\"traceDir\":");
     try trace.writeJsonString(payload_writer, tw.root_dir);
     try payload_writer.writeAll(",\"out\":");
     try trace.writeJsonString(payload_writer, out_path);
     try payload_writer.print(",\"redacted\":{},\"omitScreenshots\":{}}}", .{ redact, omit_screenshots });
-    try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+    try mcp_protocol.writeToolTextResult(writer, id, payload_writer.buffered());
 }
 
 pub fn writeExplainToolResult(
@@ -108,10 +109,10 @@ pub fn writeExplainToolResult(
     };
 
     try tw.flushManifest();
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    try report.writeTraceExplanationJson(allocator, tw.root_dir, payload.writer(allocator));
-    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try report.writeTraceExplanationJson(allocator, tw.root_dir, &payload.writer);
+    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
     try tw.recordEvent("trace.explain", "{\"status\":\"ok\"}");
 }
 
@@ -152,10 +153,10 @@ pub fn writeDiscoverToolResult(
         discovered.summary.validated,
     );
 
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    try cli_discover.writeJson(payload.writer(allocator), discovered.summary, discovered.validation);
-    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try cli_discover.writeJson(&payload.writer, discovered.summary, discovered.validation);
+    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
 }
 
 pub fn writeExploreToolResult(
@@ -198,8 +199,8 @@ pub fn writeExploreToolResult(
         explored.discovered.summary.validated,
     );
 
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    try cli_explore.writeJson(payload.writer(allocator), explored.summary, explored.discovered.summary, explored.discovered.validation);
-    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try cli_explore.writeJson(&payload.writer, explored.summary, explored.discovered.summary, explored.discovered.validation);
+    try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
 }

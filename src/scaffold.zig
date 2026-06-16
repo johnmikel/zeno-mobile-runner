@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 pub const app_config_file = ".zmr/config.json";
 pub const app_android_smoke_file = ".zmr/android-smoke.json";
@@ -40,24 +41,24 @@ pub fn writeStarterScenario(
     force: bool,
 ) !void {
     if (!force) {
-        std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+        stdio.access(path) catch |err| switch (err) {
             error.FileNotFound => {},
             else => return err,
         };
-        if (std.fs.cwd().access(path, .{})) |_| return error.PathAlreadyExists else |err| switch (err) {
+        if (stdio.access(path)) |_| return error.PathAlreadyExists else |err| switch (err) {
             error.FileNotFound => {},
             else => return err,
         }
     }
 
     if (std.fs.path.dirname(path)) |parent| {
-        if (parent.len > 0) try std.fs.cwd().makePath(parent);
+        if (parent.len > 0) try std.Io.Dir.cwd().createDirPath(stdio.io(), parent);
     }
 
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
+    var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+    defer file.close(stdio.io());
     var buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &buffer);
     const writer = &file_writer.interface;
     try writer.writeAll(
         \\{
@@ -87,7 +88,7 @@ pub fn writeAppScaffold(
 ) !void {
     const zmr_dir = try std.fs.path.join(allocator, &.{ dir, ".zmr" });
     defer allocator.free(zmr_dir);
-    try std.fs.cwd().makePath(zmr_dir);
+    try std.Io.Dir.cwd().createDirPath(stdio.io(), zmr_dir);
 
     const config_path = try std.fs.path.join(allocator, &.{ zmr_dir, appFileBasename(app_config_file) });
     defer allocator.free(config_path);
@@ -114,9 +115,9 @@ fn appFileBasename(path: []const u8) []const u8 {
 
 fn writeAppConfig(path: []const u8, app_id: []const u8, force: bool) !void {
     var file = try createOutputFile(path, force);
-    defer file.close();
+    defer file.close(stdio.io());
     var buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &buffer);
     const writer = &file_writer.interface;
     try writer.writeAll(
         \\{
@@ -190,9 +191,9 @@ fn writeAppConfig(path: []const u8, app_id: []const u8, force: bool) !void {
 
 fn writeDeviceMatrix(path: []const u8, app_id: []const u8, force: bool) !void {
     var file = try createOutputFile(path, force);
-    defer file.close();
+    defer file.close(stdio.io());
     var buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &buffer);
     const writer = &file_writer.interface;
     try writer.writeAll(
         \\{
@@ -228,9 +229,9 @@ fn writeDeviceMatrix(path: []const u8, app_id: []const u8, force: bool) !void {
 fn writePlatformSmoke(path: []const u8, name: []const u8, app_id: []const u8, force: bool) !void {
     if (!force and try pathExists(path)) return;
     var file = try createOutputFile(path, force);
-    defer file.close();
+    defer file.close(stdio.io());
     var buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &buffer);
     const writer = &file_writer.interface;
     try writer.writeAll(
         \\{
@@ -256,7 +257,7 @@ fn writePlatformSmoke(path: []const u8, name: []const u8, app_id: []const u8, fo
 }
 
 fn pathExists(path: []const u8) !bool {
-    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+    stdio.access(path) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -300,9 +301,9 @@ fn isShellSafe(value: []const u8) bool {
 
 fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !void {
     var file = try createOutputFile(path, force);
-    defer file.close();
+    defer file.close(stdio.io());
     var buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &buffer);
     const writer = &file_writer.interface;
     try writer.writeAll(
         \\# ZMR Agent Instructions
@@ -434,19 +435,19 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
     try writer.flush();
 }
 
-fn createOutputFile(path: []const u8, force: bool) !std.fs.File {
+fn createOutputFile(path: []const u8, force: bool) !std.Io.File {
     if (std.fs.path.dirname(path)) |parent| {
-        if (parent.len > 0) try std.fs.cwd().makePath(parent);
+        if (parent.len > 0) try std.Io.Dir.cwd().createDirPath(stdio.io(), parent);
     }
-    if (!force) return try std.fs.cwd().createFile(path, .{ .exclusive = true });
-    return try std.fs.cwd().createFile(path, .{ .truncate = true });
+    if (!force) return try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .exclusive = true });
+    return try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
 }
 
 fn ensureTraceGitignore(allocator: std.mem.Allocator, dir: []const u8) !void {
     const path = try std.fs.path.join(allocator, &.{ dir, ".gitignore" });
     defer allocator.free(path);
 
-    const existing = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |err| switch (err) {
+    const existing = stdio.readFileAlloc(allocator, path, 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => "",
         else => return err,
     };
@@ -455,10 +456,10 @@ fn ensureTraceGitignore(allocator: std.mem.Allocator, dir: []const u8) !void {
 
     if (std.mem.indexOf(u8, existing, "traces/") != null) return;
 
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
+    var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+    defer file.close(stdio.io());
     var buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writerStreaming(stdio.io(), &buffer);
     const writer = &file_writer.interface;
     if (existing.len > 0) {
         try writer.writeAll(existing);

@@ -114,10 +114,10 @@ test "scenario parser rejects malformed input precisely" {
     try std.testing.expectError(error.OptionalFieldMustBeBool, parseSlice(allocator,
         \\{"name":"bad optional","steps":[{"action":"tap","selector":{"text":"A"},"optional":"yes"}]}
     ));
-    try std.testing.expectError(error.UnknownScrollDirection, parseSlice(allocator,
+    try std.testing.expectError(error.unknownScrollDirection, parseSlice(allocator,
         \\{"name":"bad direction","steps":[{"action":"scrollUntilVisible","selector":{"text":"A"},"direction":"sideways"}]}
     ));
-    try std.testing.expectError(error.UnknownScenarioAction, parseSlice(allocator,
+    try std.testing.expectError(error.unknownScenarioAction, parseSlice(allocator,
         \\{"name":"unknown","steps":[{"action":"pinch"}]}
     ));
 }

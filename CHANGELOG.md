@@ -4,8 +4,66 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.7 (2026-06-15)
+
 ### Fixed
 
+- `assertHealthy` now uses native iOS selector probes for known crash and error
+  overlays before falling back to a broad accessibility snapshot. This avoids
+  false `CommandFailed` failures when XCTest broad snapshot enumeration races
+  with animated or reloading screens, while preserving direct overlay detection.
+
+## 0.2.6 (2026-06-15)
+
+### Fixed
+
+- Snapshot-based waits and `assertHealthy` now retry transient observation
+  `CommandFailed` errors within the step timeout, recording the retry in the
+  trace instead of failing immediately. This fixes iOS XCTest shim snapshot
+  races observed after an app reached the expected screen.
+
+## 0.2.5 (2026-06-15)
+
+### Fixed
+
+- `whenVisible` now treats visibility-probe command failures as a skipped
+  conditional block, recording the skip error in the trace instead of failing
+  the scenario. This matches the action's optional-control-flow contract and
+  fixes Expo dev-client deep-link flows where the chooser probe can race with
+  the app already reaching the target screen.
+
+## 0.2.4 (2026-06-15)
+
+### Fixed
+
+- Extended the iOS simulator `openLink` interruption sweep to cover Expo
+  dev-client deep-link chooser sheets that appear more than six seconds after
+  `simctl openurl` returns. The sweep remains bounded, but now covers the
+  delayed chooser timing observed in the Rently auth smoke.
+
+## 0.2.3 (2026-06-15)
+
+### Fixed
+
+- iOS simulator `openLink` now keeps sweeping delayed XCTest shim
+  interruptions until the shim reports that an alert or Expo dev-client
+  chooser was actually accepted. This fixes Expo dev-client "Deep link
+  received" sheets that appear a few seconds after `simctl openurl` returns,
+  so app scenarios no longer need launcher-specific timing workarounds.
+
+## 0.2.2 (2026-06-15)
+
+### Fixed
+
+- Migrated the runner to Zig 0.16 process IO and initialized the process IO
+  runtime before spawning child commands. This fixes `OutOfMemory` failures
+  when commands such as `zmr devices --platform ios --json` or XCTest shim
+  launches tried to call `xcrun` through an uninitialized IO context.
+- The iOS XCTest shim now resumes an Expo dev-client project from the
+  "Development servers" home screen after an `openLink` command. This covers
+  the common case where iOS returns to the Expo launcher instead of immediately
+  dispatching a pending app deep link, by selecting the app project row rather
+  than requiring each app scenario to add launcher-specific workarounds.
 - The generated React Native/Expo demo app no longer sets `accessibilityLabel`
   to its own `testID` values. On iOS the label overrides the visible text in
   the accessibility tree, which made every text selector in the generated iOS

@@ -107,13 +107,13 @@ fn dispatchAppMethod(
 }
 
 fn recordAppOpenLink(tw: *trace.TraceWriter, url: []const u8) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const writer = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
     try writer.writeAll("{\"status\":\"ok\",\"url\":");
     try trace.writeJsonString(writer, url);
     try writer.writeAll("}");
-    try tw.recordEvent("app.openLink", payload.items);
+    try tw.recordEvent("app.openLink", writer.buffered());
 }
 
 fn dispatchObserveMethod(
@@ -312,10 +312,10 @@ fn dispatchScenarioMethod(
         const path = try params_parser.requiredString(params, "path");
         var result = try validation.validateFile(allocator, path);
         defer result.deinit(allocator);
-        var payload = std.ArrayList(u8).empty;
-        defer payload.deinit(allocator);
-        try cli_output.writeValidationJson(payload.writer(allocator), path, result);
-        try protocol.writeResultRaw(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+        var payload: std.Io.Writer.Allocating = .init(allocator);
+        defer payload.deinit();
+        try cli_output.writeValidationJson(&payload.writer, path, result);
+        try protocol.writeResultRaw(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
         return true;
     }
     return false;

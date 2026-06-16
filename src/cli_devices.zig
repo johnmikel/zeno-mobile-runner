@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const android = @import("android.zig");
 const device_registry = @import("device_registry.zig");
 const ios = @import("ios.zig");
@@ -11,7 +12,7 @@ pub const IosDevicesScope = enum {
     all,
 };
 
-pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var platform: run_options.Platform = .android;
     var ios_devices_scope: IosDevicesScope = .simulator;
     var adb_path: []const u8 = "adb";
@@ -30,7 +31,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         } else if (std.mem.eql(u8, arg, "--json")) {
             json = true;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
 
@@ -43,7 +44,10 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         allocator.free(devices);
     }
 
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     if (json) return try device_registry.writeJson(stdout, registryPlatform(platform), devices);
     if (devices.len == 0) return try stdout.print("No {s} devices found.\n", .{@tagName(platform)});
     for (devices) |device| {

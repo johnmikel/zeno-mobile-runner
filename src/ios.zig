@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const command = @import("command.zig");
 const ios_devices = @import("ios_devices.zig");
 const ios_lifecycle = @import("ios_lifecycle.zig");
@@ -15,6 +16,8 @@ const default_max_output = 32 * 1024 * 1024;
 const default_shim_timeout_ms = 5_400_000;
 const shim_timeout_env = "ZMR_IOS_SHIM_TIMEOUT_MS";
 const shim_best_effort_timeout_ms = 10_000;
+const open_link_interruption_attempts = 8;
+const open_link_interruption_retry_delay_ms = 1_000;
 const shim_command_attempts = 2;
 const shim_bootstrap_retry_delay_ms = 500;
 
@@ -190,11 +193,11 @@ pub const IosDevice = struct {
                 .duration_ms = @as(u32, @intCast(@min(timeout_ms, std.math.maxInt(u32)))),
             });
         }
-        std.Thread.sleep(timeout_ms * std.time.ns_per_ms);
+        stdio.sleepNs(timeout_ms * std.time.ns_per_ms);
     }
 
     pub fn snapshot(self: *IosDevice, writer: ?*trace.TraceWriter) !types.ObservationSnapshot {
-        const id = if (writer) |tw| try tw.nextSnapshotId() else try std.fmt.allocPrint(self.allocator, "snapshot-{d}", .{std.time.milliTimestamp()});
+        const id = if (writer) |tw| try tw.nextSnapshotId() else try std.fmt.allocPrint(self.allocator, "snapshot-{d}", .{stdio.nowMs()});
         errdefer self.allocator.free(id);
 
         var screenshot_artifact: ?[]const u8 = null;
@@ -239,7 +242,7 @@ pub const IosDevice = struct {
 
         return .{
             .id = id,
-            .timestamp_ms = std.time.milliTimestamp(),
+            .timestamp_ms = stdio.nowMs(),
             .viewport = viewport,
             .active_package = active_package,
             .active_activity = null,
@@ -257,21 +260,21 @@ pub const IosDevice = struct {
             defer self.allocator.free(response);
             return try ios_shim.parseScreenshotPng(self.allocator, response);
         }
-        const path = try std.fmt.allocPrint(self.allocator, "/tmp/zmr-ios-screenshot-{d}.png", .{std.time.nanoTimestamp()});
+        const path = try std.fmt.allocPrint(self.allocator, "/tmp/zmr-ios-screenshot-{d}.png", .{stdio.nowNs()});
         defer self.allocator.free(path);
-        defer std.fs.cwd().deleteFile(path) catch {};
+        defer std.Io.Dir.cwd().deleteFile(stdio.io(), path) catch {};
 
         const result = try self.runSimctl(&.{ "io", self.target(), "screenshot", path }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
-        return try std.fs.cwd().readFileAlloc(self.allocator, path, default_max_output);
+        return try stdio.readFileAlloc(self.allocator, path, default_max_output);
     }
 
     fn logDelta(self: *IosDevice) !?[]const u8 {
         if (self.target_kind == .physical) return null;
         const result = try self.runSimctl(&.{ "spawn", self.target(), "log", "show", "--style", "compact", "--last", "30s" }, 1024 * 1024);
         defer result.deinit(self.allocator);
-        if (result.term != .Exited or result.term.Exited != 0) return null;
+        if (result.term != .exited or result.term.exited != 0) return null;
         return try self.allocator.dupe(u8, result.stdout);
     }
 
@@ -282,15 +285,15 @@ pub const IosDevice = struct {
     }
 
     fn recordSnapshotSemanticFailure(self: *IosDevice, writer: *trace.TraceWriter, screenshot_artifact: []const u8, err: anyerror) !void {
-        var payload = std.ArrayList(u8).empty;
-        defer payload.deinit(writer.allocator);
-        const out = payload.writer(writer.allocator);
+        var payload: std.Io.Writer.Allocating = .init(writer.allocator);
+        defer payload.deinit();
+        const out = &payload.writer;
         try out.writeAll("{\"status\":\"failed\",\"artifactStatus\":\"captured\",\"semanticStatus\":\"failed\",\"error\":");
         try trace.writeJsonString(out, @errorName(err));
         try out.writeAll(",\"screenshotArtifact\":");
         try trace.writeJsonString(out, screenshot_artifact);
         try out.writeAll(",\"source\":\"ios-xctest-shim\"}");
-        try writer.recordEvent("observe.snapshot.semanticExtraction", payload.items);
+        try writer.recordEvent("observe.snapshot.semanticExtraction", out.buffered());
         _ = self;
     }
 
@@ -308,7 +311,20 @@ pub const IosDevice = struct {
 
     fn acceptOpenURLConfirmationBestEffort(self: *IosDevice) void {
         if (self.shim_path == null) return;
-        self.runShimActionWithTimeout(.{ .kind = .accept_system_alert, .text = "Open" }, shim_best_effort_timeout_ms) catch {};
+        var attempt: usize = 0;
+        while (attempt < open_link_interruption_attempts) {
+            attempt += 1;
+            if (self.acceptOpenURLConfirmationOnce() catch return) return;
+            if (attempt < open_link_interruption_attempts) {
+                stdio.sleepNs(open_link_interruption_retry_delay_ms * std.time.ns_per_ms);
+            }
+        }
+    }
+
+    fn acceptOpenURLConfirmationOnce(self: *IosDevice) !bool {
+        const response = try self.runShimWithTimeout(.{ .kind = .accept_system_alert, .text = "Open" }, shim_best_effort_timeout_ms);
+        defer self.allocator.free(response);
+        return try ios_shim.parseAcceptSystemAlertResponse(response);
     }
 
     fn appIsRunningFromShimBestEffort(self: *IosDevice) bool {
@@ -340,19 +356,19 @@ pub const IosDevice = struct {
     fn runShimWithTimeout(self: *IosDevice, shim_command: ios_shim.Command, timeout_ms: u64) ![]u8 {
         const path = self.shim_path orelse return error.IosXCTestShimRequired;
 
-        var input = std.ArrayList(u8).empty;
-        defer input.deinit(self.allocator);
-        try ios_shim.writeCommandJson(input.writer(self.allocator), shim_command);
+        var input: std.Io.Writer.Allocating = .init(self.allocator);
+        defer input.deinit();
+        try ios_shim.writeCommandJson(&input.writer, shim_command);
 
         var attempt: usize = 0;
         while (attempt < shim_command_attempts) {
             attempt += 1;
-            const result = try command.runWithInputTimeout(self.allocator, &.{path}, input.items, 4 * 1024 * 1024, timeout_ms);
+            const result = try command.runWithInputTimeout(self.allocator, &.{path}, input.writer.buffered(), 4 * 1024 * 1024, timeout_ms);
             defer result.deinit(self.allocator);
 
             result.ensureSuccess() catch |err| {
                 if (attempt < shim_command_attempts and err == error.CommandFailed and isTransientShimBootstrapFailure(result)) {
-                    std.Thread.sleep(shim_bootstrap_retry_delay_ms * std.time.ns_per_ms);
+                    stdio.sleepNs(shim_bootstrap_retry_delay_ms * std.time.ns_per_ms);
                     continue;
                 }
                 return err;
@@ -391,7 +407,7 @@ pub const IosDevice = struct {
 fn isTransientShimBootstrapFailure(result: command.ExecResult) bool {
     if (result.timed_out) return false;
     switch (result.term) {
-        .Exited => |code| if (code == 0) return false,
+        .exited => |code| if (code == 0) return false,
         else => return false,
     }
     return std.mem.indexOf(u8, result.stderr, "iOS shim server exited before it became ready") != null or
@@ -400,7 +416,7 @@ fn isTransientShimBootstrapFailure(result: command.ExecResult) bool {
 }
 
 fn shimTimeoutMs() u64 {
-    return parseShimTimeoutMs(std.posix.getenv(shim_timeout_env));
+    return parseShimTimeoutMs(stdio.getenv(shim_timeout_env));
 }
 
 fn parseShimTimeoutMs(raw: ?[]const u8) u64 {
@@ -408,6 +424,69 @@ fn parseShimTimeoutMs(raw: ?[]const u8) u64 {
     const parsed = std.fmt.parseInt(u64, value, 10) catch return default_shim_timeout_ms;
     if (parsed == 0) return default_shim_timeout_ms;
     return parsed;
+}
+
+test "ios simulator openLink keeps sweeping delayed XCTest interruptions until accepted" {
+    const allocator = std.heap.page_allocator;
+    const argv = [_][*:0]const u8{"zmr-ios-test"};
+    stdio.initProcess(.{
+        .args = .{ .vector = argv[0..] },
+        .environ = .empty,
+    }, allocator);
+    defer stdio.deinitProcess();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var shim = try tmp.dir.createFile(stdio.io(), "fake-ios-shim-delayed.sh", .{ .truncate = true });
+    {
+        var buffer: [4096]u8 = undefined;
+        var writer = shim.writerStreaming(stdio.io(), &buffer);
+        try writer.interface.writeAll(
+            \\#!/usr/bin/env bash
+            \\set -euo pipefail
+            \\request="$(cat)"
+        );
+        const shim_tail = try std.fmt.allocPrint(allocator,
+            \\
+            \\printf '%s\n' "$request" >> ".zig-cache/tmp/{s}/shim.log"
+            \\count_file=".zig-cache/tmp/{s}/count.txt"
+            \\count=0
+            \\if [[ -f "$count_file" ]]; then
+            \\  count="$(cat "$count_file")"
+            \\fi
+            \\count=$((count + 1))
+            \\printf '%s' "$count" > "$count_file"
+            \\if [[ "$count" -lt 6 ]]; then
+            \\  printf '{{"status":"ok","accepted":false,"count":0}}\n'
+            \\else
+            \\  printf '{{"status":"ok","accepted":true,"label":"Brick Rewards Test","count":1}}\n'
+            \\fi
+            \\
+        , .{ tmp.sub_path, tmp.sub_path });
+        defer allocator.free(shim_tail);
+        try writer.interface.writeAll(shim_tail);
+        try writer.interface.flush();
+    }
+    shim.close(stdio.io());
+
+    const shim_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-ios-shim-delayed.sh", .{tmp.sub_path});
+    defer allocator.free(shim_path);
+    const shim_path_z = try allocator.dupeZ(u8, shim_path);
+    defer allocator.free(shim_path_z);
+    if (std.c.chmod(shim_path_z, 0o755) != 0) return error.ChmodFailed;
+
+    var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    defer device.deinit();
+
+    try device.openLink("exampleapp:///e2e-auth?probe=1");
+
+    const count_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/count.txt", .{tmp.sub_path});
+    defer allocator.free(count_path);
+    const count_raw = try stdio.readFileAlloc(allocator, count_path, 1024);
+    defer allocator.free(count_raw);
+    const count = try std.fmt.parseInt(u8, count_raw, 10);
+    try std.testing.expectEqual(@as(u8, 6), count);
 }
 
 pub fn listDevices(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {

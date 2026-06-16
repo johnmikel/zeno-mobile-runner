@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 const cli_output = @import("cli_output.zig");
 const config = @import("config.zig");
@@ -42,13 +43,13 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
             parsed.config_path = if (index < args.len) args[index] else return error.MissingConfigPath;
             parsed.explicit_config = true;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     return parsed;
 }
 
-pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -104,7 +105,10 @@ fn runParsed(allocator: std.mem.Allocator, parsed: ParsedArgs) !void {
         allocator.free(checks);
     }
 
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     if (parsed.json) {
         try cli_output.writeDoctorJson(stdout, config_check, checks);
     } else {

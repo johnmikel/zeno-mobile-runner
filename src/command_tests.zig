@@ -37,7 +37,7 @@ test "command run captures output and ensureSuccess rejects failures" {
     const failed = ExecResult{
         .stdout = try allocator.dupe(u8, ""),
         .stderr = try allocator.dupe(u8, "bad"),
-        .term = .{ .Exited = 7 },
+        .term = .{ .exited = 7 },
     };
     defer failed.deinit(allocator);
     try std.testing.expectError(error.CommandFailed, failed.ensureSuccess());
@@ -96,7 +96,7 @@ test "command timeout terminates shell child process group" {
     var probe = try run(allocator, &.{ "/bin/sh", "-c", "kill -0 \"$1\" 2>/dev/null", "sh", pid }, 1024);
     defer probe.deinit(allocator);
     const alive = switch (probe.term) {
-        .Exited => |code| code == 0,
+        .exited => |code| code == 0,
         else => false,
     };
     if (alive) {

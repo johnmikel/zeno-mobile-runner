@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 const android = @import("android.zig");
 const android_emulator = @import("android_emulator.zig");
@@ -99,17 +100,17 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--json")) {
             parsed.json = true;
         } else if (std.mem.startsWith(u8, arg, "--")) {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         } else if (parsed.raw.scenario_path == null) {
             parsed.raw.scenario_path = arg;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     return parsed;
 }
 
-pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -191,8 +192,8 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         break :blk null;
     };
 
-    var discovery_payload = std.ArrayList(u8).empty;
-    defer discovery_payload.deinit(allocator);
+    var discovery_payload: std.Io.Writer.Allocating = .init(allocator);
+    defer discovery_payload.deinit();
     var run_discovery = cli_output.RunDiscovery{};
     if (parsed.discover_out) |out_path| {
         if (cli_discover.discoverFromTrace(allocator, .{
@@ -205,22 +206,27 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
         })) |discovered_value| {
             var discovered = discovered_value;
             defer discovered.deinit(allocator);
-            try cli_discover.writeJson(discovery_payload.writer(allocator), discovered.summary, discovered.validation);
-            run_discovery = .{ .json = std.mem.trimRight(u8, discovery_payload.items, " \t\r\n") };
+            try cli_discover.writeJson(&discovery_payload.writer, discovered.summary, discovered.validation);
+            run_discovery = .{ .json = std.mem.trimEnd(u8, discovery_payload.writer.buffered(), " \t\r\n") };
         } else |err| {
             run_discovery = .{ .error_name = @errorName(err) };
         }
     }
 
-    if (parsed.json) try cli_output.writeRunSummaryJson(
-        allocator,
-        std.fs.File.stdout().deprecatedWriter(),
-        trace_dir,
-        script.name,
-        app_id,
-        run_error,
-        run_discovery,
-    );
+    if (parsed.json) {
+        var stdout_io: stdio.Output = .{};
+        stdout_io.init(.stdout());
+        defer stdout_io.deinit();
+        try cli_output.writeRunSummaryJson(
+            allocator,
+            stdout_io.writer(),
+            trace_dir,
+            script.name,
+            app_id,
+            run_error,
+            run_discovery,
+        );
+    }
     if (run_error) |err| return err;
 }
 

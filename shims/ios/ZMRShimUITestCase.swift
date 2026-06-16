@@ -187,7 +187,7 @@ final class ZMRShimUITestCase: XCTestCase {
         case "appState":
             return ["status": "ok", "state": app.state.rawValue]
         case "acceptSystemAlert":
-            return acceptSystemAlert(buttonText: command.text ?? "Open")
+            return acceptSystemAlert(buttonText: command.text ?? "Open", app: app)
         default:
             return error("unknown.command", "unsupported command: \(command.cmd)")
         }
@@ -229,7 +229,7 @@ final class ZMRShimUITestCase: XCTestCase {
         ["status": "error", "code": code, "message": message]
     }
 
-    private func acceptSystemAlert(buttonText: String) -> [String: Any] {
+    private func acceptSystemAlert(buttonText: String, app: XCUIApplication) -> [String: Any] {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         var labels = [buttonText, "Open", "Allow", "OK", "Continue"]
         labels = labels.reduce(into: [String]()) { unique, label in
@@ -264,10 +264,119 @@ final class ZMRShimUITestCase: XCTestCase {
             }
         }
 
+        let expoDeepLinkSelection = acceptExpoDevClientDeepLink(app: app)
+        if expoDeepLinkSelection.accepted {
+            acceptedCount += 1
+            lastAcceptedLabel = expoDeepLinkSelection.label
+        }
+
+        let expoHomeSelection = resumeExpoDevClientHome(app: app)
+        if expoHomeSelection.accepted {
+            acceptedCount += 1
+            lastAcceptedLabel = expoHomeSelection.label
+        }
+
         if acceptedCount > 0 {
             return ["status": "ok", "accepted": true, "label": lastAcceptedLabel, "count": acceptedCount]
         }
         return ["status": "ok", "accepted": false, "count": 0]
+    }
+
+    private func acceptExpoDevClientDeepLink(app: XCUIApplication) -> (accepted: Bool, label: String) {
+        guard app.staticTexts["Deep link received:"].waitForExistence(timeout: 1) else {
+            return (false, "")
+        }
+
+        let candidateQueries = [
+            app.buttons.allElementsBoundByIndex,
+            app.cells.allElementsBoundByIndex,
+            app.staticTexts.allElementsBoundByIndex
+        ]
+
+        for elements in candidateQueries {
+            for element in elements {
+                let label = element.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard isExpoDevClientDeepLinkTarget(label: label), element.isHittable else {
+                    continue
+                }
+
+                element.tap()
+                Thread.sleep(forTimeInterval: 1.0)
+                return (true, label)
+            }
+        }
+
+        return (false, "")
+    }
+
+    private func isExpoDevClientDeepLinkTarget(label: String) -> Bool {
+        if label.isEmpty {
+            return false
+        }
+
+        let rejectedExactLabels = [
+            "Deep link received:",
+            "Select an app to open it:",
+            "Go back"
+        ]
+        if rejectedExactLabels.contains(label) {
+            return false
+        }
+
+        if label.contains("://") || label.hasPrefix("Note:") || label.contains("next app you open") {
+            return false
+        }
+
+        return true
+    }
+
+    private func resumeExpoDevClientHome(app: XCUIApplication) -> (accepted: Bool, label: String) {
+        guard app.staticTexts["Development servers"].waitForExistence(timeout: 1) else {
+            return (false, "")
+        }
+
+        let candidateQueries = [
+            app.buttons.allElementsBoundByIndex,
+            app.cells.allElementsBoundByIndex,
+            app.staticTexts.allElementsBoundByIndex
+        ]
+
+        for elements in candidateQueries {
+            for element in elements {
+                let label = element.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard isExpoDevClientProjectTarget(label: label), element.exists else {
+                    continue
+                }
+
+                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                Thread.sleep(forTimeInterval: 1.0)
+                return (true, label)
+            }
+        }
+
+        return (false, "")
+    }
+
+    private func isExpoDevClientProjectTarget(label: String) -> Bool {
+        if label.isEmpty {
+            return false
+        }
+
+        let rejectedExactLabels = [
+            "Development servers",
+            "Recently opened",
+            "Fetch development servers",
+            "Enter URL manually"
+        ]
+        if rejectedExactLabels.contains(label) {
+            return false
+        }
+
+        if label.hasPrefix("http://") || label.hasPrefix("https://") {
+            return false
+        }
+
+        return label.contains(" http://") || label.contains(" https://")
     }
 
     private func hideKeyboard(app: XCUIApplication) -> [String: Any] {
@@ -375,41 +484,39 @@ final class ZMRShimUITestCase: XCTestCase {
             return nil
         }
 
-        let query: XCUIElementQuery?
+        let queries: [XCUIElementQuery]
         switch parts.field {
         case "text", "label":
             let predicate = parts.contains
                 ? NSPredicate(format: "label CONTAINS[c] %@", parts.value)
                 : NSPredicate(format: "label == %@", parts.value)
-            query = app.descendants(matching: .any).matching(predicate)
+            queries = allDescendantQueries(app: app, type: .any).map { $0.matching(predicate) }
         case "identifier", "resourceId":
             let predicate = parts.contains
                 ? NSPredicate(format: "identifier CONTAINS[c] %@", parts.value)
                 : NSPredicate(format: "identifier == %@", parts.value)
-            query = app.descendants(matching: .any).matching(predicate)
+            queries = allDescendantQueries(app: app, type: .any).map { $0.matching(predicate) }
         case "value":
             let predicate = parts.contains
                 ? NSPredicate(format: "value CONTAINS[c] %@", parts.value)
                 : NSPredicate(format: "value == %@", parts.value)
-            query = app.descendants(matching: .any).matching(predicate)
+            queries = allDescendantQueries(app: app, type: .any).map { $0.matching(predicate) }
         case "id":
             if parts.value.hasPrefix("id:") {
                 let identifier = String(parts.value.dropFirst("id:".count))
-                query = app.descendants(matching: .any).matching(identifier: identifier)
+                queries = allDescendantQueries(app: app, type: .any).map { $0.matching(identifier: identifier) }
             } else if parts.value.hasPrefix("label:") {
                 let label = String(parts.value.dropFirst("label:".count))
-                query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+                let predicate = NSPredicate(format: "label == %@", label)
+                queries = allDescendantQueries(app: app, type: .any).map { $0.matching(predicate) }
             } else {
-                query = nil
+                queries = []
             }
         default:
-            query = nil
+            queries = []
         }
 
-        guard let element = query?.firstMatch, element.exists else {
-            return nil
-        }
-        return element
+        return firstExistingElement(queries: queries)
     }
 
     private func resolveFastElement(selector: String, app: XCUIApplication, preferredTypes: [XCUIElement.ElementType]) -> XCUIElement? {
@@ -449,9 +556,15 @@ final class ZMRShimUITestCase: XCTestCase {
     private func fastTextQueries(app: XCUIApplication, preferredTypes: [XCUIElement.ElementType]) -> [XCUIElementQuery] {
         var queries: [XCUIElementQuery] = []
         if !preferredTypes.isEmpty {
-            queries.append(contentsOf: preferredTypes.map { app.descendants(matching: $0) })
+            queries.append(contentsOf: preferredTypes.flatMap { allDescendantQueries(app: app, type: $0) })
         }
         queries.append(contentsOf: [
+            app.windows.descendants(matching: .button),
+            app.windows.descendants(matching: .staticText),
+            app.windows.descendants(matching: .textField),
+            app.windows.descendants(matching: .secureTextField),
+            app.windows.descendants(matching: .textView),
+            app.windows.descendants(matching: .image),
             app.buttons,
             app.staticTexts,
             app.textFields,
@@ -460,6 +573,13 @@ final class ZMRShimUITestCase: XCTestCase {
             app.images
         ])
         return queries
+    }
+
+    private func allDescendantQueries(app: XCUIApplication, type: XCUIElement.ElementType) -> [XCUIElementQuery] {
+        [
+            app.windows.descendants(matching: type),
+            app.descendants(matching: type)
+        ]
     }
 
     private func fastIdentifierQueries(

@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const stdio = @import("stdio.zig");
 
 pub const ExecResult = struct {
     stdout: []u8,
@@ -15,7 +15,7 @@ pub const ExecResult = struct {
     pub fn ensureSuccess(self: ExecResult) !void {
         if (self.timed_out) return error.CommandTimedOut;
         switch (self.term) {
-            .Exited => |code| if (code == 0) return,
+            .exited => |code| if (code == 0) return,
             else => {},
         }
         return error.CommandFailed;
@@ -27,10 +27,10 @@ pub fn run(
     argv: []const []const u8,
     max_output_bytes: usize,
 ) !ExecResult {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const result = try std.process.run(allocator, stdio.io(), .{
         .argv = argv,
-        .max_output_bytes = max_output_bytes,
+        .stdout_limit = .limited(max_output_bytes),
+        .stderr_limit = .limited(max_output_bytes),
     });
     return .{
         .stdout = result.stdout,
@@ -56,59 +56,24 @@ pub fn runWithInputTimeout(
     max_output_bytes: usize,
     timeout_ms: u64,
 ) !ExecResult {
-    var child = std.process.Child.init(argv, allocator);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    var stdout = std.ArrayList(u8).empty;
-    defer stdout.deinit(allocator);
-    var stderr = std.ArrayList(u8).empty;
-    defer stderr.deinit(allocator);
-
-    try child.spawn();
-    errdefer _ = child.kill() catch {};
-
-    var done = std.Thread.ResetEvent{};
-    var timed_out = std.atomic.Value(bool).init(false);
-    const use_timeout = timeout_ms > 0;
-    const killer = if (use_timeout)
-        try std.Thread.spawn(.{}, timeoutKiller, .{
-            child.id,
-            &done,
-            &timed_out,
-            std.math.mul(u64, timeout_ms, std.time.ns_per_ms) catch std.math.maxInt(u64),
-        })
-    else
-        null;
+    var child = try std.process.spawn(stdio.io(), .{
+        .argv = argv,
+        .stdin = .pipe,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
+    defer if (child.id != null) child.kill(stdio.io());
 
     if (child.stdin) |stdin_file| {
-        try stdin_file.writeAll(stdin);
-        stdin_file.close();
+        var stdin_buffer: [8192]u8 = undefined;
+        var stdin_writer = stdin_file.writerStreaming(stdio.io(), &stdin_buffer);
+        try stdin_writer.interface.writeAll(stdin);
+        try stdin_writer.interface.flush();
+        stdin_file.close(stdio.io());
         child.stdin = null;
     }
 
-    child.collectOutput(allocator, &stdout, &stderr, max_output_bytes) catch |err| {
-        _ = child.kill() catch {};
-        done.set();
-        if (killer) |thread| thread.join();
-        return err;
-    };
-
-    const term = child.wait() catch |err| {
-        done.set();
-        if (killer) |thread| thread.join();
-        return err;
-    };
-    done.set();
-    if (killer) |thread| thread.join();
-
-    return .{
-        .stdout = try stdout.toOwnedSlice(allocator),
-        .stderr = try stderr.toOwnedSlice(allocator),
-        .term = term,
-        .timed_out = timed_out.load(.acquire),
-    };
+    return try collectSpawnedOutput(allocator, &child, max_output_bytes, timeoutForMs(timeout_ms));
 }
 
 pub fn runWithTimeout(
@@ -119,64 +84,81 @@ pub fn runWithTimeout(
 ) !ExecResult {
     if (timeout_ms == 0) return run(allocator, argv, max_output_bytes);
 
-    var child = std.process.Child.init(argv, allocator);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    var stdout = std.ArrayList(u8).empty;
-    defer stdout.deinit(allocator);
-    var stderr = std.ArrayList(u8).empty;
-    defer stderr.deinit(allocator);
-
-    try child.spawn();
-    errdefer _ = child.kill() catch {};
-
-    var done = std.Thread.ResetEvent{};
-    var timed_out = std.atomic.Value(bool).init(false);
-    const timeout_ns = std.math.mul(u64, timeout_ms, std.time.ns_per_ms) catch std.math.maxInt(u64);
-    const killer = try std.Thread.spawn(.{}, timeoutKiller, .{ child.id, &done, &timed_out, timeout_ns });
-
-    child.collectOutput(allocator, &stdout, &stderr, max_output_bytes) catch |err| {
-        _ = child.kill() catch {};
-        done.set();
-        killer.join();
-        return err;
+    const result = std.process.run(allocator, stdio.io(), .{
+        .argv = argv,
+        .stdout_limit = .limited(max_output_bytes),
+        .stderr_limit = .limited(max_output_bytes),
+        .timeout = timeoutForMs(timeout_ms),
+    }) catch |err| switch (err) {
+        error.Timeout => return timedOutResult(allocator),
+        else => |actual| return actual,
     };
-
-    const term = child.wait() catch |err| {
-        done.set();
-        killer.join();
-        return err;
+    return .{
+        .stdout = result.stdout,
+        .stderr = result.stderr,
+        .term = result.term,
+        .timed_out = false,
     };
-    done.set();
-    killer.join();
+}
+
+fn collectSpawnedOutput(
+    allocator: std.mem.Allocator,
+    child: *std.process.Child,
+    max_output_bytes: usize,
+    timeout: std.Io.Timeout,
+) !ExecResult {
+    var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: std.Io.File.MultiReader = undefined;
+    multi_reader.init(allocator, stdio.io(), multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
+
+    const stdout_reader = multi_reader.reader(0);
+    const stderr_reader = multi_reader.reader(1);
+
+    while (multi_reader.fill(64, timeout)) |_| {
+        if (stdout_reader.buffered().len > max_output_bytes) return error.StreamTooLong;
+        if (stderr_reader.buffered().len > max_output_bytes) return error.StreamTooLong;
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        error.Timeout => {
+            child.kill(stdio.io());
+            return timedOutResult(allocator);
+        },
+        else => |actual| return actual,
+    }
+
+    try multi_reader.checkAnyError();
+    const term = try child.wait(stdio.io());
+
+    const stdout_slice = try multi_reader.toOwnedSlice(0);
+    errdefer allocator.free(stdout_slice);
+    const stderr_slice = try multi_reader.toOwnedSlice(1);
+    errdefer allocator.free(stderr_slice);
 
     return .{
-        .stdout = try stdout.toOwnedSlice(allocator),
-        .stderr = try stderr.toOwnedSlice(allocator),
+        .stdout = stdout_slice,
+        .stderr = stderr_slice,
         .term = term,
-        .timed_out = timed_out.load(.acquire),
+        .timed_out = false,
     };
 }
 
-fn timeoutKiller(
-    child_id: std.process.Child.Id,
-    done: *std.Thread.ResetEvent,
-    timed_out: *std.atomic.Value(bool),
-    timeout_ns: u64,
-) void {
-    done.timedWait(timeout_ns) catch {
-        timed_out.store(true, .release);
-        killChildId(child_id);
+fn timedOutResult(allocator: std.mem.Allocator) !ExecResult {
+    return .{
+        .stdout = try allocator.dupe(u8, ""),
+        .stderr = try allocator.dupe(u8, ""),
+        .term = .{ .unknown = 0 },
+        .timed_out = true,
     };
 }
 
-fn killChildId(child_id: std.process.Child.Id) void {
-    switch (builtin.os.tag) {
-        .windows => {},
-        else => std.posix.kill(child_id, std.posix.SIG.TERM) catch {},
-    }
+fn timeoutForMs(timeout_ms: u64) std.Io.Timeout {
+    if (timeout_ms == 0) return .none;
+    const timeout_ns = std.math.mul(u64, timeout_ms, std.time.ns_per_ms) catch std.math.maxInt(u64);
+    return .{ .duration = .{
+        .raw = std.Io.Duration.fromNanoseconds(@intCast(timeout_ns)),
+        .clock = .awake,
+    } };
 }
 
 pub fn escapeAdbInputText(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {

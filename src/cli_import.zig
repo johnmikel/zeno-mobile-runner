@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 const cli_output = @import("cli_output.zig");
 const importer = @import("importer.zig");
@@ -39,13 +40,13 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--json")) {
             json = true;
         } else if (std.mem.startsWith(u8, arg, "--")) {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         } else if (format == null) {
             format = arg;
         } else if (source_path == null) {
             source_path = arg;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     if (format == null) return error.MissingImportFormat;
@@ -62,7 +63,7 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
     };
 }
 
-pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -77,7 +78,10 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
     });
     defer result.deinit(allocator);
 
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     if (parsed.json) return try cli_output.writeImportJson(stdout, parsed.format, parsed.source_path, result);
     try stdout.print("wrote {s}\n", .{result.out_path});
     try stdout.writeAll("next: zmr validate ");

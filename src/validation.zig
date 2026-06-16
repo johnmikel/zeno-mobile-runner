@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const errors = @import("errors.zig");
 const scenario = @import("scenario.zig");
 
@@ -23,7 +24,7 @@ pub const Result = struct {
 };
 
 pub fn validateFile(allocator: std.mem.Allocator, path: []const u8) !Result {
-    const content = std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024) catch |err| return failure(allocator, null, err);
+    const content = stdio.readFileAlloc(allocator, path, 16 * 1024 * 1024) catch |err| return failure(allocator, null, err);
     defer allocator.free(content);
     const script = scenario.parseSlice(allocator, content) catch |err| return failure(allocator, content, err);
     defer script.deinit(allocator);
@@ -91,10 +92,10 @@ fn diagnoseFailure(allocator: std.mem.Allocator, content: []const u8, err: anyer
         => try pathDiagnostic(allocator, content, "$.steps", "steps"),
         error.StepMissingAction,
         error.StepActionMustBeString,
-        error.UnknownAction,
-        error.UnknownScenarioAction,
+        error.unknownAction,
+        error.unknownScenarioAction,
         => try pathDiagnostic(allocator, content, "$.steps[].action", "action"),
-        error.UnknownScrollDirection,
+        error.unknownScrollDirection,
         => try pathDiagnostic(allocator, content, "$.steps[].direction", "direction"),
         error.StepMissingUrl,
         => try pathDiagnostic(allocator, content, "$.steps[].url", "url"),

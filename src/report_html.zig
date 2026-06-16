@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 pub fn writeStart(writer: anytype, title: []const u8) !void {
     try writer.writeAll("<!doctype html><html><head><meta charset=\"utf-8\"><title>");
@@ -28,9 +29,9 @@ pub fn writeEnd(writer: anytype) !void {
 }
 
 pub fn writeFile(path: []const u8, bytes: []const u8) !void {
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(bytes);
+    var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+    defer file.close(stdio.io());
+    try std.Io.File.writeStreamingAll(file, stdio.io(), bytes);
 }
 
 pub fn writeArtifactLink(
@@ -39,7 +40,7 @@ pub fn writeArtifactLink(
     path: []const u8,
     label: []const u8,
 ) !void {
-    const href = std.fs.cwd().realpathAlloc(allocator, path) catch try allocator.dupe(u8, path);
+    const href = std.Io.Dir.cwd().realPathFileAlloc(stdio.io(), path, allocator) catch try allocator.dupeZ(u8, path);
     defer allocator.free(href);
 
     try writer.writeAll("<a href=\"file://");

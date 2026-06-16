@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const command = @import("command.zig");
 
 const default_timeout_ms = 15_000;
@@ -100,11 +101,12 @@ fn startEmulator(allocator: std.mem.Allocator, options: PreflightOptions, avd: [
     try argv.appendSlice(allocator, &.{ "-netdelay", "none", "-netspeed", "full" });
     try recordCommand(allocator, options.event_log_path, argv.items);
 
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    try child.spawn();
+    _ = try std.process.spawn(stdio.io(), .{
+        .argv = argv.items,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
 }
 
 fn waitReady(allocator: std.mem.Allocator, options: PreflightOptions) !void {
@@ -118,7 +120,7 @@ fn waitReady(allocator: std.mem.Allocator, options: PreflightOptions) !void {
         try prop.ensureSuccess();
         const value = std.mem.trim(u8, prop.stdout, " \t\r\n");
         if (std.mem.eql(u8, value, "1")) return;
-        std.Thread.sleep(2 * std.time.ns_per_s);
+        stdio.sleepNs(2 * std.time.ns_per_s);
     }
     return error.AndroidEmulatorBootTimedOut;
 }
@@ -137,12 +139,20 @@ fn runAdb(allocator: std.mem.Allocator, options: PreflightOptions, extra: []cons
 
 fn recordCommand(allocator: std.mem.Allocator, maybe_path: ?[]const u8, argv: []const []const u8) !void {
     const path = maybe_path orelse return;
-    var file = std.fs.cwd().openFile(path, .{ .mode = .write_only }) catch |err| switch (err) {
-        error.FileNotFound => try std.fs.cwd().createFile(path, .{ .truncate = true }),
+    const existing = stdio.readFileAlloc(allocator, path, 4 * 1024 * 1024) catch |err| switch (err) {
+        error.FileNotFound => "",
         else => return err,
     };
-    defer file.close();
-    try file.seekFromEnd(0);
+    const had_existing_file = existing.ptr != "".ptr;
+    defer if (had_existing_file) allocator.free(existing);
+
+    var file = try std.Io.Dir.cwd().createFile(stdio.io(), path, .{ .truncate = true });
+    defer file.close(stdio.io());
+    var write_buffer: [8192]u8 = undefined;
+    var file_writer = file.writerStreaming(stdio.io(), &write_buffer);
+    const writer = &file_writer.interface;
+    if (existing.len > 0) try writer.writeAll(existing);
+
     var line = std.ArrayList(u8).empty;
     defer line.deinit(allocator);
     for (argv, 0..) |arg, index| {
@@ -150,5 +160,6 @@ fn recordCommand(allocator: std.mem.Allocator, maybe_path: ?[]const u8, argv: []
         try line.appendSlice(allocator, arg);
     }
     try line.append(allocator, '\n');
-    try file.writeAll(line.items);
+    try writer.writeAll(line.items);
+    try writer.flush();
 }

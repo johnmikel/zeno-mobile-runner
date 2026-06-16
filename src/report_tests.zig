@@ -62,7 +62,7 @@ test "report writes single trace html with terminal event" {
         var manifest = try std.fs.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
-            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.1\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"flow\",\"appId\":\"com.example.mobiletest\",\"status\":\"passed\",\"startedAtMs\":1,\"endedAtMs\":2,\"durationMs\":1,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":0,\"reportPath\":null}\n",
+            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"flow\",\"appId\":\"com.example.mobiletest\",\"status\":\"passed\",\"startedAtMs\":1,\"endedAtMs\":2,\"durationMs\":1,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":0,\"reportPath\":null}\n",
         );
     }
 
@@ -94,7 +94,7 @@ test "report writes single trace junit xml for ci" {
         var manifest = try std.fs.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
-            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.1\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"login & smoke\",\"appId\":\"com.example.mobiletest\",\"status\":\"failed\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":2,\"error\":\"WaitTimeout\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":4,\"snapshotCount\":1,\"reportPath\":null}\n",
+            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"login & smoke\",\"appId\":\"com.example.mobiletest\",\"status\":\"failed\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":2,\"error\":\"WaitTimeout\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":4,\"snapshotCount\":1,\"reportPath\":null}\n",
         );
     }
     {
@@ -155,7 +155,7 @@ test "trace explanation summarizes terminal failure diagnostics" {
         var manifest = try std.fs.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
-            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.1\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"login smoke\",\"appId\":\"com.example.mobiletest\",\"status\":\"failed\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":2,\"error\":\"WaitTimeout\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":4,\"snapshotCount\":1,\"reportPath\":null}\n",
+            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"login smoke\",\"appId\":\"com.example.mobiletest\",\"status\":\"failed\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":2,\"error\":\"WaitTimeout\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":4,\"snapshotCount\":1,\"reportPath\":null}\n",
         );
     }
     {

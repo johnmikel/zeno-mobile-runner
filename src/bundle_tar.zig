@@ -1,42 +1,45 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 pub fn writeFile(
     allocator: std.mem.Allocator,
     trace_dir: []const u8,
     archive_path: []const u8,
-    out_file: *std.fs.File,
+    out_file: *std.Io.File,
 ) !void {
     if (isUnsafeArchivePath(archive_path)) return error.UnsafeArchivePath;
     const fs_path = try std.fs.path.join(allocator, &.{ trace_dir, archive_path });
     defer allocator.free(fs_path);
 
-    var in_file = try std.fs.cwd().openFile(fs_path, .{});
-    defer in_file.close();
-    const stat = try in_file.stat();
+    var in_file = try std.Io.Dir.cwd().openFile(stdio.io(), fs_path, .{});
+    defer in_file.close(stdio.io());
+    const stat = try in_file.stat(stdio.io());
 
     var header = [_]u8{0} ** 512;
     try writeHeader(&header, archive_path, stat.size);
 
-    try out_file.writeAll(&header);
+    try std.Io.File.writeStreamingAll(out_file.*, stdio.io(), &header);
+    var reader_buffer: [16 * 1024]u8 = undefined;
+    var reader = in_file.readerStreaming(stdio.io(), &reader_buffer);
     var buffer: [16 * 1024]u8 = undefined;
     var remaining = stat.size;
     while (remaining > 0) {
         const read_len = @min(buffer.len, remaining);
-        const n = try in_file.read(buffer[0..read_len]);
+        const n = try reader.interface.readSliceShort(buffer[0..read_len]);
         if (n == 0) return error.UnexpectedEndOfStream;
-        try out_file.writeAll(buffer[0..n]);
+        try std.Io.File.writeStreamingAll(out_file.*, stdio.io(), buffer[0..n]);
         remaining -= n;
     }
     try writePadding(out_file, stat.size);
 }
 
-pub fn writeBytes(archive_path: []const u8, bytes: []const u8, out_file: *std.fs.File) !void {
+pub fn writeBytes(archive_path: []const u8, bytes: []const u8, out_file: *std.Io.File) !void {
     if (isUnsafeArchivePath(archive_path)) return error.UnsafeArchivePath;
     var header = [_]u8{0} ** 512;
     try writeHeader(&header, archive_path, bytes.len);
 
-    try out_file.writeAll(&header);
-    try out_file.writeAll(bytes);
+    try std.Io.File.writeStreamingAll(out_file.*, stdio.io(), &header);
+    try std.Io.File.writeStreamingAll(out_file.*, stdio.io(), bytes);
     try writePadding(out_file, bytes.len);
 }
 
@@ -57,9 +60,9 @@ fn writeHeader(header: *[512]u8, archive_path: []const u8, size: u64) !void {
     writeChecksum(header[148..156], checksum);
 }
 
-fn writePadding(out_file: *std.fs.File, size: u64) !void {
+fn writePadding(out_file: *std.Io.File, size: u64) !void {
     const padding = (512 - (size % 512)) % 512;
-    if (padding > 0) try out_file.writeAll((&([_]u8{0} ** 512))[0..padding]);
+    if (padding > 0) try std.Io.File.writeStreamingAll(out_file.*, stdio.io(), (&([_]u8{0} ** 512))[0..padding]);
 }
 
 fn isUnsafeArchivePath(archive_path: []const u8) bool {

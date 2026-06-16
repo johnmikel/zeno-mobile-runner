@@ -61,13 +61,14 @@ fn recordSelectorAction(
     wanted: selector.Selector,
     max_chars: ?u32,
 ) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
-    try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-    if (max_chars) |value| try payload.writer(tw.allocator).print(",\"maxChars\":{d}", .{value});
-    try payload.writer(tw.allocator).writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    if (max_chars) |value| try writer.print(",\"maxChars\":{d}", .{value});
+    try writer.writeAll("}");
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 fn recordSelectorTextAction(
@@ -76,14 +77,15 @@ fn recordSelectorTextAction(
     wanted: selector.Selector,
     text: []const u8,
 ) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    try payload.writer(tw.allocator).writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
-    try trace.writeSelectorJson(payload.writer(tw.allocator), wanted);
-    try payload.writer(tw.allocator).writeAll(",\"text\":");
-    try trace.writeJsonString(payload.writer(tw.allocator), text);
-    try payload.writer(tw.allocator).writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    try writer.writeAll(",\"text\":");
+    try trace.writeJsonString(writer, text);
+    try writer.writeAll("}");
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 fn recordSelectorActionFailure(
@@ -92,13 +94,13 @@ fn recordSelectorActionFailure(
     wanted: selector.Selector,
     err: anyerror,
 ) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(tw.allocator);
-    const out = payload.writer(tw.allocator);
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
     try out.writeAll("{\"status\":\"failed\",\"strategy\":\"nativeSelector\",\"error\":");
     try trace.writeJsonString(out, @errorName(err));
     try out.writeAll(",\"selector\":");
     try trace.writeSelectorJson(out, wanted);
     try out.writeAll("}");
-    try tw.recordEvent(kind, payload.items);
+    try tw.recordEvent(kind, out.buffered());
 }

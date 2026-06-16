@@ -18,7 +18,7 @@ test "parse args accepts flags before the scenario path" {
 }
 
 test "parse args rejects unknown flags and extra paths" {
-    try std.testing.expectError(error.UnknownFlag, cli_validate.parseArgs(&.{ "scenario.json", "--wat" }));
-    try std.testing.expectError(error.UnknownFlag, cli_validate.parseArgs(&.{ "scenario.json", "extra.json" }));
+    try std.testing.expectError(error.unknownFlag, cli_validate.parseArgs(&.{ "scenario.json", "--wat" }));
+    try std.testing.expectError(error.unknownFlag, cli_validate.parseArgs(&.{ "scenario.json", "extra.json" }));
     try std.testing.expectError(error.MissingScenarioPath, cli_validate.parseArgs(&.{"--json"}));
 }

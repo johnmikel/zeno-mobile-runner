@@ -178,7 +178,7 @@ test "trace summary module preserves partial visual capture diagnostics" {
         var manifest = try std.fs.cwd().createFile(dir ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
-            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.1\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"ios partial\",\"appId\":\"com.example.mobiletest\",\"status\":\"partial\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":1,\"partialFailureCount\":1,\"reportPath\":null}\n",
+            "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"ios partial\",\"appId\":\"com.example.mobiletest\",\"status\":\"partial\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":1,\"partialFailureCount\":1,\"reportPath\":null}\n",
         );
     }
     {
@@ -426,13 +426,13 @@ test "cli validate module parses scenario path and json flag" {
     try std.testing.expectEqualStrings("examples/demo-fake.json", parsed.path);
     try std.testing.expect(parsed.json);
     try std.testing.expectError(error.MissingScenarioPath, cli_validate.parseArgs(&.{}));
-    try std.testing.expectError(error.UnknownFlag, cli_validate.parseArgs(&.{ "examples/demo-fake.json", "--wat" }));
+    try std.testing.expectError(error.unknownFlag, cli_validate.parseArgs(&.{ "examples/demo-fake.json", "--wat" }));
 }
 
 test "cli info module parses shared json flag for metadata commands" {
     try std.testing.expect(!(try cli_info.parseJsonFlag(&.{})));
     try std.testing.expect(try cli_info.parseJsonFlag(&.{"--json"}));
-    try std.testing.expectError(error.UnknownFlag, cli_info.parseJsonFlag(&.{"--wat"}));
+    try std.testing.expectError(error.unknownFlag, cli_info.parseJsonFlag(&.{"--wat"}));
 }
 
 test "cli init module parses app scaffold and scenario modes" {
@@ -447,7 +447,7 @@ test "cli init module parses app scaffold and scenario modes" {
     try std.testing.expect(scenario_init.force);
     try std.testing.expectEqualStrings("smoke.json", scenario_init.path);
 
-    try std.testing.expectError(error.UnknownFlag, cli_init.parseArgs(&.{ "--app", "smoke.json" }));
+    try std.testing.expectError(error.unknownFlag, cli_init.parseArgs(&.{ "--app", "smoke.json" }));
 }
 
 test "cli import module parses flow yaml migration options" {
@@ -531,7 +531,7 @@ test "cli serve module parses json rpc and mcp options" {
     try std.testing.expectEqualStrings("./.zmr/android-shim", mcp_args.raw.android_shim_path.?);
 
     try std.testing.expectError(error.UnsupportedTransport, cli_serve.parseServeArgs(&.{ "--transport", "websocket" }));
-    try std.testing.expectError(error.UnknownFlag, cli_serve.parseMcpArgs(&.{ "--transport", "tcp" }));
+    try std.testing.expectError(error.unknownFlag, cli_serve.parseMcpArgs(&.{ "--transport", "tcp" }));
 }
 
 test "cli run module parses scenario device platform and emulator options" {
@@ -604,5 +604,5 @@ test "cli run module parses scenario device platform and emulator options" {
 
     const config_only = try cli_run.parseArgs(&.{});
     try std.testing.expect(config_only.raw.scenario_path == null);
-    try std.testing.expectError(error.UnknownFlag, cli_run.parseArgs(&.{ "a.json", "b.json" }));
+    try std.testing.expectError(error.unknownFlag, cli_run.parseArgs(&.{ "a.json", "b.json" }));
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const cli_output = @import("cli_output.zig");
 const errors = @import("errors.zig");
 const mcp_protocol = @import("mcp_protocol.zig");
@@ -13,12 +14,19 @@ const trace = @import("trace.zig");
 const validation = @import("validation.zig");
 
 pub fn serveStdioWithTrace(allocator: std.mem.Allocator, device: anytype, live_trace: ?*trace.TraceWriter) !void {
-    var stdin = std.fs.File.stdin().deprecatedReader();
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdin_io: stdio.Input = .{};
+    stdin_io.init(.stdin());
+    const stdin = stdin_io.reader();
+
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
 
     while (true) {
-        const line = stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', 16 * 1024 * 1024) catch |err| {
+        const line = stdio.readLineAlloc(stdin, allocator, 16 * 1024 * 1024) catch |err| {
             try mcp_protocol.writeError(stdout, null, -32700, @errorName(err));
+            try stdout_io.flush();
             continue;
         };
         const owned_line = line orelse break;
@@ -26,6 +34,7 @@ pub fn serveStdioWithTrace(allocator: std.mem.Allocator, device: anytype, live_t
         const trimmed = std.mem.trim(u8, owned_line, " \t\r\n");
         if (trimmed.len == 0) continue;
         try dispatchLine(allocator, device, trimmed, stdout, live_trace);
+        try stdout_io.flush();
     }
 }
 
@@ -111,10 +120,10 @@ fn callTool(
     if (std.mem.eql(u8, tool_name, "snapshot")) {
         var snap = try device.snapshot(live_trace);
         defer snap.deinit(device.allocator);
-        var payload = std.ArrayList(u8).empty;
-        defer payload.deinit(allocator);
-        try trace.writeSnapshotJson(payload.writer(allocator), snap);
-        try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+        var payload: std.Io.Writer.Allocating = .init(allocator);
+        defer payload.deinit();
+        try trace.writeSnapshotJson(&payload.writer, snap);
+        try mcp_protocol.writeToolTextResult(writer, id, payload.writer.buffered());
         return;
     }
 
@@ -126,10 +135,10 @@ fn callTool(
             defer tw.allocator.free(path);
             try tw.recordEvent("observe.semanticSnapshot", "{\"status\":\"ok\"}");
         }
-        var payload = std.ArrayList(u8).empty;
-        defer payload.deinit(allocator);
-        try semantic.writeSemanticSnapshotJson(payload.writer(allocator), snap);
-        try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+        var payload: std.Io.Writer.Allocating = .init(allocator);
+        defer payload.deinit();
+        try semantic.writeSemanticSnapshotJson(&payload.writer, snap);
+        try mcp_protocol.writeToolTextResult(writer, id, payload.writer.buffered());
         return;
     }
 
@@ -311,10 +320,10 @@ fn callTool(
         const path = try requiredParamString(arguments, "path");
         var result = try validation.validateFile(allocator, path);
         defer result.deinit(allocator);
-        var payload = std.ArrayList(u8).empty;
-        defer payload.deinit(allocator);
-        try cli_output.writeValidationJson(payload.writer(allocator), path, result);
-        try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimRight(u8, payload.items, " \t\r\n"));
+        var payload: std.Io.Writer.Allocating = .init(allocator);
+        defer payload.deinit();
+        try cli_output.writeValidationJson(&payload.writer, path, result);
+        try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
         return;
     }
 
@@ -382,15 +391,15 @@ fn writeMatchedIndexToolResult(
     id: ?std.json.Value,
     matched: ?usize,
 ) !void {
-    var payload = std.ArrayList(u8).empty;
-    defer payload.deinit(allocator);
-    const payload_writer = payload.writer(allocator);
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    const payload_writer = &payload.writer;
     if (matched) |index| {
         try payload_writer.print("{{\"matchedIndex\":{d}}}", .{index});
     } else {
         try payload_writer.writeAll("{\"matchedIndex\":null}");
     }
-    try mcp_protocol.writeToolTextResult(writer, id, payload.items);
+    try mcp_protocol.writeToolTextResult(writer, id, payload_writer.buffered());
 }
 
 fn parseArgumentsSelector(allocator: std.mem.Allocator, arguments: ?std.json.Value) !selector.Selector {

@@ -66,7 +66,7 @@ pub fn parseMcpArgs(args: []const []const u8) !McpArgs {
     return parsed;
 }
 
-pub fn runServe(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn runServe(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -98,7 +98,7 @@ pub fn runServe(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !v
     }
 }
 
-pub fn runMcp(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn runMcp(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -170,7 +170,7 @@ fn parseCommonArg(
         index.* += 1;
         config_path.* = if (index.* < args.len) args[index.*] else return error.MissingConfigPath;
     } else {
-        return error.UnknownFlag;
+        return error.unknownFlag;
     }
 }
 

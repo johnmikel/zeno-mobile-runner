@@ -11,5 +11,5 @@ test "parse args rejects missing values and invalid platform values" {
     try std.testing.expectError(error.MissingXcrunPath, cli_serve.parseServeArgs(&.{"--xcrun"}));
     try std.testing.expectError(error.UnsupportedPlatform, cli_serve.parseServeArgs(&.{ "--platform", "watchos" }));
     try std.testing.expectError(error.UnsupportedIosDeviceType, cli_serve.parseServeArgs(&.{ "--ios-device-type", "watch" }));
-    try std.testing.expectError(error.UnknownFlag, cli_serve.parseMcpArgs(&.{"scenario.json"}));
+    try std.testing.expectError(error.unknownFlag, cli_serve.parseMcpArgs(&.{"scenario.json"}));
 }

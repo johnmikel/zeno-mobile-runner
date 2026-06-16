@@ -56,5 +56,5 @@ pub fn optionalDirection(params: ?std.json.Value, key: []const u8, default_value
     if (value != .string) return error.ParamMustBeString;
     if (std.mem.eql(u8, value.string, "down")) return .down;
     if (std.mem.eql(u8, value.string, "up")) return .up;
-    return error.UnknownScrollDirection;
+    return error.unknownScrollDirection;
 }

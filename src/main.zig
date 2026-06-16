@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const cli_devices = @import("cli_devices.zig");
 const cli_discover = @import("cli_discover.zig");
 const cli_doctor = @import("cli_doctor.zig");
@@ -14,8 +15,8 @@ const cli_trace = @import("cli_trace.zig");
 const cli_validate = @import("cli_validate.zig");
 const errors = @import("errors.zig");
 
-pub fn main() void {
-    mainInner() catch |err| {
+pub fn main(init: std.process.Init.Minimal) void {
+    mainInner(init) catch |err| {
         // stdout's consumer went away (e.g. `zmr ... | head`); exit quietly
         // with the conventional SIGPIPE status instead of reporting an error.
         if (err == error.BrokenPipe) std.process.exit(141);
@@ -24,7 +25,7 @@ pub fn main() void {
     };
 }
 
-fn mainInner() !void {
+fn mainInner(init: std.process.Init.Minimal) !void {
     const GeneralAllocator = if (@hasDecl(std.heap, "GeneralPurposeAllocator"))
         std.heap.GeneralPurposeAllocator
     else
@@ -32,8 +33,10 @@ fn mainInner() !void {
     var gpa = GeneralAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    stdio.initProcess(init, allocator);
+    defer stdio.deinitProcess();
 
-    var args = try std.process.argsWithAllocator(allocator);
+    var args = try std.process.Args.Iterator.initAllocator(init.args, allocator);
     defer args.deinit();
     _ = args.next();
     const command_name = args.next() orelse {
@@ -80,26 +83,29 @@ fn mainInner() !void {
     } else {
         std.debug.print("unknown command: {s}\n\n", .{command_name});
         try usage();
-        return error.UnknownCommand;
+        return error.unknownCommand;
     }
 }
 
 fn writeTopLevelError(err: anyerror) void {
     const public = errors.classify(err);
-    const stderr = std.fs.File.stderr().deprecatedWriter();
+    var stderr_io: stdio.Output = .{};
+    stderr_io.init(.stderr());
+    defer stderr_io.deinit();
+    const stderr = stderr_io.writer();
     stderr.print("error[{s}]: {s}\n", .{ public.code, public.message }) catch {};
     if (err == error.CommandFailed) {
         stderr.writeAll("hint: run `zmr doctor --json` for setup diagnostics.\n") catch {};
     }
-    if (err == error.UnknownFlag) {
+    if (err == error.unknownFlag) {
         stderr.writeAll("hint: run `zmr help` for each command's flags and arguments.\n") catch {};
     }
 }
 
 fn exitCodeForError(err: anyerror) u8 {
     return switch (err) {
-        error.UnknownCommand,
-        error.UnknownFlag,
+        error.unknownCommand,
+        error.unknownFlag,
         error.MissingScenarioPath,
         error.MissingDeviceSerial,
         error.MissingTraceDir,
@@ -125,7 +131,10 @@ fn exitCodeForError(err: anyerror) u8 {
 }
 
 fn usage() !void {
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     try stdout.writeAll(
         \\zmr - Zeno Mobile Runner
         \\

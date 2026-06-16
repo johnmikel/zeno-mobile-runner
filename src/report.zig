@@ -2,6 +2,7 @@ const std = @import("std");
 const cli_output = @import("cli_output.zig");
 const report_html = @import("report_html.zig");
 const report_values = @import("report_values.zig");
+const stdio = @import("stdio.zig");
 const trace = @import("trace.zig");
 const trace_summary = @import("trace_summary.zig");
 
@@ -13,8 +14,8 @@ pub fn writeHtmlReport(
     const results_path = try std.fs.path.join(allocator, &.{ input_path, "results.jsonl" });
     defer allocator.free(results_path);
 
-    if (std.fs.cwd().openFile(results_path, .{})) |file| {
-        file.close();
+    if (std.Io.Dir.cwd().openFile(stdio.io(), results_path, .{})) |file| {
+        file.close(stdio.io());
         return try writeBenchmarkReport(allocator, input_path, results_path, out_path);
     } else |err| switch (err) {
         error.FileNotFound => return try writeTraceReport(allocator, input_path, out_path),
@@ -30,8 +31,8 @@ pub fn writeJUnitReport(
     const results_path = try std.fs.path.join(allocator, &.{ input_path, "results.jsonl" });
     defer allocator.free(results_path);
 
-    if (std.fs.cwd().openFile(results_path, .{})) |file| {
-        file.close();
+    if (std.Io.Dir.cwd().openFile(stdio.io(), results_path, .{})) |file| {
+        file.close(stdio.io());
         return try writeBenchmarkJUnitReport(allocator, input_path, results_path, out_path);
     } else |err| switch (err) {
         error.FileNotFound => return try writeTraceJUnitReport(allocator, input_path, out_path),
@@ -183,11 +184,11 @@ fn writeBenchmarkReport(
     results_path: []const u8,
     out_path: []const u8,
 ) !void {
-    const content = try std.fs.cwd().readFileAlloc(allocator, results_path, 64 * 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, results_path, 64 * 1024 * 1024);
     defer allocator.free(content);
 
-    var rows_html = std.ArrayList(u8).empty;
-    defer rows_html.deinit(allocator);
+    var rows_html: std.Io.Writer.Allocating = .init(allocator);
+    defer rows_html.deinit();
     var durations = std.ArrayList(i64).empty;
     defer durations.deinit(allocator);
 
@@ -223,7 +224,7 @@ fn writeBenchmarkReport(
             failed += 1;
         }
 
-        const writer = rows_html.writer(allocator);
+        const writer = &rows_html.writer;
         try writer.writeAll("<tr><td>");
         try writer.print("{d}", .{run});
         try writer.writeAll("</td><td>");
@@ -257,9 +258,9 @@ fn writeBenchmarkReport(
     const mean = report_values.meanDuration(durations.items);
     const p95 = report_values.percentile95(durations.items);
 
-    var html = std.ArrayList(u8).empty;
-    defer html.deinit(allocator);
-    const writer = html.writer(allocator);
+    var html: std.Io.Writer.Allocating = .init(allocator);
+    defer html.deinit();
+    const writer = &html.writer;
     try report_html.writeStart(writer, "ZMR Report");
     try writer.writeAll("<h1>ZMR Report</h1>\n");
     try writer.writeAll("<p class=\"muted\">Source: ");
@@ -272,11 +273,11 @@ fn writeBenchmarkReport(
     try writer.print("<dt>P95</dt><dd>{d}ms</dd>", .{p95});
     try writer.writeAll("</dl></section>\n");
     try writer.writeAll("<section><h2>Runs</h2><table><thead><tr><th>Run</th><th>Tool</th><th>Status</th><th>Duration</th><th>Trace Status</th><th>Failure</th><th>Artifacts</th></tr></thead><tbody>\n");
-    try writer.writeAll(rows_html.items);
+    try writer.writeAll(rows_html.writer.buffered());
     try writer.writeAll("</tbody></table></section>\n");
     try writer.writeAll("<p class=\"warning\">Screenshots and raw UI XML may contain app data. Sanitize trace bundles before public sharing.</p>\n");
     try report_html.writeEnd(writer);
-    try report_html.writeFile(out_path, html.items);
+    try report_html.writeFile(out_path, html.writer.buffered());
 }
 
 fn writeBenchmarkJUnitReport(
@@ -285,11 +286,11 @@ fn writeBenchmarkJUnitReport(
     results_path: []const u8,
     out_path: []const u8,
 ) !void {
-    const content = try std.fs.cwd().readFileAlloc(allocator, results_path, 64 * 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, results_path, 64 * 1024 * 1024);
     defer allocator.free(content);
 
-    var cases_xml = std.ArrayList(u8).empty;
-    defer cases_xml.deinit(allocator);
+    var cases_xml: std.Io.Writer.Allocating = .init(allocator);
+    defer cases_xml.deinit();
 
     var total: usize = 0;
     var failed: usize = 0;
@@ -319,7 +320,7 @@ fn writeBenchmarkJUnitReport(
         if (!row_passed) failed += 1;
         if (duration_ms > 0) total_duration_ms += duration_ms;
 
-        const writer = cases_xml.writer(allocator);
+        const writer = &cases_xml.writer;
         try writer.writeAll("  <testcase classname=\"");
         try report_html.escape(writer, tool);
         try writer.writeAll("\" name=\"run ");
@@ -343,9 +344,9 @@ fn writeBenchmarkJUnitReport(
         try writer.writeAll("</testcase>\n");
     }
 
-    var xml = std.ArrayList(u8).empty;
-    defer xml.deinit(allocator);
-    const writer = xml.writer(allocator);
+    var xml: std.Io.Writer.Allocating = .init(allocator);
+    defer xml.deinit();
+    const writer = &xml.writer;
     try writeJUnitHeader(writer);
     try writer.writeAll("<testsuite name=\"ZMR Benchmark\" tests=\"");
     try writer.print("{d}", .{total});
@@ -357,9 +358,9 @@ fn writeBenchmarkJUnitReport(
     try writer.writeAll("  <properties>\n");
     try writeJUnitProperty(writer, "source", input_path);
     try writer.writeAll("  </properties>\n");
-    try writer.writeAll(cases_xml.items);
+    try writer.writeAll(cases_xml.writer.buffered());
     try writer.writeAll("</testsuite>\n");
-    try report_html.writeFile(out_path, xml.items);
+    try report_html.writeFile(out_path, xml.writer.buffered());
 }
 
 fn writeTraceReport(
@@ -369,11 +370,11 @@ fn writeTraceReport(
 ) !void {
     const events_path = try std.fs.path.join(allocator, &.{ input_path, "events.jsonl" });
     defer allocator.free(events_path);
-    const content = try std.fs.cwd().readFileAlloc(allocator, events_path, 64 * 1024 * 1024);
+    const content = try stdio.readFileAlloc(allocator, events_path, 64 * 1024 * 1024);
     defer allocator.free(content);
 
-    var events_html = std.ArrayList(u8).empty;
-    defer events_html.deinit(allocator);
+    var events_html: std.Io.Writer.Allocating = .init(allocator);
+    defer events_html.deinit();
     var total: usize = 0;
     var terminal_status: ?[]u8 = null;
     defer if (terminal_status) |value| allocator.free(value);
@@ -407,7 +408,7 @@ fn writeTraceReport(
         }
 
         total += 1;
-        const writer = events_html.writer(allocator);
+        const writer = &events_html.writer;
         try writer.writeAll("<tr><td>");
         try writer.print("{d}", .{seq});
         try writer.writeAll("</td><td>");
@@ -417,9 +418,9 @@ fn writeTraceReport(
         try writer.writeAll("</code></td></tr>\n");
     }
 
-    var html = std.ArrayList(u8).empty;
-    defer html.deinit(allocator);
-    const writer = html.writer(allocator);
+    var html: std.Io.Writer.Allocating = .init(allocator);
+    defer html.deinit();
+    const writer = &html.writer;
     try report_html.writeStart(writer, "ZMR Trace Report");
     try writer.writeAll("<h1>ZMR Trace Report</h1>\n");
     try writer.writeAll("<p class=\"muted\">Source: ");
@@ -433,16 +434,18 @@ fn writeTraceReport(
     try report_html.escape(writer, terminal_error orelse "");
     try writer.writeAll("</dd></dl></section>\n");
     try writer.writeAll("<section><h2>Timeline</h2><table><thead><tr><th>Seq</th><th>Kind</th><th>Event</th></tr></thead><tbody>\n");
-    try writer.writeAll(events_html.items);
+    try writer.writeAll(events_html.writer.buffered());
     try writer.writeAll("</tbody></table></section>\n");
     try writer.writeAll("<p>");
     try report_html.writeArtifactLink(allocator, writer, events_path, "events.jsonl");
     try writer.writeAll("</p>\n");
     try writer.writeAll("<p class=\"warning\">Screenshots and raw UI XML may contain app data. Sanitize trace bundles before public sharing.</p>\n");
     try report_html.writeEnd(writer);
-    try report_html.writeFile(out_path, html.items);
+    try report_html.writeFile(out_path, html.writer.buffered());
 
-    const relative_report_path = std.fs.path.relative(allocator, input_path, out_path) catch try allocator.dupe(u8, out_path);
+    const cwd = std.process.currentPathAlloc(stdio.io(), allocator) catch try allocator.dupeZ(u8, ".");
+    defer allocator.free(cwd);
+    const relative_report_path = std.fs.path.relative(allocator, cwd, null, input_path, out_path) catch try allocator.dupe(u8, out_path);
     defer allocator.free(relative_report_path);
     try trace.attachReportPath(allocator, input_path, relative_report_path);
 }
@@ -456,9 +459,9 @@ fn writeTraceJUnitReport(
     defer summary.deinit(allocator);
 
     const failed = !isPassedStatus(summary.status);
-    var xml = std.ArrayList(u8).empty;
-    defer xml.deinit(allocator);
-    const writer = xml.writer(allocator);
+    var xml: std.Io.Writer.Allocating = .init(allocator);
+    defer xml.deinit();
+    const writer = &xml.writer;
 
     try writeJUnitHeader(writer);
     try writer.writeAll("<testsuite name=\"ZMR\" tests=\"1\" failures=\"");
@@ -499,7 +502,7 @@ fn writeTraceJUnitReport(
     }
     try writer.writeAll("</testcase>\n");
     try writer.writeAll("</testsuite>\n");
-    try report_html.writeFile(out_path, xml.items);
+    try report_html.writeFile(out_path, xml.writer.buffered());
 }
 
 fn isPassedStatus(status: []const u8) bool {

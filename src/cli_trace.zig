@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 
 const bundle = @import("bundle.zig");
 const report = @import("report.zig");
@@ -36,11 +37,11 @@ pub fn parseReportArgs(args: []const []const u8) !ReportArgs {
             index += 1;
             junit_path = if (index < args.len) args[index] else return error.MissingJUnitOutput;
         } else if (std.mem.startsWith(u8, arg, "--")) {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         } else if (input_path == null) {
             input_path = arg;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     if (input_path == null) return error.MissingReportInput;
@@ -60,7 +61,7 @@ pub fn parseExplainArgs(args: []const []const u8) !ExplainArgs {
         } else if (parsed.trace_dir == null) {
             parsed.trace_dir = arg;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     if (parsed.trace_dir == null) return error.MissingTraceDir;
@@ -85,11 +86,11 @@ pub fn parseExportArgs(args: []const []const u8) !ExportArgs {
             redact = true;
             omit_screenshots = true;
         } else if (std.mem.startsWith(u8, arg, "--")) {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         } else if (trace_dir == null) {
             trace_dir = arg;
         } else {
-            return error.UnknownFlag;
+            return error.unknownFlag;
         }
     }
     if (trace_dir == null) return error.MissingTraceDir;
@@ -102,32 +103,40 @@ pub fn parseExportArgs(args: []const []const u8) !ExportArgs {
     };
 }
 
-pub fn runReport(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn runReport(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
 
     const parsed = try parseReportArgs(raw_args.items);
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
+
     try report.writeHtmlReport(allocator, parsed.input_path, parsed.out_path.?);
-    try std.fs.File.stdout().deprecatedWriter().print("wrote {s}\n", .{parsed.out_path.?});
+    try stdout.print("wrote {s}\n", .{parsed.out_path.?});
     if (parsed.junit_path) |junit_path| {
         try report.writeJUnitReport(allocator, parsed.input_path, junit_path);
-        try std.fs.File.stdout().deprecatedWriter().print("wrote {s}\n", .{junit_path});
+        try stdout.print("wrote {s}\n", .{junit_path});
     }
 }
 
-pub fn runExplain(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn runExplain(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
 
     const parsed = try parseExplainArgs(raw_args.items);
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
     if (parsed.json) return try report.writeTraceExplanationJson(allocator, parsed.trace_dir.?, stdout);
     try report.writeTraceExplanation(allocator, parsed.trace_dir.?, stdout);
 }
 
-pub fn runExport(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
+pub fn runExport(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
@@ -137,5 +146,9 @@ pub fn runExport(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !
         .redact = parsed.redact,
         .omit_screenshots = parsed.omit_screenshots,
     });
-    try std.fs.File.stdout().deprecatedWriter().print("wrote {s}\n", .{parsed.out_path.?});
+    var stdout_io: stdio.Output = .{};
+    stdout_io.init(.stdout());
+    defer stdout_io.deinit();
+    const stdout = stdout_io.writer();
+    try stdout.print("wrote {s}\n", .{parsed.out_path.?});
 }

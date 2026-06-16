@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const command = @import("command.zig");
 const types = @import("types.zig");
 
@@ -39,7 +40,7 @@ pub fn runSimctlCommand(
         }
         result.deinit(allocator);
         attempt += 1;
-        std.Thread.sleep(simctl_retry_delay_ms * std.time.ns_per_ms);
+        stdio.sleepNs(simctl_retry_delay_ms * std.time.ns_per_ms);
     }
 }
 
@@ -62,9 +63,9 @@ pub fn runDevicectlJsonCommand(
     xcrun_path: []const u8,
     extra: []const []const u8,
 ) ![]u8 {
-    const path = try std.fmt.allocPrint(allocator, "/tmp/zmr-devicectl-{d}.json", .{std.time.nanoTimestamp()});
+    const path = try std.fmt.allocPrint(allocator, "/tmp/zmr-devicectl-{d}.json", .{stdio.nowNs()});
     defer allocator.free(path);
-    defer std.fs.cwd().deleteFile(path) catch {};
+    defer std.Io.Dir.deleteFileAbsolute(stdio.io(), path) catch {};
 
     var argv = std.ArrayList([]const u8).empty;
     defer argv.deinit(allocator);
@@ -76,7 +77,7 @@ pub fn runDevicectlJsonCommand(
     const result = try command.run(allocator, argv.items, default_max_output);
     defer result.deinit(allocator);
     try result.ensureSuccess();
-    return try std.fs.cwd().readFileAlloc(allocator, path, default_max_output);
+    return try std.Io.Dir.cwd().readFileAlloc(stdio.io(), path, allocator, .limited(default_max_output));
 }
 
 pub fn parseSimulatorsJson(allocator: std.mem.Allocator, content: []const u8) ![]types.DeviceInfo {
@@ -158,7 +159,7 @@ pub fn findPidForBundleId(allocator: std.mem.Allocator, content: []const u8, app
 fn isRetriableSimctlFailure(result: command.ExecResult) bool {
     if (result.timed_out) return false;
     switch (result.term) {
-        .Exited => |code| if (code == 0) return false,
+        .exited => |code| if (code == 0) return false,
         else => return false,
     }
     return std.mem.indexOf(u8, result.stderr, "CoreSimulatorService connection became invalid") != null or

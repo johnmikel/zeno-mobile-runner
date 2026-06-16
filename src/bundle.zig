@@ -1,6 +1,7 @@
 const std = @import("std");
 const bundle_redaction = @import("bundle_redaction.zig");
 const bundle_tar = @import("bundle_tar.zig");
+const stdio = @import("stdio.zig");
 
 pub const ExportOptions = bundle_redaction.Options;
 
@@ -40,8 +41,8 @@ pub fn exportTraceBundleWithOptions(
         try entries.append(allocator, try allocator.dupe(u8, entry));
     }
 
-    var out_file = try std.fs.cwd().createFile(out_path, .{ .truncate = true });
-    defer out_file.close();
+    var out_file = try std.Io.Dir.cwd().createFile(stdio.io(), out_path, .{ .truncate = true });
+    defer out_file.close(stdio.io());
 
     for (entries.items) |archive_path| {
         if (options.redact) {
@@ -60,7 +61,7 @@ pub fn exportTraceBundleWithOptions(
             try bundle_tar.writeFile(allocator, trace_dir, archive_path, &out_file);
         }
     }
-    try out_file.writeAll(&([_]u8{0} ** 1024));
+    try std.Io.File.writeStreamingAll(out_file, stdio.io(), &([_]u8{0} ** 1024));
 }
 
 fn requireTraceFile(
@@ -75,18 +76,18 @@ fn requireTraceFile(
 fn traceFileExists(allocator: std.mem.Allocator, trace_dir: []const u8, archive_path: []const u8) !bool {
     const path = try std.fs.path.join(allocator, &.{ trace_dir, archive_path });
     defer allocator.free(path);
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    const file = std.Io.Dir.cwd().openFile(stdio.io(), path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
-    file.close();
+    file.close(stdio.io());
     return true;
 }
 
 fn readTraceFile(allocator: std.mem.Allocator, trace_dir: []const u8, archive_path: []const u8) ![]u8 {
     const path = try std.fs.path.join(allocator, &.{ trace_dir, archive_path });
     defer allocator.free(path);
-    return try std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024 * 1024);
+    return try stdio.readFileAlloc(allocator, path, 64 * 1024 * 1024);
 }
 
 fn collectArtifactEntries(
@@ -98,14 +99,14 @@ fn collectArtifactEntries(
     const fs_dir = try std.fs.path.join(allocator, &.{ trace_dir, archive_dir });
     defer allocator.free(fs_dir);
 
-    var dir = std.fs.cwd().openDir(fs_dir, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = std.Io.Dir.cwd().openDir(stdio.io(), fs_dir, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return,
         else => return err,
     };
-    defer dir.close();
+    defer dir.close(stdio.io());
 
     var iterator = dir.iterate();
-    while (try iterator.next()) |entry| {
+    while (try iterator.next(stdio.io())) |entry| {
         const archive_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ archive_dir, entry.name });
         errdefer allocator.free(archive_path);
         switch (entry.kind) {

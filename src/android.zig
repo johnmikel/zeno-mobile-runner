@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdio = @import("stdio.zig");
 const command = @import("command.zig");
 const android_device_info = @import("android_device_info.zig");
 const android_shell = @import("android_shell.zig");
@@ -93,7 +94,7 @@ pub const AndroidDevice = struct {
 
             if (self.isAppForeground() catch false) return;
             if (attempt + 1 < open_link_attempts) {
-                std.Thread.sleep(open_link_retry_delay_ms * std.time.ns_per_ms);
+                stdio.sleepNs(open_link_retry_delay_ms * std.time.ns_per_ms);
             }
         }
         return error.AppDidNotOpen;
@@ -164,11 +165,11 @@ pub const AndroidDevice = struct {
                 .duration_ms = @as(u32, @intCast(@min(timeout_ms, std.math.maxInt(u32)))),
             });
         }
-        std.Thread.sleep(timeout_ms * std.time.ns_per_ms);
+        stdio.sleepNs(timeout_ms * std.time.ns_per_ms);
     }
 
     pub fn snapshot(self: *AndroidDevice, writer: ?*trace.TraceWriter) !types.ObservationSnapshot {
-        const id = if (writer) |tw| try tw.nextSnapshotId() else try std.fmt.allocPrint(self.allocator, "snapshot-{d}", .{std.time.milliTimestamp()});
+        const id = if (writer) |tw| try tw.nextSnapshotId() else try std.fmt.allocPrint(self.allocator, "snapshot-{d}", .{stdio.nowMs()});
         errdefer self.allocator.free(id);
 
         const xml = if (self.shim_path == null) try self.dumpHierarchy() else null;
@@ -215,7 +216,7 @@ pub const AndroidDevice = struct {
 
         return .{
             .id = id,
-            .timestamp_ms = std.time.milliTimestamp(),
+            .timestamp_ms = stdio.nowMs(),
             .viewport = screen,
             .display_density_dpi = display_density_dpi,
             .active_package = active.package,
@@ -273,7 +274,7 @@ pub const AndroidDevice = struct {
     fn logDelta(self: *AndroidDevice) !?[]const u8 {
         const result = try self.runAdb(&.{ "logcat", "-d", "-t", "80" }, 1024 * 1024);
         defer result.deinit(self.allocator);
-        if (result.term != .Exited or result.term.Exited != 0) return null;
+        if (result.term != .exited or result.term.exited != 0) return null;
         return try self.allocator.dupe(u8, result.stdout);
     }
 
@@ -292,11 +293,11 @@ pub const AndroidDevice = struct {
     fn runShim(self: *AndroidDevice, shim_command: ios_shim.Command) ![]u8 {
         const path = self.shim_path orelse return error.AndroidShimRequired;
 
-        var input = std.ArrayList(u8).empty;
-        defer input.deinit(self.allocator);
-        try ios_shim.writeCommandJson(input.writer(self.allocator), shim_command);
+        var input: std.Io.Writer.Allocating = .init(self.allocator);
+        defer input.deinit();
+        try ios_shim.writeCommandJson(&input.writer, shim_command);
 
-        const result = try command.runWithInputTimeout(self.allocator, &.{path}, input.items, 4 * 1024 * 1024, shim_timeout_ms);
+        const result = try command.runWithInputTimeout(self.allocator, &.{path}, input.writer.buffered(), 4 * 1024 * 1024, shim_timeout_ms);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
         return try self.allocator.dupe(u8, result.stdout);

@@ -26,7 +26,7 @@ test "parse args requires trace source and output path" {
 
     try std.testing.expectError(error.MissingTraceDir, cli_draft.parseArgs(&.{ "--out", "draft.json" }));
     try std.testing.expectError(error.MissingDraftOut, cli_draft.parseArgs(&.{ "--from-trace", "traces/login" }));
-    try std.testing.expectError(error.UnknownFlag, cli_draft.parseArgs(&.{ "--from-snapshot", "snapshot.json" }));
+    try std.testing.expectError(error.unknownFlag, cli_draft.parseArgs(&.{ "--from-snapshot", "snapshot.json" }));
 }
 
 test "draft from trace writes conservative surface smoke scenario" {
@@ -39,7 +39,7 @@ test "draft from trace writes conservative surface smoke scenario" {
     try std.fs.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
-        \\{"schemaVersion":1,"runnerVersion":"0.2.1","protocolVersion":"2026-04-28","scenarioName":"login smoke","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":2,"partialFailureCount":0,"reportPath":null}
+        \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"login smoke","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":2,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });
@@ -139,7 +139,7 @@ test "draft from trace can replay successful supported actions" {
     try std.fs.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
-        \\{"schemaVersion":1,"runnerVersion":"0.2.1","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":14,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
+        \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":14,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });

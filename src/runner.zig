@@ -597,6 +597,51 @@ test "assertHealthy uses native selector probes before broad snapshots" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
 }
 
+test "assertHealthy bounds each native selector probe independently" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assert-healthy-native-probe-budget";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeSlowAbsentHealthDevice = struct {
+        allocator: std.mem.Allocator,
+        bounded_queries: usize = 0,
+        largest_query_timeout_ms: u64 = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            _ = wanted;
+            self.bounded_queries += 1;
+            self.largest_query_timeout_ms = @max(self.largest_query_timeout_ms, timeout_ms);
+            if (timeout_ms > 0) stdio.sleepNs(timeout_ms * std.time.ns_per_ms);
+            return false;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+    };
+
+    var device = NativeSlowAbsentHealthDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try assertHealthy(&device, 1, &tw, .{ .settle_ms = 0, .poll_ms = 0, .action_timeout_ms = 1 }));
+    try std.testing.expect(device.bounded_queries > 1);
+    try std.testing.expect(device.largest_query_timeout_ms <= 1);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
+}
+
 test "assertHealthy reports unhealthy native selector matches" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-assert-healthy-native-unhealthy";

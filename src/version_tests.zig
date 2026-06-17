@@ -8,7 +8,7 @@ test "plain version output includes runner and protocol versions" {
 
     try version.writePlain(&buffer.writer);
 
-    try std.testing.expectEqualStrings("zmr 0.2.8 protocol 2026-04-28\n", buffer.written());
+    try std.testing.expectEqualStrings("zmr 0.2.9 protocol 2026-04-28\n", buffer.written());
 }
 
 test "json version output includes protocol compatibility metadata" {
@@ -18,7 +18,7 @@ test "json version output includes protocol compatibility metadata" {
     try version.writeJson(&buffer.writer);
 
     try std.testing.expectEqualStrings(
-        "{\"name\":\"zmr\",\"version\":\"0.2.8\",\"protocolVersion\":\"2026-04-28\",\"minimumCompatibleProtocolVersion\":\"2026-04-28\",\"stability\":\"dev-preview\",\"breakingChangePolicy\":\"version-and-changelog\"}\n",
+        "{\"name\":\"zmr\",\"version\":\"0.2.9\",\"protocolVersion\":\"2026-04-28\",\"minimumCompatibleProtocolVersion\":\"2026-04-28\",\"stability\":\"dev-preview\",\"breakingChangePolicy\":\"version-and-changelog\"}\n",
         buffer.written(),
     );
 }

@@ -133,7 +133,7 @@ final class ZMRShimUITestCase: XCTestCase {
             guard isFastQueryable(parts: parts) else {
                 return error("selector.unsupported", "unsupported query selector: \(selector)")
             }
-            let element = resolveElement(selector: selector, app: app, preferredTypes: [])
+            let element = resolveFastElement(selector: selector, app: app, preferredTypes: [])
             return [
                 "status": "ok",
                 "exists": element?.exists ?? false,

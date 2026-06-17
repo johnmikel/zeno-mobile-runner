@@ -4,6 +4,18 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.9 (2026-06-17)
+
+### Fixed
+
+- iOS `assertHealthy` now bounds each native crash/error selector probe
+  independently and falls back to the broad snapshot path after transient
+  native query timeouts. This prevents healthy but heavy screens from failing
+  when one absent overlay selector consumes the whole observation budget.
+- The iOS XCTest shim `query` command now uses the fast selector resolver it
+  already validates, avoiding broad element enumeration for exact selector
+  checks.
+
 ## 0.2.8 (2026-06-17)
 
 ### Fixed

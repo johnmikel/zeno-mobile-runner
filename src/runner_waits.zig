@@ -8,6 +8,7 @@ const selector = @import("selector.zig");
 const trace = @import("trace.zig");
 
 const RunOptions = runner_config.RunOptions;
+const native_health_probe_timeout_ms: u64 = 250;
 
 pub fn waitUntilVisible(
     device: anytype,
@@ -284,7 +285,7 @@ pub fn assertHealthy(
 ) !bool {
     const health_selectors = health.defaultSelectors();
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
-    if (try nativeAssertHealthy(device, health_selectors, timeout_ms, writer, deadline, options)) |healthy| return healthy;
+    if (try nativeAssertHealthy(device, health_selectors, timeout_ms, writer, options)) |healthy| return healthy;
     while (true) {
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "assert.healthy", writer, deadline, options)) continue;
@@ -315,28 +316,27 @@ fn nativeAssertHealthy(
     health_selectors: []const selector.Selector,
     timeout_ms: u64,
     writer: ?*trace.TraceWriter,
-    deadline: i64,
     options: RunOptions,
 ) !?bool {
     if (!hasNativeSelectorQuery(device)) return null;
 
-    probe: while (true) {
-        for (health_selectors, 0..) |wanted, index| {
-            const query_timeout_ms = nativeSelectorQueryTimeoutMs(deadline) orelse return false;
-            const result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
-                if (try retryTransientObservation(err, "assert.healthy", writer, deadline, options)) continue :probe;
-                return err;
-            };
-            const visible = result orelse return null;
-            if (visible) {
-                if (writer) |tw| try runner_events.recordNativeSelectorArrayStatus(tw, "assert.healthy", "unhealthy", health_selectors, index, timeout_ms);
-                return false;
+    for (health_selectors, 0..) |wanted, index| {
+        const result = nativeVisibleBySelector(device, wanted, nativeHealthProbeTimeoutMs(timeout_ms, options)) catch |err| {
+            if (err == error.CommandTimedOut or err == error.CommandFailed) {
+                if (writer) |tw| try runner_events.recordObservationRetry(tw, "assert.healthy", err);
+                return null;
             }
+            return err;
+        };
+        const visible = result orelse return null;
+        if (visible) {
+            if (writer) |tw| try runner_events.recordNativeSelectorArrayStatus(tw, "assert.healthy", "unhealthy", health_selectors, index, timeout_ms);
+            return false;
         }
-
-        if (writer) |tw| try runner_events.recordNativeSelectorArrayStatus(tw, "assert.healthy", "ok", health_selectors, null, timeout_ms);
-        return true;
     }
+
+    if (writer) |tw| try runner_events.recordNativeSelectorArrayStatus(tw, "assert.healthy", "ok", health_selectors, null, timeout_ms);
+    return true;
 }
 
 pub fn scrollUntilVisible(
@@ -417,6 +417,13 @@ fn nativeSelectorQueryTimeoutMs(deadline: i64) ?u64 {
     const now = stdio.nowMs();
     if (now >= deadline) return null;
     return @as(u64, @intCast(deadline - now));
+}
+
+fn nativeHealthProbeTimeoutMs(timeout_ms: u64, options: RunOptions) u64 {
+    var probe_timeout_ms = if (timeout_ms == 0) @as(u64, 1) else timeout_ms;
+    probe_timeout_ms = @min(probe_timeout_ms, native_health_probe_timeout_ms);
+    if (options.action_timeout_ms > 0) probe_timeout_ms = @min(probe_timeout_ms, options.action_timeout_ms);
+    return @max(probe_timeout_ms, 1);
 }
 
 fn retryTransientObservation(

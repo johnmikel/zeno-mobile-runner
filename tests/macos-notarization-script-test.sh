@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VERSION="${ZMR_VERSION:-$(awk -F'"' '/runner_version/ { print $2; exit }' "$ROOT/src/version.zig")}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -31,7 +32,7 @@ chmod +x "$TMPDIR/bin/xcrun"
 
 make_archive() {
   local target="$1"
-  local dir="$DIST/zmr-0.2.8-$target"
+  local dir="$DIST/zmr-$VERSION-$target"
   mkdir -p "$dir"
   printf 'signed binary for %s\n' "$target" > "$dir/zmr"
   tar -C "$DIST" -czf "$dir.tar.gz" "$(basename "$dir")"
@@ -45,7 +46,7 @@ make_archive "aarch64-linux-gnu"
 printf '{"spdxVersion":"SPDX-2.3"}\n' > "$DIST/SBOM.spdx.json"
 printf '# Notices\n' > "$DIST/THIRD_PARTY_NOTICES.md"
 printf 'class Zmr < Formula\nend\n' > "$DIST/homebrew/zmr.rb"
-node "$ROOT/scripts/generate-release-manifest.mjs" --dist "$DIST" --version "0.2.8" --out "$DIST/RELEASE_MANIFEST.json" >/dev/null
+node "$ROOT/scripts/generate-release-manifest.mjs" --dist "$DIST" --version "$VERSION" --out "$DIST/RELEASE_MANIFEST.json" >/dev/null
 (
   cd "$DIST"
   shasum -a 256 ./*.tar.gz SBOM.spdx.json THIRD_PARTY_NOTICES.md homebrew/zmr.rb RELEASE_MANIFEST.json > SHA256SUMS
@@ -68,19 +69,20 @@ if grep -q 'linux-gnu' "$TMPDIR/xcrun.log"; then
   exit 1
 fi
 
-test -s "$DIST/notarization/zmr-0.2.8-aarch64-macos.15.0.notary.json"
-grep -q '"status":"Accepted"' "$DIST/notarization/zmr-0.2.8-aarch64-macos.15.0.notary.json"
+test -s "$DIST/notarization/zmr-$VERSION-aarch64-macos.15.0.notary.json"
+grep -q '"status":"Accepted"' "$DIST/notarization/zmr-$VERSION-aarch64-macos.15.0.notary.json"
 node - "$DIST/RELEASE_MANIFEST.json" <<'NODE'
 const fs = require("node:fs");
 const manifest = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const paths = new Set(manifest.artifacts.map((artifact) => artifact.path));
-if (!paths.has("notarization/zmr-0.2.8-aarch64-macos.15.0.notary.json")) {
+const version = manifest.version;
+if (!paths.has(`notarization/zmr-${version}-aarch64-macos.15.0.notary.json`)) {
   throw new Error("release manifest should include notarization receipt");
 }
 NODE
 "$ROOT/scripts/verify-release-artifacts.sh" --dist "$DIST" > "$TMPDIR/verify.out"
 grep -q 'verified release artifacts' "$TMPDIR/verify.out"
-grep -q 'notarization/zmr-0.2.8-aarch64-macos.15.0.notary.json' "$DIST/SHA256SUMS"
+grep -q "notarization/zmr-$VERSION-aarch64-macos.15.0.notary.json" "$DIST/SHA256SUMS"
 
 rm -f "$TMPDIR/xcrun.log" "$TMPDIR/ditto.log"
 ZMR_FAKE_DITTO_LOG="$TMPDIR/ditto.log" \

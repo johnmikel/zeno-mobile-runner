@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const scaffold = @import("scaffold.zig");
 
 test "app scaffold exposes generated file list for init output metadata" {
@@ -38,16 +39,16 @@ test "app scaffold exposes generated script names for init and doctor metadata" 
 test "starter scenario scaffolder writes a valid scenario and protects existing files" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-scaffold";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+    try test_io.cwd().makePath(dir);
 
     const path = dir ++ "/scenario.json";
     try scaffold.writeStarterScenario(allocator, path, "com.example.mobiletest", false);
     try std.testing.expectError(error.PathAlreadyExists, scaffold.writeStarterScenario(allocator, path, "com.example.mobiletest", false));
     try scaffold.writeStarterScenario(allocator, path, "com.example.app", true);
 
-    const content = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const content = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(content);
     try std.testing.expect(std.mem.indexOf(u8, content, "\"appId\": \"com.example.app\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, content, "\"action\": \"launch\"") != null);
@@ -57,9 +58,9 @@ test "starter scenario scaffolder writes a valid scenario and protects existing 
 test "app scaffold writes config smoke scenarios and gitignore without overwriting" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-app-scaffold";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+    try test_io.cwd().makePath(dir);
 
     try scaffold.writeAppScaffold(allocator, dir, "com.example.mobiletest", false);
 
@@ -69,7 +70,7 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     const matrix_path = dir ++ "/.zmr/device-matrix.json";
     const agent_path = dir ++ "/.zmr/AGENTS.md";
 
-    const config = try std.fs.cwd().readFileAlloc(allocator, config_path, 1024 * 1024);
+    const config = try test_io.cwd().readFileAlloc(allocator, config_path, 1024 * 1024);
     defer allocator.free(config);
     try std.testing.expect(std.mem.indexOf(u8, config, "\"schemaVersion\": 1") != null);
     try std.testing.expect(std.mem.indexOf(u8, config, "\"appId\": \"com.example.mobiletest\"") != null);
@@ -90,23 +91,23 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     try std.testing.expect(std.mem.indexOf(u8, config, "\"smokeScenario\": \".zmr/android-smoke.json\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, config, "\"smokeScenario\": \".zmr/ios-smoke.json\"") != null);
 
-    const android = try std.fs.cwd().readFileAlloc(allocator, android_path, 1024 * 1024);
+    const android = try test_io.cwd().readFileAlloc(allocator, android_path, 1024 * 1024);
     defer allocator.free(android);
     try std.testing.expect(std.mem.indexOf(u8, android, "\"name\": \"Android smoke\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, android, "\"action\": \"assertHealthy\"") != null);
 
-    const ios = try std.fs.cwd().readFileAlloc(allocator, ios_path, 1024 * 1024);
+    const ios = try test_io.cwd().readFileAlloc(allocator, ios_path, 1024 * 1024);
     defer allocator.free(ios);
     try std.testing.expect(std.mem.indexOf(u8, ios, "\"name\": \"iOS smoke\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ios, "\"action\": \"assertHealthy\"") != null);
 
-    const matrix = try std.fs.cwd().readFileAlloc(allocator, matrix_path, 1024 * 1024);
+    const matrix = try test_io.cwd().readFileAlloc(allocator, matrix_path, 1024 * 1024);
     defer allocator.free(matrix);
     try std.testing.expect(std.mem.indexOf(u8, matrix, "\"appId\": \"com.example.mobiletest\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, matrix, "\"name\": \"android-emulator\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, matrix, "\"iosDeviceType\": \"simulator\"") != null);
 
-    const agent = try std.fs.cwd().readFileAlloc(allocator, agent_path, 1024 * 1024);
+    const agent = try test_io.cwd().readFileAlloc(allocator, agent_path, 1024 * 1024);
     defer allocator.free(agent);
     try std.testing.expect(std.mem.indexOf(u8, agent, "# ZMR Agent Instructions") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "App id: `com.example.mobiletest`") != null);
@@ -144,11 +145,11 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-release-readiness --evidence traces/zmr-pilots/evidence.jsonl --target production --json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "npm run zmr:") == null);
 
-    const gitignore = try std.fs.cwd().readFileAlloc(allocator, dir ++ "/.gitignore", 1024 * 1024);
+    const gitignore = try test_io.cwd().readFileAlloc(allocator, dir ++ "/.gitignore", 1024 * 1024);
     defer allocator.free(gitignore);
     try std.testing.expect(std.mem.indexOf(u8, gitignore, "traces/") != null);
 
-    var edited_android = try std.fs.cwd().createFile(android_path, .{ .truncate = true });
+    var edited_android = try test_io.cwd().createFile(android_path, .{ .truncate = true });
     try edited_android.writeAll(
         \\{
         \\  "name": "Custom Android smoke",
@@ -163,7 +164,7 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
 
     try scaffold.writeAppScaffold(allocator, dir, "com.example.other", false);
 
-    const overwritten = try std.fs.cwd().readFileAlloc(allocator, config_path, 1024 * 1024);
+    const overwritten = try test_io.cwd().readFileAlloc(allocator, config_path, 1024 * 1024);
     defer allocator.free(overwritten);
     try std.testing.expect(std.mem.indexOf(u8, overwritten, "\"appId\": \"com.example.other\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, overwritten, "--android-app-id com.example.other") != null);
@@ -171,17 +172,17 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     try std.testing.expect(std.mem.indexOf(u8, overwritten, "--ios-app-id com.example.other") != null);
     try std.testing.expect(std.mem.indexOf(u8, overwritten, "--ios-device booted") != null);
 
-    const overwritten_agent = try std.fs.cwd().readFileAlloc(allocator, agent_path, 1024 * 1024);
+    const overwritten_agent = try test_io.cwd().readFileAlloc(allocator, agent_path, 1024 * 1024);
     defer allocator.free(overwritten_agent);
     try std.testing.expect(std.mem.indexOf(u8, overwritten_agent, "App id: `com.example.other`") != null);
 
-    const preserved_android = try std.fs.cwd().readFileAlloc(allocator, android_path, 1024 * 1024);
+    const preserved_android = try test_io.cwd().readFileAlloc(allocator, android_path, 1024 * 1024);
     defer allocator.free(preserved_android);
     try std.testing.expect(std.mem.indexOf(u8, preserved_android, "\"name\": \"Custom Android smoke\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, preserved_android, "\"appId\": \"com.example.mobiletest\"") != null);
 
     try scaffold.writeAppScaffold(allocator, dir, "com.example.force", true);
-    const forced_android = try std.fs.cwd().readFileAlloc(allocator, android_path, 1024 * 1024);
+    const forced_android = try test_io.cwd().readFileAlloc(allocator, android_path, 1024 * 1024);
     defer allocator.free(forced_android);
     try std.testing.expect(std.mem.indexOf(u8, forced_android, "\"name\": \"Android smoke\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, forced_android, "\"appId\": \"com.example.force\"") != null);
@@ -190,15 +191,15 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
 test "app scaffold shell quotes app ids in generated commands" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-app-scaffold-quoted";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+    try test_io.cwd().makePath(dir);
 
     try scaffold.writeAppScaffold(allocator, dir, "com.example mobile's", false);
 
-    const config = try std.fs.cwd().readFileAlloc(allocator, dir ++ "/.zmr/config.json", 1024 * 1024);
+    const config = try test_io.cwd().readFileAlloc(allocator, dir ++ "/.zmr/config.json", 1024 * 1024);
     defer allocator.free(config);
-    const agent = try std.fs.cwd().readFileAlloc(allocator, dir ++ "/.zmr/AGENTS.md", 1024 * 1024);
+    const agent = try test_io.cwd().readFileAlloc(allocator, dir ++ "/.zmr/AGENTS.md", 1024 * 1024);
     defer allocator.free(agent);
 
     const shell_quoted_app_id = "'com.example mobile'\\''s'";

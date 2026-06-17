@@ -47,5 +47,6 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     } else {
         try cli_output.writeValidationText(stdout, parsed.path, result);
     }
+    try stdout_io.flush();
     if (!result.ok) std.process.exit(1);
 }

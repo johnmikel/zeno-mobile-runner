@@ -1,35 +1,36 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const ios_shim = @import("ios_shim.zig");
 const selector = @import("selector.zig");
 
 test "ios shim command json is stable" {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(std.testing.allocator);
-    try ios_shim.writeCommandJson(out.writer(std.testing.allocator), .{
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try ios_shim.writeCommandJson(&out.writer, .{
         .kind = .tap,
         .selector = "text=Continue",
         .x = 20,
         .y = 40,
     });
-    try std.testing.expectEqualStrings("{\"cmd\":\"tap\",\"selector\":\"text=Continue\",\"x\":20,\"y\":40}\n", out.items);
+    try std.testing.expectEqualStrings("{\"cmd\":\"tap\",\"selector\":\"text=Continue\",\"x\":20,\"y\":40}\n", out.written());
 }
 
 test "ios shim accept system alert command json is stable" {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(std.testing.allocator);
-    try ios_shim.writeCommandJson(out.writer(std.testing.allocator), .{
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try ios_shim.writeCommandJson(&out.writer, .{
         .kind = .accept_system_alert,
         .text = "Open",
     });
-    try std.testing.expectEqualStrings("{\"cmd\":\"acceptSystemAlert\",\"text\":\"Open\"}\n", out.items);
+    try std.testing.expectEqualStrings("{\"cmd\":\"acceptSystemAlert\",\"text\":\"Open\"}\n", out.written());
 }
 
 test "ios shim screenshot command and response are stable" {
     const allocator = std.testing.allocator;
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try ios_shim.writeCommandJson(out.writer(allocator), .{ .kind = .screenshot });
-    try std.testing.expectEqualStrings("{\"cmd\":\"screenshot\"}\n", out.items);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try ios_shim.writeCommandJson(&out.writer, .{ .kind = .screenshot });
+    try std.testing.expectEqualStrings("{\"cmd\":\"screenshot\"}\n", out.written());
 
     const png = try ios_shim.parseScreenshotPng(allocator,
         \\{"status":"ok","format":"png","base64":"iVBORw0KGgoAAAANSUhEUgAAAAIAAAAD"}

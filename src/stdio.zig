@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const default_buffer_size = 8192;
@@ -6,6 +7,7 @@ var process_threaded: ?std.Io.Threaded = null;
 
 fn processIo() std.Io {
     if (process_threaded) |*threaded| return threaded.io();
+    if (builtin.is_test) return std.testing.io;
     return std.Io.Threaded.global_single_threaded.io();
 }
 
@@ -46,7 +48,12 @@ pub fn nowMs() i64 {
 }
 
 pub fn getenv(name: []const u8) ?[]const u8 {
-    const environ = process_environ orelse return null;
+    const environ = process_environ orelse {
+        if (builtin.is_test) {
+            return std.process.Environ.getPosix(std.testing.environ, name);
+        }
+        return null;
+    };
     const block = environ.block;
     const Block = @TypeOf(block);
     if (Block != std.process.Environ.PosixBlock) return null;
@@ -86,7 +93,15 @@ pub const Output = struct {
     }
 
     pub fn flush(self: *Output) !void {
-        if (self.initialized) try self.file_writer.interface.flush();
+        if (!self.initialized) return;
+        self.file_writer.interface.flush() catch |err| switch (err) {
+            error.WriteFailed => {
+                if (self.file_writer.err) |actual| return actual;
+                if (self.file_writer.write_file_err) |actual| return actual;
+                return err;
+            },
+            else => |actual| return actual,
+        };
     }
 
     pub fn deinit(self: *Output) void {

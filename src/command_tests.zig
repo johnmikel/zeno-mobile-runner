@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const command = @import("command.zig");
 
 const ExecResult = command.ExecResult;
@@ -89,7 +90,7 @@ test "command timeout terminates shell child process group" {
     try std.testing.expect(result.timed_out);
     try std.testing.expectError(error.CommandTimedOut, result.ensureSuccess());
 
-    const pid_bytes = try tmp.dir.readFileAlloc(allocator, "child.pid", 128);
+    const pid_bytes = try test_io.readFileAllocIn(tmp.dir, allocator, "child.pid", 128);
     defer allocator.free(pid_bytes);
     const pid = std.mem.trim(u8, pid_bytes, " \n\r\t");
 

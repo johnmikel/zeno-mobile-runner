@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const report = @import("report.zig");
 
 const writeHtmlReport = report.writeHtmlReport;
@@ -10,11 +11,11 @@ test "report writes benchmark html with terminal trace fields" {
     const root = "zig-cache-test-report-benchmark";
     const out_path = root ++ "/report.html";
     const trace_dir = root ++ "/zmr-2";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(trace_dir);
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(trace_dir);
 
     {
-        var results = try std.fs.cwd().createFile(root ++ "/results.jsonl", .{ .truncate = true });
+        var results = try test_io.cwd().createFile(root ++ "/results.jsonl", .{ .truncate = true });
         defer results.close();
         try results.writeAll(
             "{\"tool\":\"zmr\",\"run\":1,\"status\":\"ok\",\"durationMs\":1000,\"traceDir\":\"" ++ root ++ "/zmr-1\",\"traceStatus\":\"passed\"}\n" ++
@@ -22,7 +23,7 @@ test "report writes benchmark html with terminal trace fields" {
         );
     }
     {
-        var events = try std.fs.cwd().createFile(trace_dir ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(trace_dir ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll(
             "{\"seq\":1,\"kind\":\"step.error\",\"payload\":{\"index\":5,\"error\":\"WaitTimeout\"}}\n" ++
@@ -32,7 +33,7 @@ test "report writes benchmark html with terminal trace fields" {
 
     try writeHtmlReport(allocator, root, out_path);
 
-    const html = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const html = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(html);
     try std.testing.expect(std.mem.indexOf(u8, html, "ZMR Report") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "Pass Rate") != null);
@@ -47,11 +48,11 @@ test "report writes single trace html with terminal event" {
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-report-trace";
     const out_path = root ++ "/report.html";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(root);
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(root);
 
     {
-        var events = try std.fs.cwd().createFile(root ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(root ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll(
             "{\"seq\":1,\"kind\":\"wait.visible\",\"payload\":{\"status\":\"ok\"}}\n" ++
@@ -59,7 +60,7 @@ test "report writes single trace html with terminal event" {
         );
     }
     {
-        var manifest = try std.fs.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
+        var manifest = try test_io.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
             "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"flow\",\"appId\":\"com.example.mobiletest\",\"status\":\"passed\",\"startedAtMs\":1,\"endedAtMs\":2,\"durationMs\":1,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":0,\"reportPath\":null}\n",
@@ -68,7 +69,7 @@ test "report writes single trace html with terminal event" {
 
     try writeHtmlReport(allocator, root, out_path);
 
-    const html = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const html = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(html);
     try std.testing.expect(std.mem.indexOf(u8, html, "ZMR Trace Report") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "Terminal Status") != null);
@@ -76,7 +77,7 @@ test "report writes single trace html with terminal event" {
     try std.testing.expect(std.mem.indexOf(u8, html, "scenario.end") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "file://") != null);
 
-    const manifest = try std.fs.cwd().readFileAlloc(allocator, root ++ "/trace.json", 1024 * 1024);
+    const manifest = try test_io.cwd().readFileAlloc(allocator, root ++ "/trace.json", 1024 * 1024);
     defer allocator.free(manifest);
     const parsed_manifest = try std.json.parseFromSlice(std.json.Value, allocator, manifest, .{});
     defer parsed_manifest.deinit();
@@ -87,18 +88,18 @@ test "report writes single trace junit xml for ci" {
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-report-junit";
     const out_path = root ++ "/junit.xml";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(root);
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(root);
 
     {
-        var manifest = try std.fs.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
+        var manifest = try test_io.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
             "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"login & smoke\",\"appId\":\"com.example.mobiletest\",\"status\":\"failed\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":2,\"error\":\"WaitTimeout\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":4,\"snapshotCount\":1,\"reportPath\":null}\n",
         );
     }
     {
-        var events = try std.fs.cwd().createFile(root ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(root ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll(
             "{\"seq\":1,\"kind\":\"scenario.start\",\"payload\":{\"value\":\"login & smoke\"}}\n" ++
@@ -110,7 +111,7 @@ test "report writes single trace junit xml for ci" {
 
     try writeJUnitReport(allocator, root, out_path);
 
-    const xml = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const xml = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(xml);
     try std.testing.expect(std.mem.indexOf(u8, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>") != null);
     try std.testing.expect(std.mem.indexOf(u8, xml, "<testsuite name=\"ZMR\" tests=\"1\" failures=\"1\" errors=\"0\" skipped=\"0\" time=\"0.100\">") != null);
@@ -124,11 +125,11 @@ test "report writes benchmark junit xml for ci" {
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-report-benchmark-junit";
     const out_path = root ++ "/junit.xml";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(root);
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(root);
 
     {
-        var results = try std.fs.cwd().createFile(root ++ "/results.jsonl", .{ .truncate = true });
+        var results = try test_io.cwd().createFile(root ++ "/results.jsonl", .{ .truncate = true });
         defer results.close();
         try results.writeAll(
             "{\"tool\":\"zmr\",\"run\":1,\"status\":\"ok\",\"durationMs\":1000,\"traceDir\":\"" ++ root ++ "/zmr-1\",\"traceStatus\":\"passed\"}\n" ++
@@ -138,7 +139,7 @@ test "report writes benchmark junit xml for ci" {
 
     try writeJUnitReport(allocator, root, out_path);
 
-    const xml = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const xml = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(xml);
     try std.testing.expect(std.mem.indexOf(u8, xml, "<testsuite name=\"ZMR Benchmark\" tests=\"2\" failures=\"1\" errors=\"0\" skipped=\"0\" time=\"3.000\">") != null);
     try std.testing.expect(std.mem.indexOf(u8, xml, "<testcase classname=\"zmr\" name=\"run 1\" time=\"1.000\"></testcase>") != null);
@@ -148,18 +149,18 @@ test "report writes benchmark junit xml for ci" {
 test "trace explanation summarizes terminal failure diagnostics" {
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-explain-trace";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(root);
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(root);
 
     {
-        var manifest = try std.fs.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
+        var manifest = try test_io.cwd().createFile(root ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
             "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"login smoke\",\"appId\":\"com.example.mobiletest\",\"status\":\"failed\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":2,\"error\":\"WaitTimeout\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":4,\"snapshotCount\":1,\"reportPath\":null}\n",
         );
     }
     {
-        var events = try std.fs.cwd().createFile(root ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(root ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll(
             "{\"seq\":1,\"kind\":\"scenario.start\",\"payload\":{\"value\":\"login smoke\"}}\n" ++
@@ -169,16 +170,16 @@ test "trace explanation summarizes terminal failure diagnostics" {
         );
     }
 
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try writeTraceExplanation(allocator, root, out.writer(allocator));
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try writeTraceExplanation(allocator, root, &out.writer);
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "scenario: login smoke") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "status: failed") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "failedStepIndex: 2") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "error: WaitTimeout") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "diagnostic: wait.visible timeout") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "snapshot: snapshot-7") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "visibleTexts: Sign in | Try again") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "nearestTextMatches: Dashboards") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "scenario: login smoke") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "status: failed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "failedStepIndex: 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "error: WaitTimeout") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "diagnostic: wait.visible timeout") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "snapshot: snapshot-7") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "visibleTexts: Sign in | Try again") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "nearestTextMatches: Dashboards") != null);
 }

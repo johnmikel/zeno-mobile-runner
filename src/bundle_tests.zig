@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const bundle = @import("bundle.zig");
 
 const exportTraceBundle = bundle.exportTraceBundle;
@@ -8,9 +9,9 @@ test "trace bundle export writes deterministic archive with manifest events repo
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-trace-bundle";
     const out_path = root ++ ".zmrtrace";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    defer std.fs.cwd().deleteFile(out_path) catch {};
-    try std.fs.cwd().makePath(root ++ "/artifacts");
+    defer test_io.cwd().deleteTree(root) catch {};
+    defer test_io.cwd().deleteFile(out_path) catch {};
+    try test_io.cwd().makePath(root ++ "/artifacts");
     try writeFixture(root ++ "/trace.json", "{\"schemaVersion\":1,\"status\":\"passed\"}\n");
     try writeFixture(root ++ "/events.jsonl", "{\"seq\":1,\"kind\":\"scenario.end\",\"payload\":{\"status\":\"passed\"}}\n");
     try writeFixture(root ++ "/report.html", "<!doctype html><h1>ZMR</h1>\n");
@@ -19,7 +20,7 @@ test "trace bundle export writes deterministic archive with manifest events repo
 
     try exportTraceBundle(allocator, root, out_path);
 
-    const archive = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const archive = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(archive);
     const names = try tarNames(allocator, archive);
     defer {
@@ -40,9 +41,9 @@ test "trace bundle export rejects directories without a manifest" {
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-trace-bundle-missing";
     const out_path = root ++ ".zmrtrace";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    defer std.fs.cwd().deleteFile(out_path) catch {};
-    try std.fs.cwd().makePath(root);
+    defer test_io.cwd().deleteTree(root) catch {};
+    defer test_io.cwd().deleteFile(out_path) catch {};
+    try test_io.cwd().makePath(root);
     try writeFixture(root ++ "/events.jsonl", "{}\n");
 
     try std.testing.expectError(error.MissingTraceManifest, exportTraceBundle(allocator, root, out_path));
@@ -52,9 +53,9 @@ test "redacted trace bundle replaces screenshots scrubs text artifacts and annot
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-trace-bundle-redacted";
     const out_path = root ++ ".zmrtrace";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    defer std.fs.cwd().deleteFile(out_path) catch {};
-    try std.fs.cwd().makePath(root ++ "/artifacts");
+    defer test_io.cwd().deleteTree(root) catch {};
+    defer test_io.cwd().deleteFile(out_path) catch {};
+    try test_io.cwd().makePath(root ++ "/artifacts");
     try writeFixture(root ++ "/trace.json", "{\"schemaVersion\":1,\"status\":\"failed\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\"}\n");
     try writeFixture(root ++ "/events.jsonl", "{\"seq\":1,\"kind\":\"log\",\"payload\":{\"message\":\"agent@example.com bearer abc.def.ghi\"}}\n");
     try writeFixture(
@@ -70,7 +71,7 @@ test "redacted trace bundle replaces screenshots scrubs text artifacts and annot
 
     try exportTraceBundleWithOptions(allocator, root, out_path, .{ .redact = true });
 
-    const archive = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const archive = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(archive);
     const names = try tarNames(allocator, archive);
     defer {
@@ -102,9 +103,9 @@ test "redacted trace bundle can omit screenshots entirely" {
     const allocator = std.testing.allocator;
     const root = "zig-cache-test-trace-bundle-redacted-omit-screenshots";
     const out_path = root ++ ".zmrtrace";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    defer std.fs.cwd().deleteFile(out_path) catch {};
-    try std.fs.cwd().makePath(root ++ "/artifacts");
+    defer test_io.cwd().deleteTree(root) catch {};
+    defer test_io.cwd().deleteFile(out_path) catch {};
+    try test_io.cwd().makePath(root ++ "/artifacts");
     try writeFixture(root ++ "/trace.json", "{\"schemaVersion\":1,\"status\":\"passed\",\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\"}\n");
     try writeFixture(root ++ "/events.jsonl", "{\"seq\":1,\"kind\":\"scenario.end\",\"payload\":{\"status\":\"passed\"}}\n");
     try writeFixture(root ++ "/artifacts/snapshot-1.json", "{\"id\":\"snapshot-1\",\"text\":\"agent@example.com\"}\n");
@@ -112,7 +113,7 @@ test "redacted trace bundle can omit screenshots entirely" {
 
     try exportTraceBundleWithOptions(allocator, root, out_path, .{ .redact = true, .omit_screenshots = true });
 
-    const archive = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const archive = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(archive);
     const names = try tarNames(allocator, archive);
     defer {
@@ -132,7 +133,7 @@ test "redacted trace bundle can omit screenshots entirely" {
 }
 
 fn writeFixture(path: []const u8, bytes: []const u8) !void {
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
+    var file = try test_io.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
 }

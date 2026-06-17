@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const doctor = @import("doctor.zig");
 
 const Status = doctor.Status;
@@ -81,7 +82,7 @@ test "doctor warns when no mobile devices are ready" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var adb_file = try tmp.dir.createFile("fake-adb-empty.sh", .{ .truncate = true });
+    var adb_file = try test_io.createFileIn(tmp.dir, "fake-adb-empty.sh", .{ .truncate = true });
     try adb_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -95,7 +96,7 @@ test "doctor warns when no mobile devices are ready" {
     try adb_file.chmod(0o755);
     adb_file.close();
 
-    var xcrun_file = try tmp.dir.createFile("fake-xcrun-empty.sh", .{ .truncate = true });
+    var xcrun_file = try test_io.createFileIn(tmp.dir, "fake-xcrun-empty.sh", .{ .truncate = true });
     try xcrun_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -158,7 +159,7 @@ test "doctor warns when physical ios devices are listed but unavailable" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var xcrun_file = try tmp.dir.createFile("fake-xcrun-unavailable-physical.sh", .{ .truncate = true });
+    var xcrun_file = try test_io.createFileIn(tmp.dir, "fake-xcrun-unavailable-physical.sh", .{ .truncate = true });
     try xcrun_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -214,7 +215,7 @@ test "doctor reports listed physical ios device breakdown when some are ready" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var xcrun_file = try tmp.dir.createFile("fake-xcrun-mixed-physical.sh", .{ .truncate = true });
+    var xcrun_file = try test_io.createFileIn(tmp.dir, "fake-xcrun-mixed-physical.sh", .{ .truncate = true });
     try xcrun_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -326,9 +327,9 @@ test "doctor reports configured smoke scenario paths" {
 test "doctor warns when configured smoke scenario is invalid" {
     const allocator = std.testing.allocator;
     const path = "zig-cache/test-doctor-invalid-smoke.json";
-    try std.fs.cwd().makePath("zig-cache");
-    try std.fs.cwd().writeFile(.{ .sub_path = path, .data = "{\n  \"name\": \"bad\",\n  \"steps\": \"nope\"\n}\n" });
-    defer std.fs.cwd().deleteFile(path) catch {};
+    try test_io.cwd().makePath("zig-cache");
+    try test_io.cwd().writeFile(.{ .sub_path = path, .data = "{\n  \"name\": \"bad\",\n  \"steps\": \"nope\"\n}\n" });
+    defer test_io.cwd().deleteFile(path) catch {};
 
     const checks = try run(allocator, .{
         .zig_path = "zig",

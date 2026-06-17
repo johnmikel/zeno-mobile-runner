@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const cli_inspect = @import("cli_inspect.zig");
 
 test "inspect parses json config and dir flags" {
@@ -14,9 +15,8 @@ test "inspect rejects unknown flags" {
 }
 
 test "inspect json reports app handoff without launching devices" {
-    const allocator = std.testing.allocator;
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
 
     const platforms = [_]cli_inspect.PlatformInspection{
         .{
@@ -46,16 +46,16 @@ test "inspect json reports app handoff without launching devices" {
         .platforms = platforms[0..],
     };
 
-    try cli_inspect.writeJson(out.writer(allocator), inspection);
+    try cli_inspect.writeJson(&out.writer, inspection);
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ok\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"schemaVersion\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"runnerVersion\":\"0.2.2\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"protocolVersion\":\"2026-04-28\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"configExists\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"agentInstructionsExists\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"name\":\"android\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"smokeScenarioExists\":false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"recommendedCommands\":[\"zmr doctor --strict --json --config .zmr/config.json\",\"zmr schemas --json\",\"zmr validate --json .zmr/android-smoke.json\",\"zmr validate --json .zmr/ios-smoke.json\",\"zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent\",\"zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"limitations\":[\"inspect is read-only and does not launch devices\",\"autonomous crawling is not shipped; generate or edit scenarios for human review\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"schemaVersion\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"runnerVersion\":\"0.2.8\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"protocolVersion\":\"2026-04-28\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"configExists\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"agentInstructionsExists\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"name\":\"android\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"smokeScenarioExists\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"recommendedCommands\":[\"zmr doctor --strict --json --config .zmr/config.json\",\"zmr schemas --json\",\"zmr validate --json .zmr/android-smoke.json\",\"zmr validate --json .zmr/ios-smoke.json\",\"zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent\",\"zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"limitations\":[\"inspect is read-only and does not launch devices\",\"autonomous crawling is not shipped; generate or edit scenarios for human review\"]") != null);
 }

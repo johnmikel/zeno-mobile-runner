@@ -1,24 +1,25 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const version = @import("version.zig");
 
 test "plain version output includes runner and protocol versions" {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(std.testing.allocator);
+    var buffer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buffer.deinit();
 
-    try version.writePlain(buffer.writer(std.testing.allocator));
+    try version.writePlain(&buffer.writer);
 
-    try std.testing.expectEqualStrings("zmr 0.2.2 protocol 2026-04-28\n", buffer.items);
+    try std.testing.expectEqualStrings("zmr 0.2.8 protocol 2026-04-28\n", buffer.written());
 }
 
 test "json version output includes protocol compatibility metadata" {
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(std.testing.allocator);
+    var buffer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buffer.deinit();
 
-    try version.writeJson(buffer.writer(std.testing.allocator));
+    try version.writeJson(&buffer.writer);
 
     try std.testing.expectEqualStrings(
-        "{\"name\":\"zmr\",\"version\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"minimumCompatibleProtocolVersion\":\"2026-04-28\",\"stability\":\"dev-preview\",\"breakingChangePolicy\":\"version-and-changelog\"}\n",
-        buffer.items,
+        "{\"name\":\"zmr\",\"version\":\"0.2.8\",\"protocolVersion\":\"2026-04-28\",\"minimumCompatibleProtocolVersion\":\"2026-04-28\",\"stability\":\"dev-preview\",\"breakingChangePolicy\":\"version-and-changelog\"}\n",
+        buffer.written(),
     );
 }
 

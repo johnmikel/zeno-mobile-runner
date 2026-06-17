@@ -1,22 +1,23 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const trace_summary = @import("trace_summary.zig");
 
 test "trace summary reads partial visual capture diagnostics" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-summary-module";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+    try test_io.cwd().makePath(dir);
 
     {
-        var manifest = try std.fs.cwd().createFile(dir ++ "/trace.json", .{ .truncate = true });
+        var manifest = try test_io.cwd().createFile(dir ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
             "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"ios partial\",\"appId\":\"com.example.mobiletest\",\"status\":\"partial\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":1,\"partialFailureCount\":1,\"reportPath\":null}\n",
         );
     }
     {
-        var events = try std.fs.cwd().createFile(dir ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(dir ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll(
             "{\"seq\":1,\"timestampMs\":1,\"kind\":\"observe.snapshot.semanticExtraction\",\"payload\":{\"status\":\"failed\",\"artifactStatus\":\"captured\",\"semanticStatus\":\"failed\",\"error\":\"CommandFailed\",\"screenshotArtifact\":\"artifacts/snapshot-1.png\",\"source\":\"ios-xctest-shim\"}}\n" ++

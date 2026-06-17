@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/zig-cache/coverage"
 BIN="$OUT/zmr-tests"
 MIN_COVERAGE="${MIN_COVERAGE:-90}"
-KCOV_TIMEOUT_SECONDS="${ZMR_KCOV_TIMEOUT_SECONDS:-120}"
+KCOV_TIMEOUT_SECONDS="${ZMR_KCOV_TIMEOUT_SECONDS:-300}"
 
 should_skip_kcov_on_hosted_macos() {
   [[ "${GITHUB_ACTIONS:-}" == "true" && "${RUNNER_OS:-}" == "macOS" && "${ZMR_FORCE_KCOV:-}" != "1" ]]

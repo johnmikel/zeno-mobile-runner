@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const device_registry = @import("device_registry.zig");
 const types = @import("types.zig");
 
@@ -12,18 +13,17 @@ test "ready states are platform specific" {
 }
 
 test "json output includes portable ready values" {
-    const allocator = std.testing.allocator;
     const devices = [_]types.DeviceInfo{
         .{ .serial = "ios-1", .state = "connected" },
         .{ .serial = "ios-2", .state = "unavailable" },
     };
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
 
-    try device_registry.writeJson(out.writer(allocator), .ios, devices[0..]);
+    try device_registry.writeJson(&out.writer, .ios, devices[0..]);
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"platform\":\"ios\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"count\":2") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"serial\":\"ios-1\",\"state\":\"connected\",\"ready\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"serial\":\"ios-2\",\"state\":\"unavailable\",\"ready\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"platform\":\"ios\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"count\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"serial\":\"ios-1\",\"state\":\"connected\",\"ready\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"serial\":\"ios-2\",\"state\":\"unavailable\",\"ready\":false") != null);
 }

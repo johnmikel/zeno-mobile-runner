@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const runner = @import("runner.zig");
 const scenario = @import("scenario.zig");
 const selector = @import("selector.zig");
@@ -95,8 +96,8 @@ test "tap retries through transient empty snapshots" {
 test "runner uses native selector actions when a device exposes them" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-selector-actions";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const NativeSelectorDevice = struct {
         allocator: std.mem.Allocator,
@@ -224,7 +225,7 @@ test "runner uses native selector actions when a device exposes them" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.type\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"selector\":{\"text\":\"Email\"}") != null);
@@ -234,8 +235,8 @@ test "runner uses native selector actions when a device exposes them" {
 test "runner uses native selector queries for waits when a device exposes them" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-waits";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const NativeWaitDevice = struct {
         allocator: std.mem.Allocator,
@@ -269,7 +270,7 @@ test "runner uses native selector queries for waits when a device exposes them" 
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.visible\",\"payload\":{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":{\"text\":\"Ready\"},\"timeoutMs\":1000}") != null);
@@ -281,8 +282,8 @@ test "runner uses native selector queries for waits when a device exposes them" 
 test "native selector wait timeouts include final snapshot diagnostics" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-wait-diagnostics";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const NativeTimeoutDevice = struct {
         allocator: std.mem.Allocator,
@@ -327,7 +328,7 @@ test "native selector wait timeouts include final snapshot diagnostics" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"snapshotId\":\"native-timeout-final\"") != null);
@@ -339,8 +340,8 @@ test "runner assertion traces preserve replay metadata" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-assertion-replay-metadata";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -376,7 +377,7 @@ test "runner assertion traces preserve replay metadata" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.visible\",\"payload\":{\"status\":\"ok\",\"target\":\"node-assert-visible\",\"selector\":{\"text\":\"Assert Me\"},\"timeoutMs\":3456}") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.notVisible\",\"payload\":{\"status\":\"ok\",\"selector\":{\"text\":\"Missing Toast\"},\"timeoutMs\":4567}") != null);
@@ -388,8 +389,8 @@ test "runner executes agent flow primitives and records trace events" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-flow";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -474,7 +475,7 @@ test "runner executes agent flow primitives and records trace events" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"scenario.start\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot\"") != null);
@@ -543,8 +544,8 @@ test "runner timeout diagnostics include selectors active window and visible tex
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-diagnostics";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -568,7 +569,7 @@ test "runner timeout diagnostics include selectors active window and visible tex
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"wait.any\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"timeout\"") != null);
@@ -583,8 +584,8 @@ test "tap diagnostics report hidden disabled offscreen and nearest text candidat
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-actionable-diagnostics";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const nodes = try allocator.alloc(types.UiNode, 4);
     nodes[0] = .{
@@ -640,7 +641,7 @@ test "tap diagnostics report hidden disabled offscreen and nearest text candidat
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.tap.notFound\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"disabledCandidates\"") != null);
@@ -657,8 +658,8 @@ test "runner records terminal failure events before returning an error" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-failure-events";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -691,7 +692,7 @@ test "runner records terminal failure events before returning an error" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"step.error\"") != null);
@@ -704,14 +705,14 @@ test "runner records terminal failure events before returning an error" {
 test "runner records launch command failure diagnostics" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-launch-diagnostics";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const adb_path = "zig-cache/test-runner-launch-fail-adb.sh";
-    std.fs.cwd().deleteFile(adb_path) catch {};
-    defer std.fs.cwd().deleteFile(adb_path) catch {};
-    try std.fs.cwd().makePath("zig-cache");
-    var adb_file = try std.fs.cwd().createFile(adb_path, .{ .truncate = true });
+    test_io.cwd().deleteFile(adb_path) catch {};
+    defer test_io.cwd().deleteFile(adb_path) catch {};
+    try test_io.cwd().makePath("zig-cache");
+    var adb_file = try test_io.cwd().createFile(adb_path, .{ .truncate = true });
     try adb_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -740,7 +741,7 @@ test "runner records launch command failure diagnostics" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"app.launch\"") != null);
@@ -751,12 +752,12 @@ test "runner records launch command failure diagnostics" {
 test "runner records native selector tap command failure diagnostics" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-tap-diagnostics";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    var shim = try tmp.dir.createFile("fake-ios-shim-tap-fail.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-tap-fail.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -791,7 +792,7 @@ test "runner records native selector tap command failure diagnostics" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.tap\"") != null);
@@ -804,8 +805,8 @@ test "assert none visible fails when a crash overlay is present" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-assert-none-visible";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -841,7 +842,7 @@ test "assert none visible fails when a crash overlay is present" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.noneVisible\"") != null);
@@ -853,8 +854,8 @@ test "assert healthy fails on common mobile error overlays" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-assert-healthy";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -887,7 +888,7 @@ test "assert healthy fails on common mobile error overlays" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\"") != null);
@@ -899,8 +900,8 @@ test "runner writes trace manifest for failed scenarios" {
     const allocator = std.testing.allocator;
     const fake_device = @import("fake_device.zig");
     const dir = "zig-cache-test-runner-failure-manifest";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
     defer {
@@ -934,7 +935,7 @@ test "runner writes trace manifest for failed scenarios" {
 
     const manifest_path = try std.fs.path.join(allocator, &.{ dir, "trace.json" });
     defer allocator.free(manifest_path);
-    const manifest = try std.fs.cwd().readFileAlloc(allocator, manifest_path, 1024 * 1024);
+    const manifest = try test_io.cwd().readFileAlloc(allocator, manifest_path, 1024 * 1024);
     defer allocator.free(manifest);
 
     try std.testing.expect(std.mem.indexOf(u8, manifest, "\"scenarioName\":\"manifest failure\"") != null);

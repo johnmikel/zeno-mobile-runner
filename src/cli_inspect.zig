@@ -84,6 +84,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     } else {
         try writeText(stdout, owned.inspection);
     }
+    try stdout_io.flush();
 }
 
 fn inspect(allocator: std.mem.Allocator, parsed: ParsedArgs) !OwnedInspection {

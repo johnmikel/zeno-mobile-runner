@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const ios = @import("ios.zig");
 const trace = @import("trace.zig");
 
@@ -11,13 +12,13 @@ const parsePhysicalDevicesJson = ios.parsePhysicalDevicesJson;
 test "ios shim viewport overrides retina screenshot pixels with app frame points" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-ios-shim-viewport";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var shim = try tmp.dir.createFile("fake-ios-shim-viewport.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-viewport.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -54,8 +55,8 @@ test "ios shim viewport overrides retina screenshot pixels with app frame points
 test "ios simulator adapter lists devices and supports lifecycle snapshot smoke" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-ios-trace";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const devices = try listDevices(allocator, "./tests/fake-xcrun.sh");
     defer {
@@ -91,8 +92,8 @@ test "ios simulator adapter lists devices and supports lifecycle snapshot smoke"
 test "ios snapshot honors trace artifact capture controls" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-ios-trace-capture-controls";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try IosDevice.init(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest");
     defer device.deinit();
@@ -116,13 +117,13 @@ test "ios snapshot honors trace artifact capture controls" {
 test "ios snapshot preserves screenshot when shim hierarchy extraction fails" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-ios-partial-snapshot";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var shim = try tmp.dir.createFile("fake-ios-shim-snapshot-fail.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-snapshot-fail.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -154,7 +155,7 @@ test "ios snapshot preserves screenshot when shim hierarchy extraction fails" {
     try std.testing.expect(snapshot.screenshot_artifact != null);
     try std.testing.expectEqual(@as(usize, 0), snapshot.nodes.len);
 
-    const events = try std.fs.cwd().readFileAlloc(allocator, dir ++ "/events.jsonl", 4096);
+    const events = try test_io.cwd().readFileAlloc(allocator, dir ++ "/events.jsonl", 4096);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot.semanticExtraction\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"failed\"") != null);
@@ -198,7 +199,7 @@ test "ios device listing retries transient CoreSimulator failures" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var script = try tmp.dir.createFile("fake-xcrun-flaky.sh", .{ .truncate = true });
+    var script = try test_io.createFileIn(tmp.dir, "fake-xcrun-flaky.sh", .{ .truncate = true });
     try script.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -250,7 +251,7 @@ test "ios simulator launch treats already running app state as usable" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var xcrun = try tmp.dir.createFile("fake-xcrun-launch-fail.sh", .{ .truncate = true });
+    var xcrun = try test_io.createFileIn(tmp.dir, "fake-xcrun-launch-fail.sh", .{ .truncate = true });
     try xcrun.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -265,7 +266,7 @@ test "ios simulator launch treats already running app state as usable" {
     try xcrun.chmod(0o755);
     xcrun.close();
 
-    var shim = try tmp.dir.createFile("fake-ios-shim-appstate.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-appstate.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -303,8 +304,8 @@ test "ios physical device adapter lists devices and supports devicectl lifecycle
     try std.testing.expectEqualStrings("connected", devices[0].state);
 
     const dir = "zig-cache/test-ios-physical-trace";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try IosDevice.initWithKindAndShim(allocator, "./tests/fake-xcrun.sh", "fake-physical-ios-1", "com.example.mobiletest", .physical, "./tests/fake-ios-shim.sh");
     defer device.deinit();
@@ -379,7 +380,7 @@ test "ios xctest shim retries transient bootstrap command failure" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var shim = try tmp.dir.createFile("fake-ios-shim-flaky.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-flaky.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -422,7 +423,7 @@ test "ios xctest shim retries transient bootstrap command failure" {
     defer snapshot.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 0), snapshot.nodes.len);
 
-    const attempts = try std.fs.cwd().readFileAlloc(allocator, attempts_path, 1024);
+    const attempts = try test_io.cwd().readFileAlloc(allocator, attempts_path, 1024);
     defer allocator.free(attempts);
     try std.testing.expectEqualStrings("2", attempts);
 }
@@ -430,8 +431,8 @@ test "ios xctest shim retries transient bootstrap command failure" {
 test "ios xctest shim supplies hierarchy and handles selector actions" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-ios-xctest-shim";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", "./tests/fake-ios-shim.sh");
     defer device.deinit();
@@ -464,7 +465,7 @@ test "ios simulator openLink asks XCTest shim to accept universal link confirmat
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var shim = try tmp.dir.createFile("fake-ios-shim-log.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-log.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -491,7 +492,7 @@ test "ios simulator openLink asks XCTest shim to accept universal link confirmat
 
     try device.openLink("https://example.com/e2e-auth?probe=1");
 
-    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 4096);
     defer allocator.free(log);
     try std.testing.expect(std.mem.indexOf(u8, log, "\"cmd\":\"acceptSystemAlert\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);
@@ -502,7 +503,7 @@ test "ios simulator openLink asks XCTest shim to accept custom scheme open confi
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var shim = try tmp.dir.createFile("fake-ios-shim-log.sh", .{ .truncate = true });
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-log.sh", .{ .truncate = true });
     try shim.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -532,7 +533,7 @@ test "ios simulator openLink asks XCTest shim to accept custom scheme open confi
     // not be limited to http/https universal links.
     try device.openLink("exp+exampleapp://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
 
-    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 4096);
     defer allocator.free(log);
     try std.testing.expect(std.mem.indexOf(u8, log, "\"cmd\":\"acceptSystemAlert\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);

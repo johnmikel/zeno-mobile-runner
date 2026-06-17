@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 
 const cli_devices = @import("cli_devices.zig");
 const cli_doctor = @import("cli_doctor.zig");
@@ -79,17 +80,17 @@ test "validation output includes field and source location diagnostics" {
     };
     defer result.deinit(allocator);
 
-    var text = std.ArrayList(u8).empty;
-    defer text.deinit(allocator);
-    try cli_output.writeValidationText(text.writer(allocator), "bad.json", result);
-    try std.testing.expectEqualStrings("bad.json: invalid [scenario.invalid] scenario is invalid at $.steps line 3 column 3\n", text.items);
+    var text = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer text.deinit();
+    try cli_output.writeValidationText(&text.writer, "bad.json", result);
+    try std.testing.expectEqualStrings("bad.json: invalid [scenario.invalid] scenario is invalid at $.steps line 3 column 3\n", text.written());
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
-    try cli_output.writeValidationJson(json.writer(allocator), "bad.json", result);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"fieldPath\":\"$.steps\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"line\":3") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"column\":3") != null);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try cli_output.writeValidationJson(&json.writer, "bad.json", result);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"fieldPath\":\"$.steps\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"line\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"column\":3") != null);
 }
 
 test "cli output module preserves validation field source diagnostics" {
@@ -104,11 +105,11 @@ test "cli output module preserves validation field source diagnostics" {
     };
     defer result.deinit(allocator);
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
-    try cli_output.writeValidationJson(json.writer(allocator), "bad.json", result);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try cli_output.writeValidationJson(&json.writer, "bad.json", result);
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json.items, .{});
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json.written(), .{});
     defer parsed.deinit();
     try std.testing.expect(!parsed.value.object.get("ok").?.bool);
     try std.testing.expectEqualStrings("$.steps", parsed.value.object.get("fieldPath").?.string);
@@ -135,11 +136,11 @@ test "runner events module writes selector miss diagnostics for agents" {
         .nodes = nodes[0..],
     };
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(std.testing.allocator);
-    try runner_events.writeSelectorDiagnosticJson(json.writer(std.testing.allocator), "not_found", null, selectors[0..], snap);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try runner_events.writeSelectorDiagnosticJson(&json.writer, "not_found", null, selectors[0..], snap);
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json.items, .{});
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json.written(), .{});
     defer parsed.deinit();
     try std.testing.expectEqualStrings("not_found", parsed.value.object.get("status").?.string);
     try std.testing.expectEqualStrings("snapshot-1", parsed.value.object.get("snapshotId").?.string);
@@ -147,42 +148,42 @@ test "runner events module writes selector miss diagnostics for agents" {
 }
 
 test "json rpc protocol module writes stable capabilities and device readiness" {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(std.testing.allocator);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
     const id = std.json.Value{ .integer = 7 };
 
-    try json_rpc_protocol.writeCapabilitiesResult(out.writer(std.testing.allocator), id);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"protocolVersion\":\"2026-04-28\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"observe.semanticSnapshot\"") != null);
+    try json_rpc_protocol.writeCapabilitiesResult(&out.writer, id);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"protocolVersion\":\"2026-04-28\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"observe.semanticSnapshot\"") != null);
 
     out.clearRetainingCapacity();
     const devices = [_]types.DeviceInfo{
         .{ .serial = "sim-1", .state = "Booted" },
         .{ .serial = "phone-1", .state = "unavailable" },
     };
-    try json_rpc_protocol.writeDevicesResult(out.writer(std.testing.allocator), id, devices[0..]);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"serial\":\"sim-1\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ready\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"serial\":\"phone-1\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ready\":false") != null);
+    try json_rpc_protocol.writeDevicesResult(&out.writer, id, devices[0..]);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"serial\":\"sim-1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"ready\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"serial\":\"phone-1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"ready\":false") != null);
 }
 
 test "trace summary module preserves partial visual capture diagnostics" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-summary-partial";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+    try test_io.cwd().makePath(dir);
 
     {
-        var manifest = try std.fs.cwd().createFile(dir ++ "/trace.json", .{ .truncate = true });
+        var manifest = try test_io.cwd().createFile(dir ++ "/trace.json", .{ .truncate = true });
         defer manifest.close();
         try manifest.writeAll(
             "{\"schemaVersion\":1,\"runnerVersion\":\"0.2.2\",\"protocolVersion\":\"2026-04-28\",\"scenarioName\":\"ios partial\",\"appId\":\"com.example.mobiletest\",\"status\":\"partial\",\"startedAtMs\":1,\"endedAtMs\":101,\"durationMs\":100,\"failedStepIndex\":null,\"error\":null,\"eventsPath\":\"events.jsonl\",\"artifactsDir\":\"artifacts\",\"eventCount\":2,\"snapshotCount\":1,\"partialFailureCount\":1,\"reportPath\":null}\n",
         );
     }
     {
-        var events = try std.fs.cwd().createFile(dir ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(dir ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll(
             "{\"seq\":1,\"timestampMs\":1,\"kind\":\"observe.snapshot.semanticExtraction\",\"payload\":{\"status\":\"failed\",\"artifactStatus\":\"captured\",\"semanticStatus\":\"failed\",\"error\":\"CommandFailed\",\"screenshotArtifact\":\"artifacts/snapshot-1.png\",\"source\":\"ios-xctest-shim\"}}\n" ++
@@ -330,8 +331,8 @@ test "config paths module resolves app-local files and bare commands" {
 test "runner native module handles selector tap without snapshot fallback" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-module";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     const NativeDevice = struct {
         allocator: std.mem.Allocator,
@@ -368,7 +369,7 @@ test "runner native module handles selector tap without snapshot fallback" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const events = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.tap\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
@@ -377,7 +378,7 @@ test "runner native module handles selector tap without snapshot fallback" {
 test "public schema files parse as json" {
     const allocator = std.testing.allocator;
     for (schema_registry.all()) |schema_info| {
-        const content = try std.fs.cwd().readFileAlloc(allocator, schema_info.path, 1024 * 1024);
+        const content = try test_io.cwd().readFileAlloc(allocator, schema_info.path, 1024 * 1024);
         defer allocator.free(content);
         const parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
         defer parsed.deinit();

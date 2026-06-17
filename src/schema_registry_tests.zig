@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const schema_registry = @import("schema_registry.zig");
 
 test "registry exposes stable public schema metadata" {
@@ -50,12 +51,12 @@ test "registry exposes stable public schema metadata" {
 
 test "registry json output is parseable and count matches entries" {
     const allocator = std.testing.allocator;
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
 
-    try schema_registry.writeJson(out.writer(allocator));
+    try schema_registry.writeJson(&out.writer);
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, out.items, .{});
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, out.written(), .{});
     defer parsed.deinit();
     const object = parsed.value.object;
     try std.testing.expectEqual(@as(i64, @intCast(schema_registry.all().len)), object.get("count").?.integer);

@@ -3,7 +3,6 @@ const stdio = @import("stdio.zig");
 const health = @import("health.zig");
 const runner_config = @import("runner_config.zig");
 const runner_events = @import("runner_events.zig");
-const runner_native = @import("runner_native.zig");
 const scenario = @import("scenario.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
@@ -40,18 +39,28 @@ fn untilVisibleKind(
 ) !bool {
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
-        if (try nativeVisibleBySelector(device, wanted)) |visible| {
-            if (visible) {
-                if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
-                return true;
+        if (nativeSelectorQueryTimeoutMs(deadline)) |query_timeout_ms| {
+            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
+                if (try retryTransientObservation(err, kind, writer, deadline, options)) continue;
+                return err;
+            };
+            if (native_result) |visible| {
+                if (visible) {
+                    if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
+                    return true;
+                }
+                if (stdio.nowMs() >= deadline) {
+                    if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
+                    return false;
+                }
+                try sleepMs(options.poll_ms);
+                continue;
             }
-            if (stdio.nowMs() >= deadline) {
-                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
-                return false;
-            }
-            try sleepMs(options.poll_ms);
-            continue;
+        } else if (hasNativeSelectorQuery(device)) {
+            if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
+            return false;
         }
+
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, kind, writer, deadline, options)) continue;
             return err;
@@ -110,18 +119,28 @@ fn untilNotVisibleKind(
 ) !bool {
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     while (true) {
-        if (try nativeVisibleBySelector(device, wanted)) |visible| {
-            if (!visible) {
-                if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
-                return true;
+        if (nativeSelectorQueryTimeoutMs(deadline)) |query_timeout_ms| {
+            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
+                if (try retryTransientObservation(err, kind, writer, deadline, options)) continue;
+                return err;
+            };
+            if (native_result) |visible| {
+                if (!visible) {
+                    if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
+                    return true;
+                }
+                if (stdio.nowMs() >= deadline) {
+                    if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
+                    return false;
+                }
+                try sleepMs(options.poll_ms);
+                continue;
             }
-            if (stdio.nowMs() >= deadline) {
-                if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
-                return false;
-            }
-            try sleepMs(options.poll_ms);
-            continue;
+        } else if (hasNativeSelectorQuery(device)) {
+            if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
+            return false;
         }
+
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, kind, writer, deadline, options)) continue;
             return err;
@@ -161,7 +180,19 @@ pub fn waitUntilAnyVisible(
     while (true) {
         var all_native = true;
         for (selectors, 0..) |wanted, index| {
-            if (try nativeVisibleBySelector(device, wanted)) |visible| {
+            const query_timeout_ms = nativeSelectorQueryTimeoutMs(deadline) orelse {
+                if (hasNativeSelectorQuery(device)) {
+                    if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.any", selectors, timeout_ms);
+                    return null;
+                }
+                all_native = false;
+                break;
+            };
+            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
+                if (try retryTransientObservation(err, "wait.any", writer, deadline, options)) continue;
+                return err;
+            };
+            if (native_result) |visible| {
                 if (visible) {
                     if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.any", wanted, index, timeout_ms);
                     return index;
@@ -171,6 +202,7 @@ pub fn waitUntilAnyVisible(
                 break;
             }
         }
+
         if (all_native) {
             if (stdio.nowMs() >= deadline) {
                 if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.any", selectors, timeout_ms);
@@ -179,6 +211,7 @@ pub fn waitUntilAnyVisible(
             try sleepMs(options.poll_ms);
             continue;
         }
+
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "wait.any", writer, deadline, options)) continue;
             return err;
@@ -285,11 +318,12 @@ fn nativeAssertHealthy(
     deadline: i64,
     options: RunOptions,
 ) !?bool {
-    if (!@hasDecl(@TypeOf(device.*), "visibleBySelector")) return null;
+    if (!hasNativeSelectorQuery(device)) return null;
 
     probe: while (true) {
         for (health_selectors, 0..) |wanted, index| {
-            const result = device.visibleBySelector(wanted) catch |err| {
+            const query_timeout_ms = nativeSelectorQueryTimeoutMs(deadline) orelse return false;
+            const result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
                 if (try retryTransientObservation(err, "assert.healthy", writer, deadline, options)) continue :probe;
                 return err;
             };
@@ -369,9 +403,20 @@ pub fn scrollUntilVisible(
     }
 }
 
-fn nativeVisibleBySelector(device: anytype, wanted: selector.Selector) !?bool {
+fn hasNativeSelectorQuery(device: anytype) bool {
+    return @hasDecl(@TypeOf(device.*), "visibleBySelectorWithTimeout") or @hasDecl(@TypeOf(device.*), "visibleBySelector");
+}
+
+fn nativeVisibleBySelector(device: anytype, wanted: selector.Selector, timeout_ms: u64) !?bool {
+    if (@hasDecl(@TypeOf(device.*), "visibleBySelectorWithTimeout")) return try device.visibleBySelectorWithTimeout(wanted, timeout_ms);
     if (!@hasDecl(@TypeOf(device.*), "visibleBySelector")) return null;
     return try device.visibleBySelector(wanted);
+}
+
+fn nativeSelectorQueryTimeoutMs(deadline: i64) ?u64 {
+    const now = stdio.nowMs();
+    if (now >= deadline) return null;
+    return @as(u64, @intCast(deadline - now));
 }
 
 fn retryTransientObservation(

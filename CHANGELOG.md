@@ -4,6 +4,15 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.8 (2026-06-17)
+
+### Fixed
+
+- iOS native selector waits now cap each XCTest query to the remaining scenario
+  step timeout and retry transient query command timeouts. Missing selectors can
+  no longer outlive the scenario `timeoutMs` by waiting on the shim's longer
+  cold-start command timeout.
+
 ## 0.2.7 (2026-06-15)
 
 ### Fixed
@@ -39,7 +48,7 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Extended the iOS simulator `openLink` interruption sweep to cover Expo
   dev-client deep-link chooser sheets that appear more than six seconds after
   `simctl openurl` returns. The sweep remains bounded, but now covers the
-  delayed chooser timing observed in the Rently auth smoke.
+  delayed chooser timing observed in app auth smoke runs.
 
 ## 0.2.3 (2026-06-15)
 

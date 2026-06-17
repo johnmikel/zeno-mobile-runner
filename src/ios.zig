@@ -149,11 +149,18 @@ pub const IosDevice = struct {
     }
 
     pub fn visibleBySelector(self: *IosDevice, wanted: selector.Selector) !?bool {
+        return try self.visibleBySelectorWithTimeout(wanted, shimTimeoutMs());
+    }
+
+    pub fn visibleBySelectorWithTimeout(self: *IosDevice, wanted: selector.Selector, timeout_ms: u64) !?bool {
         if (self.shim_path == null) return null;
         const shim_selector = try ios_shim.selectorString(self.allocator, wanted) orelse return null;
         defer self.allocator.free(shim_selector);
 
-        const response = try self.runShim(.{ .kind = .query, .selector = shim_selector });
+        const response = try self.runShimWithTimeout(.{
+            .kind = .query,
+            .selector = shim_selector,
+        }, @max(timeout_ms, 1));
         defer self.allocator.free(response);
         return try ios_shim.parseQueryResponse(response);
     }
@@ -460,7 +467,7 @@ test "ios simulator openLink keeps sweeping delayed XCTest interruptions until a
             \\if [[ "$count" -lt 6 ]]; then
             \\  printf '{{"status":"ok","accepted":false,"count":0}}\n'
             \\else
-            \\  printf '{{"status":"ok","accepted":true,"label":"Brick Rewards Test","count":1}}\n'
+            \\  printf '{{"status":"ok","accepted":true,"label":"Demo App","count":1}}\n'
             \\fi
             \\
         , .{ tmp.sub_path, tmp.sub_path });

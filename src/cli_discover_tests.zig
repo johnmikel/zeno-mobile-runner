@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const cli_discover = @import("cli_discover.zig");
 
 test "discover parse args supports trace draft and validation flags" {
@@ -36,16 +37,16 @@ test "discover from trace writes reviewable scenario and validates it" {
     const root = "zig-cache-test-cli-discover";
     const trace_dir = root ++ "/trace";
     const out_path = root ++ "/discovered.json";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(trace_dir ++ "/artifacts");
-    try std.fs.cwd().writeFile(.{
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(trace_dir ++ "/artifacts");
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
         \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/events.jsonl",
         .data =
         \\{"seq":1,"timestampMs":1,"kind":"app.launch","payload":{"status":"ok"}}
@@ -54,7 +55,7 @@ test "discover from trace writes reviewable scenario and validates it" {
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/artifacts/snapshot-1.json",
         .data =
         \\{
@@ -98,19 +99,19 @@ test "discover from trace writes reviewable scenario and validates it" {
     try std.testing.expectEqualStrings(out_path, result.summary.draft.out_path);
     try std.testing.expectEqual(@as(usize, 1), result.summary.draft.selector_count);
 
-    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const scenario = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://discover\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"swipe\",\"x1\":10,\"y1\":20,\"x2\":10,\"y2\":200") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"resourceId\":\"welcome-title\"}") != null);
 
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try cli_discover.writeJson(out.writer(allocator), result.summary, result.validation);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"discover\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":3,\"skippedEventCount\":0}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validated\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validation\":{\"ok\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr validate --json ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr run ") != null);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try cli_discover.writeJson(&out.writer, result.summary, result.validation);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"mode\":\"discover\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":3,\"skippedEventCount\":0}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"validated\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"validation\":{\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"zmr validate --json ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"zmr run ") != null);
 }

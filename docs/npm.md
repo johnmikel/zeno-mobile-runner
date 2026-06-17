@@ -431,6 +431,14 @@ Publish the generated tarball from `dist/`:
 npm publish ./dist/zeno-mobile-runner-<version>.tgz --access public
 ```
 
+If npm returns `EOTP`, the account or organization requires a TOTP-style
+one-time password for this publish command. The browser/passkey login flow can
+authenticate the local CLI session, but `npm publish` itself only accepts the
+publish-time second factor through `--otp`. Prefer the tagged trusted-publishing
+workflow for normal releases; otherwise enter the TOTP locally or use a granular
+automation token configured to bypass 2FA. Do not send OTPs or tokens through
+issue comments, chat, or commit history.
+
 If npm returns `E403` with a two-factor authentication message, the account or
 organization requires either a current interactive 2FA challenge or a granular
 automation token configured to bypass 2FA. For local passkey accounts, rerun

@@ -114,5 +114,6 @@ fn runParsed(allocator: std.mem.Allocator, parsed: ParsedArgs) !void {
     } else {
         try cli_output.writeDoctorText(stdout, config_check, checks);
     }
+    try stdout_io.flush();
     if (parsed.strict and !cli_output.doctorChecksHealthy(config_check, checks)) std.process.exit(1);
 }

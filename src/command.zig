@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const stdio = @import("stdio.zig");
 
@@ -61,6 +62,7 @@ pub fn runWithInputTimeout(
         .stdin = .pipe,
         .stdout = .pipe,
         .stderr = .pipe,
+        .pgid = processGroupForTimeout(timeout_ms),
     });
     defer if (child.id != null) child.kill(stdio.io());
 
@@ -84,21 +86,16 @@ pub fn runWithTimeout(
 ) !ExecResult {
     if (timeout_ms == 0) return run(allocator, argv, max_output_bytes);
 
-    const result = std.process.run(allocator, stdio.io(), .{
+    var child = try std.process.spawn(stdio.io(), .{
         .argv = argv,
-        .stdout_limit = .limited(max_output_bytes),
-        .stderr_limit = .limited(max_output_bytes),
-        .timeout = timeoutForMs(timeout_ms),
-    }) catch |err| switch (err) {
-        error.Timeout => return timedOutResult(allocator),
-        else => |actual| return actual,
-    };
-    return .{
-        .stdout = result.stdout,
-        .stderr = result.stderr,
-        .term = result.term,
-        .timed_out = false,
-    };
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .pipe,
+        .pgid = processGroupForTimeout(timeout_ms),
+    });
+    defer if (child.id != null) child.kill(stdio.io());
+
+    return try collectSpawnedOutput(allocator, &child, max_output_bytes, timeoutForMs(timeout_ms));
 }
 
 fn collectSpawnedOutput(
@@ -121,7 +118,7 @@ fn collectSpawnedOutput(
     } else |err| switch (err) {
         error.EndOfStream => {},
         error.Timeout => {
-            child.kill(stdio.io());
+            terminateTimedOutChild(child);
             return timedOutResult(allocator);
         },
         else => |actual| return actual,
@@ -141,6 +138,34 @@ fn collectSpawnedOutput(
         .term = term,
         .timed_out = false,
     };
+}
+
+fn processGroupForTimeout(timeout_ms: u64) ?std.posix.pid_t {
+    if (timeout_ms == 0) return null;
+    return switch (builtin.os.tag) {
+        .linux,
+        .macos,
+        .ios,
+        .tvos,
+        .watchos,
+        .visionos,
+        .freebsd,
+        .netbsd,
+        .openbsd,
+        .haiku,
+        .illumos,
+        => 0,
+        else => null,
+    };
+}
+
+fn terminateTimedOutChild(child: *std.process.Child) void {
+    if (child.id) |pid| {
+        if (processGroupForTimeout(1) != null and pid > 0) {
+            std.posix.kill(-pid, .TERM) catch {};
+        }
+    }
+    child.kill(stdio.io());
 }
 
 fn timedOutResult(allocator: std.mem.Allocator) !ExecResult {

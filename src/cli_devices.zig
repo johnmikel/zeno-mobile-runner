@@ -48,11 +48,16 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     stdout_io.init(.stdout());
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
-    if (json) return try device_registry.writeJson(stdout, registryPlatform(platform), devices);
-    if (devices.len == 0) return try stdout.print("No {s} devices found.\n", .{@tagName(platform)});
-    for (devices) |device| {
-        try stdout.print("{s}\t{s}\n", .{ device.serial, device.state });
+    if (json) {
+        try device_registry.writeJson(stdout, registryPlatform(platform), devices);
+    } else if (devices.len == 0) {
+        try stdout.print("No {s} devices found.\n", .{@tagName(platform)});
+    } else {
+        for (devices) |device| {
+            try stdout.print("{s}\t{s}\n", .{ device.serial, device.state });
+        }
     }
+    try stdout_io.flush();
 }
 
 fn parsePlatform(value: []const u8) !run_options.Platform {

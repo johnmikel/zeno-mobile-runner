@@ -125,13 +125,13 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     const stdout = stdout_io.writer();
     if (parsed.json) {
         try writeJson(stdout, draft.summary);
-        return;
+    } else {
+        try stdout.print("wrote {s}\n", .{draft.summary.out_path});
+        try stdout.writeAll("next: zmr validate --json ");
+        try cli_output.writeShellArg(stdout, draft.summary.out_path);
+        try stdout.writeAll("\n");
     }
-
-    try stdout.print("wrote {s}\n", .{draft.summary.out_path});
-    try stdout.writeAll("next: zmr validate --json ");
-    try cli_output.writeShellArg(stdout, draft.summary.out_path);
-    try stdout.writeAll("\n");
+    try stdout_io.flush();
 }
 
 pub fn draftFromTrace(allocator: std.mem.Allocator, parsed: ParsedArgs) !OwnedDraft {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const mcp_trace = @import("mcp_trace.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
@@ -6,13 +7,13 @@ const types = @import("types.zig");
 test "mcp trace events tool emits filtered text payload" {
     const allocator = std.testing.allocator;
     const trace_dir = "zig-cache-test-mcp-trace-events";
-    std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+    test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteTree(trace_dir) catch {};
 
-    var no_trace = std.ArrayList(u8).empty;
-    defer no_trace.deinit(allocator);
-    try mcp_trace.writeEventsToolResult(allocator, no_trace.writer(allocator), .{ .integer = 3 }, null, 2, 10);
-    const no_trace_text = try toolText(allocator, no_trace.items);
+    var no_trace = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer no_trace.deinit();
+    try mcp_trace.writeEventsToolResult(allocator, &no_trace.writer, .{ .integer = 3 }, null, 2, 10);
+    const no_trace_text = try toolText(allocator, no_trace.written());
     defer allocator.free(no_trace_text);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"afterSeq\":2") != null);
@@ -24,12 +25,12 @@ test "mcp trace events tool emits filtered text payload" {
     try tw.recordEvent("first", "{\"ok\":true}");
     try tw.recordEvent("second", "{\"ok\":true}");
 
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try mcp_trace.writeEventsToolResult(allocator, out.writer(allocator), .{ .integer = 4 }, &tw, 1, 10);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try mcp_trace.writeEventsToolResult(allocator, &out.writer, .{ .integer = 4 }, &tw, 1, 10);
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"id\":4") != null);
-    const text = try toolText(allocator, out.items);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"id\":4") != null);
+    const text = try toolText(allocator, out.written());
     defer allocator.free(text);
     try std.testing.expect(std.mem.indexOf(u8, text, "\"traceDir\":\"zig-cache-test-mcp-trace-events\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\"afterSeq\":1") != null);
@@ -43,14 +44,14 @@ test "mcp trace export tool reports no-trace fallback and redacted export payloa
     const allocator = std.testing.allocator;
     const trace_dir = "zig-cache-test-mcp-trace-export";
     const out_path = trace_dir ++ ".zmrtrace";
-    std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteFile(out_path) catch {};
+    test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteFile(out_path) catch {};
 
-    var no_trace = std.ArrayList(u8).empty;
-    defer no_trace.deinit(allocator);
-    try mcp_trace.writeExportToolResult(allocator, no_trace.writer(allocator), .{ .integer = 5 }, null, out_path, false, false);
-    const no_trace_text = try toolText(allocator, no_trace.items);
+    var no_trace = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer no_trace.deinit();
+    try mcp_trace.writeExportToolResult(allocator, &no_trace.writer, .{ .integer = 5 }, null, out_path, false, false);
+    const no_trace_text = try toolText(allocator, no_trace.written());
     defer allocator.free(no_trace_text);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
 
@@ -59,13 +60,13 @@ test "mcp trace export tool reports no-trace fallback and redacted export payloa
     try tw.startManifest("mcp trace export", "com.example.mobiletest");
     try tw.recordEvent("trace.fixture", "{\"status\":\"ok\"}");
 
-    var exported = std.ArrayList(u8).empty;
-    defer exported.deinit(allocator);
-    try mcp_trace.writeExportToolResult(allocator, exported.writer(allocator), .{ .integer = 6 }, &tw, out_path, true, true);
+    var exported = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer exported.deinit();
+    try mcp_trace.writeExportToolResult(allocator, &exported.writer, .{ .integer = 6 }, &tw, out_path, true, true);
 
-    try std.fs.cwd().access(out_path, .{});
-    try std.testing.expect(std.mem.indexOf(u8, exported.items, "\"id\":6") != null);
-    const exported_text = try toolText(allocator, exported.items);
+    try test_io.cwd().access(out_path, .{});
+    try std.testing.expect(std.mem.indexOf(u8, exported.written(), "\"id\":6") != null);
+    const exported_text = try toolText(allocator, exported.written());
     defer allocator.free(exported_text);
     try std.testing.expect(std.mem.indexOf(u8, exported_text, "\"redacted\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, exported_text, "\"omitScreenshots\":true") != null);
@@ -74,13 +75,13 @@ test "mcp trace export tool reports no-trace fallback and redacted export payloa
 test "mcp trace explain tool summarizes active trace" {
     const allocator = std.testing.allocator;
     const trace_dir = "zig-cache-test-mcp-trace-explain";
-    std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+    test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteTree(trace_dir) catch {};
 
-    var no_trace = std.ArrayList(u8).empty;
-    defer no_trace.deinit(allocator);
-    try mcp_trace.writeExplainToolResult(allocator, no_trace.writer(allocator), .{ .integer = 8 }, null);
-    const no_trace_text = try toolText(allocator, no_trace.items);
+    var no_trace = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer no_trace.deinit();
+    try mcp_trace.writeExplainToolResult(allocator, &no_trace.writer, .{ .integer = 8 }, null);
+    const no_trace_text = try toolText(allocator, no_trace.written());
     defer allocator.free(no_trace_text);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
 
@@ -91,12 +92,12 @@ test "mcp trace explain tool summarizes active trace" {
     try tw.recordEvent("scenario.end", "{\"value\":\"mcp trace explain\",\"status\":\"failed\",\"failedStepIndex\":4,\"error\":\"WaitTimeout\"}");
     try tw.finishManifest(.{ .status = "failed", .failed_step_index = 4, .error_name = "WaitTimeout" });
 
-    var explained = std.ArrayList(u8).empty;
-    defer explained.deinit(allocator);
-    try mcp_trace.writeExplainToolResult(allocator, explained.writer(allocator), .{ .integer = 9 }, &tw);
+    var explained = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer explained.deinit();
+    try mcp_trace.writeExplainToolResult(allocator, &explained.writer, .{ .integer = 9 }, &tw);
 
-    try std.testing.expect(std.mem.indexOf(u8, explained.items, "\"id\":9") != null);
-    const explained_text = try toolText(allocator, explained.items);
+    try std.testing.expect(std.mem.indexOf(u8, explained.written(), "\"id\":9") != null);
+    const explained_text = try toolText(allocator, explained.written());
     defer allocator.free(explained_text);
     try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"traceDir\":\"zig-cache-test-mcp-trace-explain\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, explained_text, "\"scenario\":\"mcp trace explain\"") != null);
@@ -112,13 +113,13 @@ test "mcp trace discover tool writes validated scenario text payload" {
     const allocator = std.testing.allocator;
     const trace_dir = "zig-cache-test-mcp-trace-discover";
     const out_path = trace_dir ++ "/discovered.json";
-    std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+    test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteTree(trace_dir) catch {};
 
-    var no_trace = std.ArrayList(u8).empty;
-    defer no_trace.deinit(allocator);
-    try mcp_trace.writeDiscoverToolResult(allocator, no_trace.writer(allocator), .{ .integer = 6 }, null, out_path, true, true, true, null, null);
-    const no_trace_text = try toolText(allocator, no_trace.items);
+    var no_trace = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer no_trace.deinit();
+    try mcp_trace.writeDiscoverToolResult(allocator, &no_trace.writer, .{ .integer = 6 }, null, out_path, true, true, true, null, null);
+    const no_trace_text = try toolText(allocator, no_trace.written());
     defer allocator.free(no_trace_text);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"ok\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"traceDir\":null") != null);
@@ -135,24 +136,24 @@ test "mcp trace discover tool writes validated scenario text payload" {
     tw.snapshot_count = 1;
     try tw.recordEvent("observe.semanticSnapshot", "{\"status\":\"ok\"}");
 
-    var discovered = std.ArrayList(u8).empty;
-    defer discovered.deinit(allocator);
-    try mcp_trace.writeDiscoverToolResult(allocator, discovered.writer(allocator), .{ .integer = 7 }, &tw, out_path, true, true, true, "MCP discovered", null);
+    var discovered = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer discovered.deinit();
+    try mcp_trace.writeDiscoverToolResult(allocator, &discovered.writer, .{ .integer = 7 }, &tw, out_path, true, true, true, "MCP discovered", null);
 
-    try std.testing.expect(std.mem.indexOf(u8, discovered.items, "\"id\":7") != null);
-    const discovered_text = try toolText(allocator, discovered.items);
+    try std.testing.expect(std.mem.indexOf(u8, discovered.written(), "\"id\":7") != null);
+    const discovered_text = try toolText(allocator, discovered.written());
     defer allocator.free(discovered_text);
     try std.testing.expect(std.mem.indexOf(u8, discovered_text, "\"mode\":\"discover\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, discovered_text, "\"validated\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, discovered_text, "\"validation\":{\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, discovered_text, "unsupported trace action was skipped: rpc.request") == null);
 
-    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const scenario = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://discover-mcp\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Discover MCP\"}") != null);
 
-    const events = try std.fs.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"trace.discover\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
@@ -164,13 +165,13 @@ test "mcp trace explore tool writes guarded scenario text payload" {
     const trace_dir = "zig-cache-test-mcp-trace-explore";
     const out_path = trace_dir ++ "/explored.json";
     const goal = "find a stable MCP smoke";
-    std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+    test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteTree(trace_dir) catch {};
 
-    var no_trace = std.ArrayList(u8).empty;
-    defer no_trace.deinit(allocator);
-    try mcp_trace.writeExploreToolResult(allocator, no_trace.writer(allocator), .{ .integer = 6 }, null, out_path, goal, true, true, true, null, null);
-    const no_trace_text = try toolText(allocator, no_trace.items);
+    var no_trace = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer no_trace.deinit();
+    try mcp_trace.writeExploreToolResult(allocator, &no_trace.writer, .{ .integer = 6 }, null, out_path, goal, true, true, true, null, null);
+    const no_trace_text = try toolText(allocator, no_trace.written());
     defer allocator.free(no_trace_text);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"ok\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, no_trace_text, "\"mode\":\"explore\"") != null);
@@ -188,12 +189,12 @@ test "mcp trace explore tool writes guarded scenario text payload" {
     tw.snapshot_count = 1;
     try tw.recordEvent("observe.semanticSnapshot", "{\"status\":\"ok\"}");
 
-    var explored = std.ArrayList(u8).empty;
-    defer explored.deinit(allocator);
-    try mcp_trace.writeExploreToolResult(allocator, explored.writer(allocator), .{ .integer = 7 }, &tw, out_path, goal, true, true, true, "MCP explored", null);
+    var explored = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer explored.deinit();
+    try mcp_trace.writeExploreToolResult(allocator, &explored.writer, .{ .integer = 7 }, &tw, out_path, goal, true, true, true, "MCP explored", null);
 
-    try std.testing.expect(std.mem.indexOf(u8, explored.items, "\"id\":7") != null);
-    const explored_text = try toolText(allocator, explored.items);
+    try std.testing.expect(std.mem.indexOf(u8, explored.written(), "\"id\":7") != null);
+    const explored_text = try toolText(allocator, explored.written());
     defer allocator.free(explored_text);
     try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"mode\":\"explore\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"goal\":\"find a stable MCP smoke\"") != null);
@@ -204,12 +205,12 @@ test "mcp trace explore tool writes guarded scenario text payload" {
     try std.testing.expect(std.mem.indexOf(u8, explored_text, "\"validation\":{\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, explored_text, "unsupported trace action was skipped: rpc.request") == null);
 
-    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const scenario = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://explore-mcp\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"text\":\"Explore MCP\"}") != null);
 
-    const events = try std.fs.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 1024 * 1024);
+    const events = try test_io.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 1024 * 1024);
     defer allocator.free(events);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"trace.explore\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);

@@ -22,8 +22,12 @@ pub fn runVersion(allocator: std.mem.Allocator, args: *std.process.Args.Iterator
     stdout_io.init(.stdout());
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
-    if (json) return try version.writeJson(stdout);
-    try version.writePlain(stdout);
+    if (json) {
+        try version.writeJson(stdout);
+    } else {
+        try version.writePlain(stdout);
+    }
+    try stdout_io.flush();
 }
 
 pub fn runSchemas(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
@@ -32,10 +36,14 @@ pub fn runSchemas(allocator: std.mem.Allocator, args: *std.process.Args.Iterator
     stdout_io.init(.stdout());
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
-    if (json) return try schema_registry.writeJson(stdout);
-    for (schema_registry.all()) |schema_info| {
-        try stdout.print("{s}\t{s}\n", .{ schema_info.name, schema_info.path });
+    if (json) {
+        try schema_registry.writeJson(stdout);
+    } else {
+        for (schema_registry.all()) |schema_info| {
+            try stdout.print("{s}\t{s}\n", .{ schema_info.name, schema_info.path });
+        }
     }
+    try stdout_io.flush();
 }
 
 fn parseArgIterator(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !bool {

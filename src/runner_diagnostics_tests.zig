@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const runner_diagnostics = @import("runner_diagnostics.zig");
 const selector = @import("selector.zig");
 const types = @import("types.zig");
@@ -20,11 +21,11 @@ test "runner diagnostics write selector miss details for agents" {
         .nodes = nodes[0..],
     };
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(std.testing.allocator);
-    try runner_diagnostics.writeSelectorDiagnosticJson(json.writer(std.testing.allocator), "not_found", "nativeSelector", selectors[0..], snap);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try runner_diagnostics.writeSelectorDiagnosticJson(&json.writer, "not_found", "nativeSelector", selectors[0..], snap);
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json.items, .{});
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json.written(), .{});
     defer parsed.deinit();
     try std.testing.expectEqualStrings("not_found", parsed.value.object.get("status").?.string);
     try std.testing.expectEqualStrings("nativeSelector", parsed.value.object.get("strategy").?.string);

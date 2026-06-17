@@ -226,6 +226,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
             run_error,
             run_discovery,
         );
+        try stdout_io.flush();
     }
     if (run_error) |err| return err;
 }

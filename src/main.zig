@@ -165,4 +165,5 @@ fn usage() !void {
         \\assertNotVisible, assertNoneVisible, assertHealthy, snapshot, sleep. Any step may use "optional": true.
         \\
     );
+    try stdout_io.flush();
 }

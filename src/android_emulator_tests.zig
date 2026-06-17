@@ -1,12 +1,13 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const android_emulator = @import("android_emulator.zig");
 
 test "android emulator preflight resets boots from snapshot and waits ready" {
     const allocator = std.testing.allocator;
-    try std.fs.cwd().makePath("zig-cache");
+    try test_io.cwd().makePath("zig-cache");
     const log_path = "zig-cache/test-android-emulator-preflight.log";
-    std.fs.cwd().deleteFile(log_path) catch {};
-    defer std.fs.cwd().deleteFile(log_path) catch {};
+    test_io.cwd().deleteFile(log_path) catch {};
+    defer test_io.cwd().deleteFile(log_path) catch {};
 
     try android_emulator.runPreflight(allocator, .{
         .adb_path = "./tests/fake-adb.sh",
@@ -19,7 +20,7 @@ test "android emulator preflight resets boots from snapshot and waits ready" {
         .event_log_path = log_path,
     });
 
-    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 1024 * 1024);
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 1024 * 1024);
     defer allocator.free(log);
     try std.testing.expect(std.mem.indexOf(u8, log, "./tests/fake-adb.sh -s fake-android-1 emu kill\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "./tests/fake-emulator.sh -avd Small_Phone -snapshot zmr-clean -netdelay none -netspeed full\n") != null);
@@ -27,10 +28,10 @@ test "android emulator preflight resets boots from snapshot and waits ready" {
 
 test "android emulator preflight creates missing avd before boot" {
     const allocator = std.testing.allocator;
-    try std.fs.cwd().makePath("zig-cache");
+    try test_io.cwd().makePath("zig-cache");
     const log_path = "zig-cache/test-android-emulator-create.log";
-    std.fs.cwd().deleteFile(log_path) catch {};
-    defer std.fs.cwd().deleteFile(log_path) catch {};
+    test_io.cwd().deleteFile(log_path) catch {};
+    defer test_io.cwd().deleteFile(log_path) catch {};
 
     try android_emulator.runPreflight(allocator, .{
         .adb_path = "./tests/fake-adb.sh",
@@ -44,7 +45,7 @@ test "android emulator preflight creates missing avd before boot" {
         .event_log_path = log_path,
     });
 
-    const log = try std.fs.cwd().readFileAlloc(allocator, log_path, 1024 * 1024);
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 1024 * 1024);
     defer allocator.free(log);
     try std.testing.expect(std.mem.indexOf(u8, log, "./tests/fake-emulator.sh -list-avds\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "./tests/fake-avdmanager.sh create avd --name Small_Phone --package system-images;android-35;google_apis;arm64-v8a --device pixel_6 --force\n") != null);

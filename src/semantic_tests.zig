@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const semantic = @import("semantic.zig");
 const types = @import("types.zig");
 
@@ -49,14 +50,14 @@ test "semantic snapshot json exposes agent-optimized nodes and summary" {
         .nodes = nodes[0..],
     };
 
-    var output = std.ArrayList(u8).empty;
-    defer output.deinit(std.testing.allocator);
+    var output = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer output.deinit();
 
-    try semantic.writeSemanticSnapshotJson(output.writer(std.testing.allocator), snapshot);
+    try semantic.writeSemanticSnapshotJson(&output.writer, snapshot);
 
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "\"id\":\"snapshot-1\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "\"role\":\"button\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "\"recommendedAction\":\"tap\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "\"interactiveCount\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "\"visibleText\":[\"Sample landing.\",\"Sign in\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"id\":\"snapshot-1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"role\":\"button\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"recommendedAction\":\"tap\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"interactiveCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"visibleText\":[\"Sample landing.\",\"Sign in\"]") != null);
 }

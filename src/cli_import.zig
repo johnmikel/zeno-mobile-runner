@@ -82,9 +82,13 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     stdout_io.init(.stdout());
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
-    if (parsed.json) return try cli_output.writeImportJson(stdout, parsed.format, parsed.source_path, result);
-    try stdout.print("wrote {s}\n", .{result.out_path});
-    try stdout.writeAll("next: zmr validate ");
-    try cli_output.writeShellArg(stdout, result.out_path);
-    try stdout.writeAll("\n");
+    if (parsed.json) {
+        try cli_output.writeImportJson(stdout, parsed.format, parsed.source_path, result);
+    } else {
+        try stdout.print("wrote {s}\n", .{result.out_path});
+        try stdout.writeAll("next: zmr validate ");
+        try cli_output.writeShellArg(stdout, result.out_path);
+        try stdout.writeAll("\n");
+    }
+    try stdout_io.flush();
 }

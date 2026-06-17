@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const android = @import("android.zig");
 const trace = @import("trace.zig");
 
@@ -39,8 +40,8 @@ test "parse display density dpi" {
 test "android device actions and snapshot work through fake adb" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-android-trace";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try AndroidDevice.init(allocator, "./tests/fake-adb.sh", "fake-android-1", "com.example.mobiletest");
     defer device.deinit();
@@ -85,13 +86,13 @@ test "android openLink starts intent without waiting for activity launch complet
     const allocator = std.testing.allocator;
     const log_path = "zig-cache/test-android-open-link-adb.log";
     const adb_path = "zig-cache/test-android-open-link-adb.sh";
-    try std.fs.cwd().makePath("zig-cache");
-    std.fs.cwd().deleteFile(log_path) catch {};
-    std.fs.cwd().deleteFile(adb_path) catch {};
-    defer std.fs.cwd().deleteFile(log_path) catch {};
-    defer std.fs.cwd().deleteFile(adb_path) catch {};
+    try test_io.cwd().makePath("zig-cache");
+    test_io.cwd().deleteFile(log_path) catch {};
+    test_io.cwd().deleteFile(adb_path) catch {};
+    defer test_io.cwd().deleteFile(log_path) catch {};
+    defer test_io.cwd().deleteFile(adb_path) catch {};
 
-    var adb_file = try std.fs.cwd().createFile(adb_path, .{ .truncate = true });
+    var adb_file = try test_io.cwd().createFile(adb_path, .{ .truncate = true });
     try adb_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -107,7 +108,7 @@ test "android openLink starts intent without waiting for activity launch complet
 
     try device.openLink("exampleapp://probe");
 
-    const contents = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
+    const contents = try test_io.cwd().readFileAlloc(allocator, log_path, 4096);
     defer allocator.free(contents);
     try std.testing.expect(std.mem.indexOf(u8, contents, "shell am start ") != null);
     try std.testing.expect(std.mem.indexOf(u8, contents, " -W ") == null);
@@ -119,13 +120,13 @@ test "android openLink escapes multi parameter deep links for adb shell" {
     const allocator = std.testing.allocator;
     const log_path = "zig-cache/test-android-open-link-escaped-adb.log";
     const adb_path = "zig-cache/test-android-open-link-escaped-adb.sh";
-    try std.fs.cwd().makePath("zig-cache");
-    std.fs.cwd().deleteFile(log_path) catch {};
-    std.fs.cwd().deleteFile(adb_path) catch {};
-    defer std.fs.cwd().deleteFile(log_path) catch {};
-    defer std.fs.cwd().deleteFile(adb_path) catch {};
+    try test_io.cwd().makePath("zig-cache");
+    test_io.cwd().deleteFile(log_path) catch {};
+    test_io.cwd().deleteFile(adb_path) catch {};
+    defer test_io.cwd().deleteFile(log_path) catch {};
+    defer test_io.cwd().deleteFile(adb_path) catch {};
 
-    var adb_file = try std.fs.cwd().createFile(adb_path, .{ .truncate = true });
+    var adb_file = try test_io.cwd().createFile(adb_path, .{ .truncate = true });
     try adb_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -141,7 +142,7 @@ test "android openLink escapes multi parameter deep links for adb shell" {
 
     try device.openLink("exampleapp:///e2e-auth?email=a%40example.com&password=Test1234%21&returnTo=%2Fbank-connection");
 
-    const contents = try std.fs.cwd().readFileAlloc(allocator, log_path, 4096);
+    const contents = try test_io.cwd().readFileAlloc(allocator, log_path, 4096);
     defer allocator.free(contents);
     try std.testing.expect(std.mem.indexOf(u8, contents, "'exampleapp:///e2e-auth?email=a%40example.com&password=Test1234%21&returnTo=%2Fbank-connection'") != null);
 }
@@ -151,15 +152,15 @@ test "android openLink retries when deep link leaves launcher foregrounded" {
     const log_path = "zig-cache/test-android-open-link-retry-adb.log";
     const state_path = "zig-cache/test-android-open-link-retry-state";
     const adb_path = "zig-cache/test-android-open-link-retry-adb.sh";
-    try std.fs.cwd().makePath("zig-cache");
-    std.fs.cwd().deleteFile(log_path) catch {};
-    std.fs.cwd().deleteFile(state_path) catch {};
-    std.fs.cwd().deleteFile(adb_path) catch {};
-    defer std.fs.cwd().deleteFile(log_path) catch {};
-    defer std.fs.cwd().deleteFile(state_path) catch {};
-    defer std.fs.cwd().deleteFile(adb_path) catch {};
+    try test_io.cwd().makePath("zig-cache");
+    test_io.cwd().deleteFile(log_path) catch {};
+    test_io.cwd().deleteFile(state_path) catch {};
+    test_io.cwd().deleteFile(adb_path) catch {};
+    defer test_io.cwd().deleteFile(log_path) catch {};
+    defer test_io.cwd().deleteFile(state_path) catch {};
+    defer test_io.cwd().deleteFile(adb_path) catch {};
 
-    var adb_file = try std.fs.cwd().createFile(adb_path, .{ .truncate = true });
+    var adb_file = try test_io.cwd().createFile(adb_path, .{ .truncate = true });
     try adb_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -187,7 +188,7 @@ test "android openLink retries when deep link leaves launcher foregrounded" {
 
     try device.openLink("exampleapp://probe");
 
-    const contents = try std.fs.cwd().readFileAlloc(allocator, log_path, 8192);
+    const contents = try test_io.cwd().readFileAlloc(allocator, log_path, 8192);
     defer allocator.free(contents);
     try std.testing.expectEqual(@as(usize, 2), countOccurrences(contents, "shell am start"));
 }
@@ -195,8 +196,8 @@ test "android openLink retries when deep link leaves launcher foregrounded" {
 test "android snapshot honors trace artifact capture controls" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-android-trace-capture-controls";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try AndroidDevice.init(allocator, "./tests/fake-adb.sh", "fake-android-1", "com.example.mobiletest");
     defer device.deinit();
@@ -220,8 +221,8 @@ test "android snapshot honors trace artifact capture controls" {
 test "android screen recording pulls mp4 into trace artifacts" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-android-screen-recording";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try AndroidDevice.init(allocator, "./tests/fake-adb.sh", "fake-android-1", "com.example.mobiletest");
     defer device.deinit();
@@ -235,7 +236,7 @@ test "android screen recording pulls mp4 into trace artifacts" {
     const artifact_path = try recording.stopAndPull(&writer, "screenrecord.mp4");
     defer allocator.free(artifact_path);
 
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, artifact_path, 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, artifact_path, 1024);
     defer allocator.free(bytes);
     try std.testing.expectEqualStrings("FAKE_MP4\n", bytes);
 }
@@ -243,8 +244,8 @@ test "android screen recording pulls mp4 into trace artifacts" {
 test "android native shim supplies hierarchy and handles actions" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache/test-android-native-shim";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var device = try AndroidDevice.initWithShim(allocator, "./tests/fake-adb.sh", "fake-android-1", "com.example.mobiletest", "./tests/fake-android-shim.sh");
     defer device.deinit();

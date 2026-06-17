@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const cli_explore = @import("cli_explore.zig");
 
 test "explore parse args supports trace-backed goal and validation flags" {
@@ -40,16 +41,16 @@ test "explore from trace writes reviewable validated candidate with guardrails" 
     const root = "zig-cache-test-cli-explore";
     const trace_dir = root ++ "/trace";
     const out_path = root ++ "/explored.json";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(trace_dir ++ "/artifacts");
-    try std.fs.cwd().writeFile(.{
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(trace_dir ++ "/artifacts");
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
         \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":2,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/events.jsonl",
         .data =
         \\{"seq":1,"timestampMs":1,"kind":"app.launch","payload":{"status":"ok"}}
@@ -57,7 +58,7 @@ test "explore from trace writes reviewable validated candidate with guardrails" 
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/artifacts/snapshot-1.json",
         .data =
         \\{
@@ -102,22 +103,22 @@ test "explore from trace writes reviewable validated candidate with guardrails" 
     try std.testing.expectEqualStrings("find a stable login smoke", result.summary.goal.?);
     try std.testing.expectEqualStrings(out_path, result.discovered.summary.draft.out_path);
 
-    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const scenario = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://login\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"assertVisible\",\"selector\":{\"resourceId\":\"login-title\"}") != null);
 
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-    try cli_explore.writeJson(out.writer(allocator), result.summary, result.discovered.summary, result.discovered.validation);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"explore\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"goal\":\"find a stable login smoke\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"autonomous\":false") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"reviewRequired\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"guardrails\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "does not crawl") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validated\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"validation\":{\"ok\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr validate --json ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr run ") != null);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try cli_explore.writeJson(&out.writer, result.summary, result.discovered.summary, result.discovered.validation);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"mode\":\"explore\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"goal\":\"find a stable login smoke\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"autonomous\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"reviewRequired\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"guardrails\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "does not crawl") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"validated\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"validation\":{\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"zmr validate --json ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"zmr run ") != null);
 }

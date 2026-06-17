@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const runner_events = @import("runner_events.zig");
 const selector = @import("selector.zig");
 const types = @import("types.zig");
@@ -20,11 +21,11 @@ test "selector diagnostics include nearest visible text matches" {
         .nodes = nodes[0..],
     };
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(std.testing.allocator);
-    try runner_events.writeSelectorDiagnosticJson(json.writer(std.testing.allocator), "not_found", null, selectors[0..], snap);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try runner_events.writeSelectorDiagnosticJson(&json.writer, "not_found", null, selectors[0..], snap);
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json.items, .{});
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json.written(), .{});
     defer parsed.deinit();
     try std.testing.expectEqual(@as(usize, 1), parsed.value.object.get("nearestTextMatches").?.array.items.len);
 }

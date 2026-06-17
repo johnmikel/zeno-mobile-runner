@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const trace_summary_diagnostic = @import("trace_summary_diagnostic.zig");
 
 test "trace summary diagnostic parses payload and writes agent json" {
@@ -10,11 +11,11 @@ test "trace summary diagnostic parses payload and writes agent json" {
     var diagnostic = try trace_summary_diagnostic.DiagnosticEvent.fromPayload(std.testing.allocator, "wait.visible", parsed.value.object);
     defer diagnostic.deinit(std.testing.allocator);
 
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(std.testing.allocator);
-    try trace_summary_diagnostic.writeJson(out.writer(std.testing.allocator), diagnostic);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try trace_summary_diagnostic.writeJson(&out.writer, diagnostic);
 
-    const written = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, out.items, .{});
+    const written = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, out.written(), .{});
     defer written.deinit();
     try std.testing.expectEqualStrings("wait.visible", written.value.object.get("kind").?.string);
     try std.testing.expectEqualStrings("timeout", written.value.object.get("status").?.string);

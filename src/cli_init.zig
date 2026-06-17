@@ -57,20 +57,28 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     const stdout = stdout_io.writer();
     if (parsed.app_scaffold) {
         try scaffold.writeAppScaffold(allocator, parsed.dir, parsed.app_id, parsed.force);
-        if (parsed.json) return try cli_output.writeInitAppJson(stdout, parsed.dir, parsed.app_id);
-        for (scaffold.app_created_files) |path| {
-            try stdout.print("created {s}/{s}\n", .{ parsed.dir, path });
+        if (parsed.json) {
+            try cli_output.writeInitAppJson(stdout, parsed.dir, parsed.app_id);
+        } else {
+            for (scaffold.app_created_files) |path| {
+                try stdout.print("created {s}/{s}\n", .{ parsed.dir, path });
+            }
+            try stdout.writeAll("next: zmr doctor --strict --json --config ");
+            try cli_output.writeJoinedPathShellArg(stdout, parsed.dir, scaffold.app_config_file);
+            try stdout.writeAll("\n");
         }
-        try stdout.writeAll("next: zmr doctor --strict --json --config ");
-        try cli_output.writeJoinedPathShellArg(stdout, parsed.dir, scaffold.app_config_file);
-        try stdout.writeAll("\n");
+        try stdout_io.flush();
         return;
     }
 
     try scaffold.writeStarterScenario(allocator, parsed.path, parsed.app_id, parsed.force);
-    if (parsed.json) return try cli_output.writeInitScenarioJson(stdout, parsed.path, parsed.app_id);
-    try stdout.print("created {s}\n", .{parsed.path});
-    try stdout.writeAll("next: zmr validate ");
-    try cli_output.writeShellArg(stdout, parsed.path);
-    try stdout.writeAll("\n");
+    if (parsed.json) {
+        try cli_output.writeInitScenarioJson(stdout, parsed.path, parsed.app_id);
+    } else {
+        try stdout.print("created {s}\n", .{parsed.path});
+        try stdout.writeAll("next: zmr validate ");
+        try cli_output.writeShellArg(stdout, parsed.path);
+        try stdout.writeAll("\n");
+    }
+    try stdout_io.flush();
 }

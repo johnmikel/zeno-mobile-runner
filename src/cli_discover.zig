@@ -106,6 +106,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
         try cli_output.writeShellArg(stdout, discovered.summary.draft.out_path);
         try stdout.writeAll("\n");
     }
+    try stdout_io.flush();
     if (!discovered.summary.ok) std.process.exit(1);
 }
 

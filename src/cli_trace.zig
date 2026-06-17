@@ -120,6 +120,7 @@ pub fn runReport(allocator: std.mem.Allocator, args: *std.process.Args.Iterator)
         try report.writeJUnitReport(allocator, parsed.input_path, junit_path);
         try stdout.print("wrote {s}\n", .{junit_path});
     }
+    try stdout_io.flush();
 }
 
 pub fn runExplain(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
@@ -132,8 +133,12 @@ pub fn runExplain(allocator: std.mem.Allocator, args: *std.process.Args.Iterator
     stdout_io.init(.stdout());
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
-    if (parsed.json) return try report.writeTraceExplanationJson(allocator, parsed.trace_dir.?, stdout);
-    try report.writeTraceExplanation(allocator, parsed.trace_dir.?, stdout);
+    if (parsed.json) {
+        try report.writeTraceExplanationJson(allocator, parsed.trace_dir.?, stdout);
+    } else {
+        try report.writeTraceExplanation(allocator, parsed.trace_dir.?, stdout);
+    }
+    try stdout_io.flush();
 }
 
 pub fn runExport(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
@@ -151,4 +156,5 @@ pub fn runExport(allocator: std.mem.Allocator, args: *std.process.Args.Iterator)
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
     try stdout.print("wrote {s}\n", .{parsed.out_path.?});
+    try stdout_io.flush();
 }

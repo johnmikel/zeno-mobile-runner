@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const importer = @import("importer.zig");
 
 test "flow-yaml importer translates common commands to zmr scenario json" {
@@ -6,9 +7,9 @@ test "flow-yaml importer translates common commands to zmr scenario json" {
     const root = "zig-cache-test-importer-flow-yaml";
     const source_path = root ++ "/flow.yaml";
     const out_path = root ++ "/scenario.json";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(root);
-    try std.fs.cwd().writeFile(.{
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(root);
+    try test_io.cwd().writeFile(.{
         .sub_path = source_path,
         .data =
         \\appId: com.example.imported
@@ -35,7 +36,7 @@ test "flow-yaml importer translates common commands to zmr scenario json" {
     try std.testing.expectEqualStrings("com.example.imported", result.app_id.?);
     try std.testing.expectEqual(@as(usize, 5), result.step_count);
 
-    const output = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const output = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"action\":\"scrollUntilVisible\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"direction\":\"down\"") != null);

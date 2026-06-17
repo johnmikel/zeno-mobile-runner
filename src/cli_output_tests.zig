@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const cli_output = @import("cli_output.zig");
 const doctor = @import("doctor.zig");
 const importer = @import("importer.zig");
@@ -16,12 +17,12 @@ test "validation json preserves source location fields" {
     };
     defer result.deinit(allocator);
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
-    try cli_output.writeValidationJson(json.writer(allocator), "bad.json", result);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"fieldPath\":\"$.steps\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"line\":3") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"column\":3") != null);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try cli_output.writeValidationJson(&json.writer, "bad.json", result);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"fieldPath\":\"$.steps\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"line\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"column\":3") != null);
 }
 
 test "validation json gives agents a quoted run handoff for valid scenarios" {
@@ -34,63 +35,59 @@ test "validation json gives agents a quoted run handoff for valid scenarios" {
     };
     defer result.deinit(allocator);
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
-    try cli_output.writeValidationJson(json.writer(allocator), "/tmp/mobile app/login smoke.json", result);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try cli_output.writeValidationJson(&json.writer, "/tmp/mobile app/login smoke.json", result);
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"path\":\"/tmp/mobile app/login smoke.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"nextCommands\":[\"zmr run '/tmp/mobile app/login smoke.json' --json --trace-dir traces/zmr-run\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"path\":\"/tmp/mobile app/login smoke.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr run '/tmp/mobile app/login smoke.json' --json --trace-dir traces/zmr-run\"]") != null);
 }
 
 test "init app json reports generated agent instructions" {
-    const allocator = std.testing.allocator;
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
 
-    try cli_output.writeInitAppJson(json.writer(allocator), ".", "com.example.mobiletest");
+    try cli_output.writeInitAppJson(&json.writer, ".", "com.example.mobiletest");
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"./.zmr/AGENTS.md\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"configPath\":\"./.zmr/config.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"androidScenarioPath\":\"./.zmr/android-smoke.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"iosScenarioPath\":\"./.zmr/ios-smoke.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"deviceMatrixPath\":\"./.zmr/device-matrix.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"agentInstructionsPath\":\"./.zmr/AGENTS.md\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"next\":\"zmr doctor --strict --json --config ./.zmr/config.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"nextCommands\":[\"zmr doctor --strict --json --config ./.zmr/config.json\",\"zmr schemas --json\",\"zmr validate --json ./.zmr/android-smoke.json\",\"zmr validate --json ./.zmr/ios-smoke.json\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"smokeCommands\":[\"zmr run ./.zmr/android-smoke.json --device emulator-5554 --trace-dir ./traces/zmr-android\",\"zmr run ./.zmr/ios-smoke.json --platform ios --device booted --trace-dir ./traces/zmr-ios\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"scriptCount\":16") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"scriptNames\":[\"doctor\",\"schemas\",\"validate\",\"android\",\"androidReport\",\"androidReliability\",\"ios\",\"iosReport\",\"iosReliability\",\"matrix\",\"pilotGate\",\"readiness\",\"serve\",\"mcp\",\"explain\",\"exportTrace\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"./.zmr/AGENTS.md\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"configPath\":\"./.zmr/config.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"androidScenarioPath\":\"./.zmr/android-smoke.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"iosScenarioPath\":\"./.zmr/ios-smoke.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"deviceMatrixPath\":\"./.zmr/device-matrix.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"agentInstructionsPath\":\"./.zmr/AGENTS.md\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"next\":\"zmr doctor --strict --json --config ./.zmr/config.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr doctor --strict --json --config ./.zmr/config.json\",\"zmr schemas --json\",\"zmr validate --json ./.zmr/android-smoke.json\",\"zmr validate --json ./.zmr/ios-smoke.json\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"smokeCommands\":[\"zmr run ./.zmr/android-smoke.json --device emulator-5554 --trace-dir ./traces/zmr-android\",\"zmr run ./.zmr/ios-smoke.json --platform ios --device booted --trace-dir ./traces/zmr-ios\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"scriptCount\":16") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"scriptNames\":[\"doctor\",\"schemas\",\"validate\",\"android\",\"androidReport\",\"androidReliability\",\"ios\",\"iosReport\",\"iosReliability\",\"matrix\",\"pilotGate\",\"readiness\",\"serve\",\"mcp\",\"explain\",\"exportTrace\"]") != null);
 }
 
 test "init app json shell quotes next commands with spaces in paths" {
-    const allocator = std.testing.allocator;
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
 
-    try cli_output.writeInitAppJson(json.writer(allocator), "/tmp/mobile app", "com.example.mobiletest");
+    try cli_output.writeInitAppJson(&json.writer, "/tmp/mobile app", "com.example.mobiletest");
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"configPath\":\"/tmp/mobile app/.zmr/config.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"next\":\"zmr doctor --strict --json --config '/tmp/mobile app/.zmr/config.json'\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"nextCommands\":[\"zmr doctor --strict --json --config '/tmp/mobile app/.zmr/config.json'\",\"zmr schemas --json\",\"zmr validate --json '/tmp/mobile app/.zmr/android-smoke.json'\",\"zmr validate --json '/tmp/mobile app/.zmr/ios-smoke.json'\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"smokeCommands\":[\"zmr run '/tmp/mobile app/.zmr/android-smoke.json' --device emulator-5554 --trace-dir '/tmp/mobile app/traces/zmr-android'\",\"zmr run '/tmp/mobile app/.zmr/ios-smoke.json' --platform ios --device booted --trace-dir '/tmp/mobile app/traces/zmr-ios'\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"configPath\":\"/tmp/mobile app/.zmr/config.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"next\":\"zmr doctor --strict --json --config '/tmp/mobile app/.zmr/config.json'\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr doctor --strict --json --config '/tmp/mobile app/.zmr/config.json'\",\"zmr schemas --json\",\"zmr validate --json '/tmp/mobile app/.zmr/android-smoke.json'\",\"zmr validate --json '/tmp/mobile app/.zmr/ios-smoke.json'\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"smokeCommands\":[\"zmr run '/tmp/mobile app/.zmr/android-smoke.json' --device emulator-5554 --trace-dir '/tmp/mobile app/traces/zmr-android'\",\"zmr run '/tmp/mobile app/.zmr/ios-smoke.json' --platform ios --device booted --trace-dir '/tmp/mobile app/traces/zmr-ios'\"]") != null);
 }
 
 test "init scenario json shell quotes next command with spaces in path" {
-    const allocator = std.testing.allocator;
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
 
-    try cli_output.writeInitScenarioJson(json.writer(allocator), "/tmp/mobile app/login smoke.json", "com.example.mobiletest");
+    try cli_output.writeInitScenarioJson(&json.writer, "/tmp/mobile app/login smoke.json", "com.example.mobiletest");
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"created\":[\"/tmp/mobile app/login smoke.json\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"next\":\"zmr validate '/tmp/mobile app/login smoke.json'\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"nextCommands\":[\"zmr validate --json '/tmp/mobile app/login smoke.json'\",\"zmr run '/tmp/mobile app/login smoke.json' --json --trace-dir traces/zmr-run\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"created\":[\"/tmp/mobile app/login smoke.json\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"next\":\"zmr validate '/tmp/mobile app/login smoke.json'\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr validate --json '/tmp/mobile app/login smoke.json'\",\"zmr run '/tmp/mobile app/login smoke.json' --json --trace-dir traces/zmr-run\"]") != null);
 }
 
 test "import json shell quotes next command with spaces in path" {
-    const allocator = std.testing.allocator;
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
 
     const result = importer.ImportResult{
         .out_path = "/tmp/mobile app/imported flow.json",
@@ -99,11 +96,11 @@ test "import json shell quotes next command with spaces in path" {
         .step_count = 2,
     };
 
-    try cli_output.writeImportJson(json.writer(allocator), "flow-yaml", "/tmp/mobile app/source flow.yaml", result);
+    try cli_output.writeImportJson(&json.writer, "flow-yaml", "/tmp/mobile app/source flow.yaml", result);
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"out\":\"/tmp/mobile app/imported flow.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"next\":\"zmr validate '/tmp/mobile app/imported flow.json'\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"nextCommands\":[\"zmr validate --json '/tmp/mobile app/imported flow.json'\",\"zmr run '/tmp/mobile app/imported flow.json' --json --trace-dir traces/zmr-run\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"out\":\"/tmp/mobile app/imported flow.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"next\":\"zmr validate '/tmp/mobile app/imported flow.json'\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr validate --json '/tmp/mobile app/imported flow.json'\",\"zmr run '/tmp/mobile app/imported flow.json' --json --trace-dir traces/zmr-run\"]") != null);
 }
 
 test "doctor output treats warnings and missing checks as unhealthy" {
@@ -122,7 +119,7 @@ test "doctor json includes structured device counts for agents" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var xcrun_file = try tmp.dir.createFile("fake-xcrun-counts.sh", .{ .truncate = true });
+    var xcrun_file = try test_io.createFileIn(tmp.dir, "fake-xcrun-counts.sh", .{ .truncate = true });
     try xcrun_file.writeAll(
         \\#!/usr/bin/env bash
         \\set -euo pipefail
@@ -168,17 +165,16 @@ test "doctor json includes structured device counts for agents" {
         allocator.free(checks);
     }
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
-    try cli_output.writeDoctorJson(json.writer(allocator), null, checks);
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try cli_output.writeDoctorJson(&json.writer, null, checks);
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"name\":\"ios-physical-devices\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"count\":3") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"readyCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"name\":\"ios-physical-devices\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"count\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"readyCount\":1") != null);
 }
 
 test "doctor json includes config script count for agents" {
-    const allocator = std.testing.allocator;
     const config_check = doctor.Check{
         .name = "config",
         .status = .ok,
@@ -187,11 +183,11 @@ test "doctor json includes config script count for agents" {
         .script_names = &.{ "doctor", "android", "mcp" },
     };
 
-    var json = std.ArrayList(u8).empty;
-    defer json.deinit(allocator);
-    try cli_output.writeDoctorJson(json.writer(allocator), config_check, &.{});
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+    try cli_output.writeDoctorJson(&json.writer, config_check, &.{});
 
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"name\":\"config\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"scriptCount\":12") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"scriptNames\":[\"doctor\",\"android\",\"mcp\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"name\":\"config\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"scriptCount\":12") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"scriptNames\":[\"doctor\",\"android\",\"mcp\"]") != null);
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const trace = @import("trace.zig");
 const selector = @import("selector.zig");
 const types = @import("types.zig");
@@ -27,19 +28,19 @@ test "snapshot json contains nodes" {
     };
     defer allocator.free(snapshot.id);
 
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    try writeSnapshotJson(buffer.writer(allocator), snapshot);
-    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "\"nodes\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "\"displayDensityDpi\":null") != null);
-    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "Probe") != null);
+    var buffer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buffer.deinit();
+    try writeSnapshotJson(&buffer.writer, snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "\"nodes\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "\"displayDensityDpi\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "Probe") != null);
 }
 
 test "trace writer appends events" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-events";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.init(allocator, dir);
     defer writer.deinit();
@@ -49,7 +50,7 @@ test "trace writer appends events" {
 
     const path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"kind\":\"first\"") != null);
@@ -60,17 +61,17 @@ test "trace writer appends events" {
 test "trace writer init resets stale events and artifacts" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-reset";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
-    try std.fs.cwd().makePath(dir ++ "/artifacts");
+    try test_io.cwd().makePath(dir ++ "/artifacts");
     {
-        var events = try std.fs.cwd().createFile(dir ++ "/events.jsonl", .{ .truncate = true });
+        var events = try test_io.cwd().createFile(dir ++ "/events.jsonl", .{ .truncate = true });
         defer events.close();
         try events.writeAll("{\"seq\":99,\"kind\":\"stale\",\"payload\":{}}\n");
     }
     {
-        var artifact = try std.fs.cwd().createFile(dir ++ "/artifacts/stale.png", .{ .truncate = true });
+        var artifact = try test_io.cwd().createFile(dir ++ "/artifacts/stale.png", .{ .truncate = true });
         defer artifact.close();
         try artifact.writeAll("stale");
     }
@@ -82,19 +83,19 @@ test "trace writer init resets stale events and artifacts" {
 
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"kind\":\"stale\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"kind\":\"fresh\"") != null);
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(dir ++ "/artifacts/stale.png", .{}));
+    try std.testing.expectError(error.FileNotFound, test_io.cwd().access(dir ++ "/artifacts/stale.png", .{}));
 }
 
 test "trace writer writes and finalizes manifest" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-manifest";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.init(allocator, dir);
     defer writer.deinit();
@@ -108,7 +109,7 @@ test "trace writer writes and finalizes manifest" {
 
     const path = try std.fs.path.join(allocator, &.{ dir, "trace.json" });
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"scenarioName\":\"manifest flow\"") != null);
@@ -123,8 +124,8 @@ test "trace writer writes and finalizes manifest" {
 test "trace writer marks passed run partial when snapshot semantics fail" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-partial";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.init(allocator, dir);
     defer writer.deinit();
@@ -135,7 +136,7 @@ test "trace writer marks passed run partial when snapshot semantics fail" {
 
     const path = try std.fs.path.join(allocator, &.{ dir, "trace.json" });
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"status\":\"partial\"") != null);
@@ -143,12 +144,11 @@ test "trace writer marks passed run partial when snapshot semantics fail" {
 }
 
 test "json string escapes quotes slashes and control characters" {
-    const allocator = std.testing.allocator;
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
+    var buffer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buffer.deinit();
 
-    try writeJsonString(buffer.writer(allocator), "a\"b\\c\n\r\t\x01");
-    try std.testing.expectEqualStrings("\"a\\\"b\\\\c\\n\\r\\t\\u0001\"", buffer.items);
+    try writeJsonString(&buffer.writer, "a\"b\\c\n\r\t\x01");
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c\\n\\r\\t\\u0001\"", buffer.written());
 }
 
 test "raw snapshot json preserves text for live observations" {
@@ -170,19 +170,18 @@ test "raw snapshot json preserves text for live observations" {
     };
     defer allocator.free(snapshot.id);
 
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
-    try writeSnapshotJson(buffer.writer(allocator), snapshot);
+    var buffer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buffer.deinit();
+    try writeSnapshotJson(&buffer.writer, snapshot);
 
-    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "agent@example.com") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.written(), "agent@example.com") != null);
 }
 
 test "selector json emits every selector field in stable order" {
-    const allocator = std.testing.allocator;
-    var buffer = std.ArrayList(u8).empty;
-    defer buffer.deinit(allocator);
+    var buffer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buffer.deinit();
 
-    try writeSelectorJson(buffer.writer(allocator), .{
+    try writeSelectorJson(&buffer.writer, .{
         .id = "login",
         .text = "Sign in",
         .text_contains = "Sign",
@@ -192,15 +191,15 @@ test "selector json emits every selector field in stable order" {
     });
     try std.testing.expectEqualStrings(
         "{\"id\":\"login\",\"text\":\"Sign in\",\"textContains\":\"Sign\",\"contentDesc\":\"Primary action\",\"contentDescContains\":\"Primary\",\"className\":\"android.widget.Button\"}",
-        buffer.items,
+        buffer.written(),
     );
 }
 
 test "trace writer writes artifacts and full snapshot json" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-snapshot";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.init(allocator, dir);
     defer writer.deinit();
@@ -211,7 +210,7 @@ test "trace writer writes artifacts and full snapshot json" {
 
     const artifact = try writer.writeArtifact("raw.txt", "payload");
     defer allocator.free(artifact);
-    const artifact_bytes = try std.fs.cwd().readFileAlloc(allocator, artifact, 1024);
+    const artifact_bytes = try test_io.cwd().readFileAlloc(allocator, artifact, 1024);
     defer allocator.free(artifact_bytes);
     try std.testing.expectEqualStrings("payload", artifact_bytes);
 
@@ -247,7 +246,7 @@ test "trace writer writes artifacts and full snapshot json" {
 
     const path = try writer.writeSnapshot(snapshot);
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"activePackage\":\"com.example.mobiletest\"") != null);
@@ -260,8 +259,8 @@ test "trace writer writes artifacts and full snapshot json" {
 test "persisted snapshot json redacts sensitive text content and logs" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-snapshot-redaction";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.init(allocator, dir);
     defer writer.deinit();
@@ -293,7 +292,7 @@ test "persisted snapshot json redacts sensitive text content and logs" {
 
     const path = try writer.writeSnapshot(snapshot);
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "agent@example.com") == null);
@@ -306,8 +305,8 @@ test "persisted snapshot json redacts sensitive text content and logs" {
 test "trace events redact nested secret payloads before writing" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-redaction";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.init(allocator, dir);
     defer writer.deinit();
@@ -319,7 +318,7 @@ test "trace events redact nested secret payloads before writing" {
 
     const path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try test_io.cwd().readFileAlloc(allocator, path, 1024 * 1024);
     defer allocator.free(bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, bytes, "agent@example.com") == null);
@@ -331,8 +330,8 @@ test "trace events redact nested secret payloads before writing" {
 test "trace writer applies app-specific redaction rules to snapshots and events" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-trace-custom-redaction";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
 
     var writer = try TraceWriter.initWithOptions(allocator, dir, .{
         .redaction = .{
@@ -379,11 +378,11 @@ test "trace writer applies app-specific redaction rules to snapshots and events"
     defer allocator.free(snapshot_path);
     try writer.recordEvent("custom", "{\"note\":\"internal token abc\",\"label\":\"Public token label\"}");
 
-    const snapshot_bytes = try std.fs.cwd().readFileAlloc(allocator, snapshot_path, 1024 * 1024);
+    const snapshot_bytes = try test_io.cwd().readFileAlloc(allocator, snapshot_path, 1024 * 1024);
     defer allocator.free(snapshot_bytes);
     const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
     defer allocator.free(events_path);
-    const event_bytes = try std.fs.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    const event_bytes = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(event_bytes);
 
     try std.testing.expect(std.mem.indexOf(u8, snapshot_bytes, "Customer DOB 1990-01-01") == null);

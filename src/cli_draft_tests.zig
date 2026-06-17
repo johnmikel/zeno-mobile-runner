@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const cli_draft = @import("cli_draft.zig");
 
 test "parse args requires trace source and output path" {
@@ -34,16 +35,16 @@ test "draft from trace writes conservative surface smoke scenario" {
     const root = "zig-cache-test-cli-draft";
     const trace_dir = root ++ "/trace";
     const out_path = root ++ "/draft.json";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(trace_dir ++ "/artifacts");
-    try std.fs.cwd().writeFile(.{
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(trace_dir ++ "/artifacts");
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
         \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"login smoke","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":2,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/artifacts/snapshot-2.json",
         .data =
         \\{
@@ -117,7 +118,7 @@ test "draft from trace writes conservative surface smoke scenario" {
     try std.testing.expectEqual(@as(usize, 0), result.summary.replay.step_count);
     try std.testing.expectEqual(@as(usize, 0), result.summary.replay.skipped_event_count);
 
-    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const scenario = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"name\":\"draft from login smoke\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"appId\":\"com.example.mobiletest\"") != null);
@@ -134,16 +135,16 @@ test "draft from trace can replay successful supported actions" {
     const root = "zig-cache-test-cli-draft-actions";
     const trace_dir = root ++ "/trace";
     const out_path = root ++ "/replay.json";
-    defer std.fs.cwd().deleteTree(root) catch {};
-    try std.fs.cwd().makePath(trace_dir ++ "/artifacts");
-    try std.fs.cwd().writeFile(.{
+    defer test_io.cwd().deleteTree(root) catch {};
+    try test_io.cwd().makePath(trace_dir ++ "/artifacts");
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/trace.json",
         .data =
         \\{"schemaVersion":1,"runnerVersion":"0.2.2","protocolVersion":"2026-04-28","scenarioName":"agent session","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":14,"snapshotCount":1,"partialFailureCount":0,"reportPath":null}
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/events.jsonl",
         .data =
         \\{"seq":1,"timestampMs":1,"kind":"scenario.start","payload":{"value":"agent session"}}
@@ -163,7 +164,7 @@ test "draft from trace can replay successful supported actions" {
         \\
         ,
     });
-    try std.fs.cwd().writeFile(.{
+    try test_io.cwd().writeFile(.{
         .sub_path = trace_dir ++ "/artifacts/snapshot-1.json",
         .data =
         \\{
@@ -220,7 +221,7 @@ test "draft from trace can replay successful supported actions" {
     }
     try std.testing.expect(saw_redacted_warning);
 
-    const scenario = try std.fs.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
+    const scenario = try test_io.cwd().readFileAlloc(allocator, out_path, 1024 * 1024);
     defer allocator.free(scenario);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"openLink\",\"url\":\"exampleapp://login\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, scenario, "\"action\":\"waitVisible\",\"selector\":{\"text\":\"Email\"},\"timeoutMs\":9000") != null);
@@ -237,11 +238,10 @@ test "draft from trace can replay successful supported actions" {
 }
 
 test "draft json response points agents to validation before running" {
-    const allocator = std.testing.allocator;
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
 
-    try cli_draft.writeJson(out.writer(allocator), .{
+    try cli_draft.writeJson(&out.writer, .{
         .ok = true,
         .out_path = ".zmr/discovered/draft.json",
         .trace_dir = "traces/zmr-agent",
@@ -259,10 +259,10 @@ test "draft json response points agents to validation before running" {
         .warnings = &.{"draft requires human review before commit"},
     });
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"ok\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"mode\":\"draft\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":2,\"skippedEventCount\":1}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr validate --json .zmr/discovered/draft.json\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"zmr run .zmr/discovered/draft.json --json --trace-dir traces/zmr-agent\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "human review") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"mode\":\"draft\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"replay\":{\"enabled\":true,\"eventCount\":3,\"stepCount\":2,\"skippedEventCount\":1}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"zmr validate --json .zmr/discovered/draft.json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"zmr run .zmr/discovered/draft.json --json --trace-dir traces/zmr-agent\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "human review") != null);
 }

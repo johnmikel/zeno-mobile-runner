@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_io = @import("test_io.zig");
 const observation = @import("json_rpc_observation.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
@@ -8,28 +9,28 @@ test "json rpc observation writer emits raw and semantic snapshots" {
     var snapshot = try makeSnapshot(allocator, "snapshot-rpc-observe", "Continue");
     defer snapshot.deinit(allocator);
 
-    var raw = std.ArrayList(u8).empty;
-    defer raw.deinit(allocator);
-    try observation.writeResult(raw.writer(allocator), .{ .integer = 7 }, snapshot, .raw);
+    var raw = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer raw.deinit();
+    try observation.writeResult(&raw.writer, .{ .integer = 7 }, snapshot, .raw);
 
-    try std.testing.expect(std.mem.indexOf(u8, raw.items, "\"jsonrpc\":\"2.0\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, raw.items, "\"id\":7") != null);
-    try std.testing.expect(std.mem.indexOf(u8, raw.items, "\"className\":\"android.widget.Button\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, raw.written(), "\"jsonrpc\":\"2.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, raw.written(), "\"id\":7") != null);
+    try std.testing.expect(std.mem.indexOf(u8, raw.written(), "\"className\":\"android.widget.Button\"") != null);
 
-    var semantic = std.ArrayList(u8).empty;
-    defer semantic.deinit(allocator);
-    try observation.writeResult(semantic.writer(allocator), .{ .integer = 8 }, snapshot, .semantic);
+    var semantic = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer semantic.deinit();
+    try observation.writeResult(&semantic.writer, .{ .integer = 8 }, snapshot, .semantic);
 
-    try std.testing.expect(std.mem.indexOf(u8, semantic.items, "\"id\":8") != null);
-    try std.testing.expect(std.mem.indexOf(u8, semantic.items, "\"role\":\"button\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, semantic.items, "\"recommendedAction\":\"tap\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, semantic.written(), "\"id\":8") != null);
+    try std.testing.expect(std.mem.indexOf(u8, semantic.written(), "\"role\":\"button\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, semantic.written(), "\"recommendedAction\":\"tap\"") != null);
 }
 
 test "json rpc observation artifact recorder writes snapshot artifact event" {
     const allocator = std.testing.allocator;
     const trace_dir = "zig-cache-test-json-rpc-observation-artifact";
-    std.fs.cwd().deleteTree(trace_dir) catch {};
-    defer std.fs.cwd().deleteTree(trace_dir) catch {};
+    test_io.cwd().deleteTree(trace_dir) catch {};
+    defer test_io.cwd().deleteTree(trace_dir) catch {};
 
     var snapshot = try makeSnapshot(allocator, "snapshot-artifact", "Trace");
     defer snapshot.deinit(allocator);
@@ -39,8 +40,8 @@ test "json rpc observation artifact recorder writes snapshot artifact event" {
 
     try observation.recordArtifact(&writer, "observe.snapshot", snapshot);
 
-    try std.fs.cwd().access(trace_dir ++ "/artifacts/snapshot-artifact.json", .{});
-    const events = try std.fs.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 64 * 1024);
+    try test_io.cwd().access(trace_dir ++ "/artifacts/snapshot-artifact.json", .{});
+    const events = try test_io.cwd().readFileAlloc(allocator, trace_dir ++ "/events.jsonl", 64 * 1024);
     defer allocator.free(events);
 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot\"") != null);

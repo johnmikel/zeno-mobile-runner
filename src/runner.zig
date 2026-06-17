@@ -456,6 +456,106 @@ test "assertHealthy retries through a transient observation command failure" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
 }
 
+test "native selector waits pass bounded query timeouts instead of legacy blocking queries" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-native-wait-bounded-query-timeout";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeBoundedWaitDevice = struct {
+        allocator: std.mem.Allocator,
+        legacy_queries: usize = 0,
+        bounded_queries: usize = 0,
+        largest_query_timeout_ms: u64 = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelector(self: *@This(), wanted: selector.Selector) !?bool {
+            _ = wanted;
+            self.legacy_queries += 1;
+            return false;
+        }
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            _ = wanted;
+            self.bounded_queries += 1;
+            self.largest_query_timeout_ms = @max(self.largest_query_timeout_ms, timeout_ms);
+            return false;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            const nodes = try self.allocator.alloc(types.UiNode, 0);
+            return .{
+                .id = try self.allocator.dupe(u8, "native-bounded-timeout-final"),
+                .timestamp_ms = 1,
+                .nodes = nodes,
+            };
+        }
+    };
+
+    var device = NativeBoundedWaitDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(!try waitUntilVisible(&device, .{ .id = "never-visible" }, 25, &tw, .{ .poll_ms = 0 }));
+    try std.testing.expect(device.bounded_queries > 0);
+    try std.testing.expectEqual(@as(usize, 0), device.legacy_queries);
+    try std.testing.expect(device.largest_query_timeout_ms > 0);
+    try std.testing.expect(device.largest_query_timeout_ms <= 25);
+    try std.testing.expectEqual(@as(usize, 1), device.snapshots);
+}
+
+test "native selector wait retries bounded query command timeouts before falling back" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-native-wait-retries-bounded-query-timeout";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeFlakyBoundedWaitDevice = struct {
+        allocator: std.mem.Allocator,
+        legacy_queries: usize = 0,
+        bounded_queries: usize = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelector(self: *@This(), wanted: selector.Selector) !?bool {
+            _ = wanted;
+            self.legacy_queries += 1;
+            return error.LegacyNativeQueryUsed;
+        }
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            _ = wanted;
+            try std.testing.expect(timeout_ms > 0);
+            self.bounded_queries += 1;
+            if (self.bounded_queries == 1) return error.CommandTimedOut;
+            return true;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+    };
+
+    var device = NativeFlakyBoundedWaitDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try waitUntilVisible(&device, .{ .text = "Ready" }, 100, &tw, .{ .poll_ms = 0 }));
+    try std.testing.expectEqual(@as(usize, 0), device.legacy_queries);
+    try std.testing.expectEqual(@as(usize, 2), device.bounded_queries);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.retry\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"error\":\"CommandTimedOut\"") != null);
+}
+
 test "assertHealthy uses native selector probes before broad snapshots" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-assert-healthy-native-selector";

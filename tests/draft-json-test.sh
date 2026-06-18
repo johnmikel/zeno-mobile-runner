@@ -11,7 +11,7 @@ test -x "$ZMR"
 TRACE_DIR="$TMPDIR/trace"
 mkdir -p "$TRACE_DIR/artifacts"
 cat > "$TRACE_DIR/trace.json" <<'JSON'
-{"schemaVersion":1,"runnerVersion":"0.2.9","protocolVersion":"2026-04-28","scenarioName":"login smoke","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":2,"partialFailureCount":0,"reportPath":null}
+{"schemaVersion":1,"runnerVersion":"0.2.10","protocolVersion":"2026-04-28","scenarioName":"login smoke","appId":"com.example.mobiletest","status":"passed","startedAtMs":1,"endedAtMs":2,"durationMs":1,"failedStepIndex":null,"error":null,"eventsPath":"events.jsonl","artifactsDir":"artifacts","eventCount":3,"snapshotCount":2,"partialFailureCount":0,"reportPath":null}
 JSON
 cat > "$TRACE_DIR/events.jsonl" <<'JSONL'
 {"seq":1,"timestampMs":1,"kind":"scenario.start","payload":{"value":"login smoke"}}

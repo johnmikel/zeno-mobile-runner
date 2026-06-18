@@ -4,6 +4,15 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.10 (2026-06-18)
+
+### Fixed
+
+- iOS snapshots now include identifier-bearing `XCUIElementTypeOther` nodes.
+  This lets `scrollUntilVisible`, waits, and assertions see React Native
+  `testID`/accessibility identifiers that XCTest exposes as `Other` elements
+  without flooding traces with unlabeled layout containers.
+
 ## 0.2.9 (2026-06-17)
 
 ### Fixed

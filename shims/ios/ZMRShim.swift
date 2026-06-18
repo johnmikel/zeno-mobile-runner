@@ -57,7 +57,8 @@ enum ZMRShim {
             .cell,
             .scrollView,
             .table,
-            .collectionView
+            .collectionView,
+            .other
         ]
         let queries = types.flatMap { type in snapshotQueries(app: app, type: type) }
 
@@ -89,7 +90,15 @@ enum ZMRShim {
     }
 
     private static func snapshotQueries(app: XCUIApplication, type: XCUIElement.ElementType) -> [(XCUIElement.ElementType, XCUIElementQuery)] {
-        [
+        if type == .other {
+            let hasIdentifier = NSPredicate(format: "identifier != %@", "")
+            return [
+                (type, app.windows.descendants(matching: type).matching(hasIdentifier)),
+                (type, app.descendants(matching: type).matching(hasIdentifier))
+            ]
+        }
+
+        return [
             (type, app.windows.descendants(matching: type)),
             (type, app.descendants(matching: type))
         ]

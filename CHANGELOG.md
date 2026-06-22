@@ -4,6 +4,16 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.11 (2026-06-22)
+
+### Fixed
+
+- iOS `assertHealthy` now retries transient native health-probe failures within
+  the assertion timeout and gives XCTest selector queries enough per-probe
+  budget to complete on real simulator runs. This avoids falling back to broad
+  snapshots after short health-probe timeouts, which could fail otherwise healthy
+  Expo dev-client flows.
+
 ## 0.2.10 (2026-06-18)
 
 ### Fixed

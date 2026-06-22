@@ -456,6 +456,88 @@ test "assertHealthy retries through a transient observation command failure" {
     try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
 }
 
+test "assertHealthy retries native probes after a transient native health probe failure" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assert-healthy-native-probe-command-failed";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeFlakyProbeHealthDevice = struct {
+        allocator: std.mem.Allocator,
+        native_queries: usize = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            _ = wanted;
+            _ = timeout_ms;
+            self.native_queries += 1;
+            if (self.native_queries == 1) return error.CommandTimedOut;
+            return false;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+    };
+
+    var device = NativeFlakyProbeHealthDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try assertHealthy(&device, 100, &tw, .{ .settle_ms = 0, .poll_ms = 0 }));
+    try std.testing.expect(device.native_queries > 1);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.retry\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"error\":\"CommandTimedOut\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"assert.healthy\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
+}
+
+test "assertHealthy gives native health probes a practical XCTest query budget" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-assert-healthy-native-probe-xctest-budget";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const NativeXCTestBudgetHealthDevice = struct {
+        allocator: std.mem.Allocator,
+        native_queries: usize = 0,
+        largest_query_timeout_ms: u64 = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            _ = wanted;
+            self.native_queries += 1;
+            self.largest_query_timeout_ms = @max(self.largest_query_timeout_ms, timeout_ms);
+            if (timeout_ms < 1000) return error.CommandTimedOut;
+            return false;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+    };
+
+    var device = NativeXCTestBudgetHealthDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try assertHealthy(&device, 5000, &tw, .{ .settle_ms = 0, .poll_ms = 0 }));
+    try std.testing.expect(device.native_queries > 0);
+    try std.testing.expect(device.largest_query_timeout_ms >= 1000);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+}
+
 test "native selector waits pass bounded query timeouts instead of legacy blocking queries" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-wait-bounded-query-timeout";

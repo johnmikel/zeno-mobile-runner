@@ -50,7 +50,7 @@ test "inspect json reports app handoff without launching devices" {
 
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"ok\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"schemaVersion\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"runnerVersion\":\"0.2.10\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"runnerVersion\":\"0.2.11\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"protocolVersion\":\"2026-04-28\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"configExists\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"agentInstructionsExists\":true") != null);

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zmr-client"
-version = "0.2.10.dev1"
+version = "0.2.11.dev1"
 description = "Python JSON-RPC client for Zeno Mobile Runner."
 requires-python = ">=3.9"
 license = { text = "MIT" }

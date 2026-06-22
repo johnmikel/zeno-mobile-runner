@@ -11,7 +11,7 @@ rl.on("line", (line) => {
   if (method === "runner.capabilities") {
     result = {
       name: "zmr",
-      version: "0.2.11",
+      version: "0.2.12",
       protocolVersion: "2026-04-28",
       protocol: {
         version: "2026-04-28",
@@ -183,7 +183,7 @@ rl.on("line", (line) => {
       ok: true,
       mode: "discover",
       schemaVersion: 1,
-      runnerVersion: "0.2.11",
+      runnerVersion: "0.2.12",
       protocolVersion: "2026-04-28",
       out: request.params?.out ?? ".zmr/discovered/client.json",
       traceDir: "traces/client",
@@ -206,7 +206,7 @@ rl.on("line", (line) => {
       ok: true,
       mode: "explore",
       schemaVersion: 1,
-      runnerVersion: "0.2.11",
+      runnerVersion: "0.2.12",
       protocolVersion: "2026-04-28",
       out: request.params?.out ?? ".zmr/discovered/client-explore.json",
       traceDir: "traces/client",

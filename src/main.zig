@@ -94,7 +94,10 @@ fn writeTopLevelError(err: anyerror) void {
     defer stderr_io.deinit();
     const stderr = stderr_io.writer();
     stderr.print("error[{s}]: {s}\n", .{ public.code, public.message }) catch {};
-    if (err == error.CommandFailed) {
+    if (err == error.CommandFailed or err == error.CommandTimedOut or
+        err == error.IosXCTestShimResponseTimedOut or err == error.IosXCTestShimStartTimedOut or
+        err == error.IosXCTestShimBuildTimedOut or err == error.IosXCTestShimServerExited)
+    {
         stderr.writeAll("hint: run `zmr doctor --json` for setup diagnostics.\n") catch {};
     }
     if (err == error.unknownFlag) {

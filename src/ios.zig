@@ -232,6 +232,7 @@ pub const IosDevice = struct {
         errdefer self.allocator.free(active_package);
         var shim_viewport: ?types.Viewport = null;
         const nodes = if (self.shim_path != null) blk: {
+            if (writer) |tw| try self.recordSnapshotSemanticStarted(tw);
             const shim_snapshot = self.snapshotFromShim() catch |err| {
                 if (screenshot_artifact == null) return err;
                 if (writer) |tw| try self.recordSnapshotSemanticFailure(tw, screenshot_artifact.?, err);
@@ -289,6 +290,11 @@ pub const IosDevice = struct {
         const response = try self.runShim(.{ .kind = .snapshot });
         defer self.allocator.free(response);
         return try ios_shim.parseSnapshotResponse(self.allocator, response);
+    }
+
+    fn recordSnapshotSemanticStarted(self: *IosDevice, writer: *trace.TraceWriter) !void {
+        try writer.recordEvent("observe.snapshot.semanticExtraction", "{\"status\":\"started\",\"source\":\"ios-xctest-shim\"}");
+        _ = self;
     }
 
     fn recordSnapshotSemanticFailure(self: *IosDevice, writer: *trace.TraceWriter, screenshot_artifact: []const u8, err: anyerror) !void {
@@ -378,7 +384,7 @@ pub const IosDevice = struct {
                     stdio.sleepNs(shim_bootstrap_retry_delay_ms * std.time.ns_per_ms);
                     continue;
                 }
-                return err;
+                return classifyShimCommandFailure(result);
             };
             return try self.allocator.dupe(u8, result.stdout);
         }
@@ -420,6 +426,27 @@ fn isTransientShimBootstrapFailure(result: command.ExecResult) bool {
     return std.mem.indexOf(u8, result.stderr, "iOS shim server exited before it became ready") != null or
         std.mem.indexOf(u8, result.stderr, "Early unexpected exit") != null or
         std.mem.indexOf(u8, result.stderr, "operation never finished bootstrapping") != null;
+}
+
+fn classifyShimCommandFailure(result: command.ExecResult) anyerror {
+    if (result.timed_out) return error.CommandTimedOut;
+    if (std.mem.indexOf(u8, result.stderr, "timed out waiting for iOS shim response") != null) {
+        return error.IosXCTestShimResponseTimedOut;
+    }
+    if (std.mem.indexOf(u8, result.stderr, "timed out waiting for iOS shim server readiness") != null) {
+        return error.IosXCTestShimStartTimedOut;
+    }
+    if (std.mem.indexOf(u8, result.stderr, "timed out waiting for iOS shim build-for-testing") != null) {
+        return error.IosXCTestShimBuildTimedOut;
+    }
+    if (std.mem.indexOf(u8, result.stderr, "iOS shim server exited before it became ready") != null or
+        std.mem.indexOf(u8, result.stderr, "iOS shim server exited while waiting for response") != null or
+        std.mem.indexOf(u8, result.stderr, "Early unexpected exit") != null or
+        std.mem.indexOf(u8, result.stderr, "operation never finished bootstrapping") != null)
+    {
+        return error.IosXCTestShimServerExited;
+    }
+    return error.CommandFailed;
 }
 
 fn shimTimeoutMs() u64 {
@@ -522,4 +549,26 @@ test "ios xctest shim timeout env override" {
     try std.testing.expectEqual(@as(u64, 600_000), parseShimTimeoutMs("600000"));
     try std.testing.expectEqual(@as(u64, default_shim_timeout_ms), parseShimTimeoutMs("not-a-number"));
     try std.testing.expectEqual(@as(u64, default_shim_timeout_ms), parseShimTimeoutMs("0"));
+}
+
+test "ios xctest shim command failures classify generated shim timeout causes" {
+    try expectClassifiedShimFailure(error.IosXCTestShimResponseTimedOut, "timed out waiting for iOS shim response 12345\n");
+    try expectClassifiedShimFailure(error.IosXCTestShimStartTimedOut, "timed out waiting for iOS shim server readiness\n");
+    try expectClassifiedShimFailure(error.IosXCTestShimBuildTimedOut, "timed out waiting for iOS shim build-for-testing after 5400s\n");
+    try expectClassifiedShimFailure(error.IosXCTestShimServerExited, "iOS shim server exited while waiting for response 12345\n");
+    try expectClassifiedShimFailure(error.CommandFailed, "xcodebuild failed for another reason\n");
+}
+
+fn expectClassifiedShimFailure(expected: anyerror, stderr: []const u8) !void {
+    const allocator = std.testing.allocator;
+    const stdout_owned = try allocator.dupe(u8, "");
+    defer allocator.free(stdout_owned);
+    const stderr_owned = try allocator.dupe(u8, stderr);
+    defer allocator.free(stderr_owned);
+    const result = command.ExecResult{
+        .stdout = stdout_owned,
+        .stderr = stderr_owned,
+        .term = .{ .exited = 1 },
+    };
+    try std.testing.expectEqual(expected, classifyShimCommandFailure(result));
 }

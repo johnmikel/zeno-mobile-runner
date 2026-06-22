@@ -50,6 +50,12 @@ test "ios shim viewport overrides retina screenshot pixels with app frame points
 
     try std.testing.expectEqual(@as(u32, 390), snapshot.viewport.width);
     try std.testing.expectEqual(@as(u32, 844), snapshot.viewport.height);
+
+    const events = try test_io.cwd().readFileAlloc(allocator, dir ++ "/events.jsonl", 4096);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.snapshot.semanticExtraction\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"started\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"source\":\"ios-xctest-shim\"") != null);
 }
 
 test "ios simulator adapter lists devices and supports lifecycle snapshot smoke" {

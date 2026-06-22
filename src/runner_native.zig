@@ -9,6 +9,7 @@ pub fn tryTapSelector(
     settle_ms: u64,
 ) !bool {
     if (!@hasDecl(@TypeOf(device.*), "tapBySelector")) return false;
+    if (writer) |tw| try recordSelectorActionStarted(tw, "ui.tap", wanted);
     const tapped = device.tapBySelector(wanted) catch |err| {
         if (writer) |tw| try recordSelectorActionFailure(tw, "ui.tap", wanted, err);
         return err;
@@ -27,6 +28,7 @@ pub fn tryTypeTextSelector(
     settle_ms: u64,
 ) !bool {
     if (!@hasDecl(@TypeOf(device.*), "typeTextBySelector")) return false;
+    if (writer) |tw| try recordSelectorActionStarted(tw, "ui.type", wanted);
     const typed = device.typeTextBySelector(wanted, text) catch |err| {
         if (writer) |tw| try recordSelectorActionFailure(tw, "ui.type", wanted, err);
         return err;
@@ -45,6 +47,7 @@ pub fn tryEraseTextSelector(
     settle_ms: u64,
 ) !bool {
     if (!@hasDecl(@TypeOf(device.*), "eraseTextBySelector")) return false;
+    if (writer) |tw| try recordSelectorActionStarted(tw, "ui.eraseText", wanted);
     const erased = device.eraseTextBySelector(wanted, max_chars) catch |err| {
         if (writer) |tw| try recordSelectorActionFailure(tw, "ui.eraseText", wanted, err);
         return err;
@@ -53,6 +56,20 @@ pub fn tryEraseTextSelector(
     if (writer) |tw| try recordSelectorAction(tw, "ui.eraseText", wanted, max_chars);
     try device.settle(settle_ms);
     return true;
+}
+
+fn recordSelectorActionStarted(
+    tw: *trace.TraceWriter,
+    kind: []const u8,
+    wanted: selector.Selector,
+) !void {
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"status\":\"started\",\"strategy\":\"nativeSelector\",\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    try writer.writeAll("}");
+    try tw.recordEvent(kind, writer.buffered());
 }
 
 fn recordSelectorAction(

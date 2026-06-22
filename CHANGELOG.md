@@ -4,6 +4,20 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.12 (2026-06-22)
+
+### Fixed
+
+- iOS XCTest-shim command failures now classify generated shim timeout and
+  server-exit stderr into typed ZMR errors, so traces and CLI output distinguish
+  response timeouts, server-start timeouts, build timeouts, and server exits from
+  generic device command failures.
+- iOS native selector actions and semantic snapshot extraction now emit
+  `started` trace events before entering XCTest, making long-running simulator
+  commands visible while they are in flight.
+- The generated app-local iOS shim removes completed request files together with
+  response files, preventing stale request buildup during long E2E sessions.
+
 ## 0.2.11 (2026-06-22)
 
 ### Fixed

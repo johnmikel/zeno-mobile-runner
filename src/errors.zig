@@ -58,7 +58,12 @@ pub fn classify(err: anyerror) PublicError {
         error.AssertionFailed => .{ .code = "runner.assertion_failed", .message = "assertion failed" },
         error.SelectorNotFound => .{ .code = "runner.selector_not_found", .message = "selector not found" },
         error.CommandFailed => .{ .code = "device.command_failed", .message = "device command failed" },
+        error.CommandTimedOut => .{ .code = "device.command_timed_out", .message = "device command timed out" },
         error.IosXCTestShimRequired => .{ .code = "ios.xctest_shim_required", .message = "iOS selector interaction requires the XCTest shim" },
+        error.IosXCTestShimResponseTimedOut => .{ .code = "ios.xctest_shim_response_timeout", .message = "iOS XCTest shim response timed out" },
+        error.IosXCTestShimStartTimedOut => .{ .code = "ios.xctest_shim_start_timeout", .message = "iOS XCTest shim server startup timed out" },
+        error.IosXCTestShimBuildTimedOut => .{ .code = "ios.xctest_shim_build_timeout", .message = "iOS XCTest shim build timed out" },
+        error.IosXCTestShimServerExited => .{ .code = "ios.xctest_shim_server_exited", .message = "iOS XCTest shim server exited" },
         else => .{ .code = "internal.error", .message = @errorName(err) },
     };
 }

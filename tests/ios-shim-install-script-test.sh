@@ -77,6 +77,7 @@ grep -q 'BUILD_READY_FILE="$STATE_DIR/build-for-testing.ready"' "$TMPDIR/app/.zm
 grep -q 'ZMR_IOS_SHIM_FORCE_REBUILD' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'request-$REQUEST_ID.json' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'response-$REQUEST_ID.json' "$TMPDIR/app/.zmr/ios-shim"
+grep -q 'rm -f "$request_file" "$response_file"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ZMR_SHIM_MODE="server"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ZMR_SHIM_SERVER_DIR="$SERVER_DIR"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS:-5400' "$TMPDIR/app/.zmr/ios-shim"

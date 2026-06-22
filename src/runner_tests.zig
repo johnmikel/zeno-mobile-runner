@@ -227,6 +227,9 @@ test "runner uses native selector actions when a device exposes them" {
     defer allocator.free(events_path);
     const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
     defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.tap\",\"payload\":{\"status\":\"started\",\"strategy\":\"nativeSelector\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.type\",\"payload\":{\"status\":\"started\",\"strategy\":\"nativeSelector\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.eraseText\",\"payload\":{\"status\":\"started\",\"strategy\":\"nativeSelector\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.type\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"selector\":{\"text\":\"Email\"}") != null);
     try std.testing.expect(std.mem.indexOf(u8, events, "\"text\":\"agent name\"") != null);

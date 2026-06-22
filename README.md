@@ -196,8 +196,10 @@ comparisons against your current E2E tool, and multi-device matrices, see
 | iOS physical device | Supported, validate locally | `devicectl` lifecycle plus XCTest shim; pilot on your own app/device before relying on it in CI |
 | Cloud device farms | Not included | ZMR focuses on local and self-managed device targets in this preview |
 
-Slow CI hardware can extend the iOS shim cold-build timeout with
-`ZMR_IOS_SHIM_TIMEOUT_MS`. Current release: `0.2.11` developer preview.
+Slow CI hardware can extend the generated iOS shim build timeout with
+`ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS`; `ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS`
+bounds each in-flight request, and `ZMR_IOS_SHIM_TIMEOUT_MS` remains the outer
+process ceiling. Current release: `0.2.12` developer preview.
 Protocol version: `2026-04-28`.
 
 ## Optional protocol clients

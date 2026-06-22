@@ -139,10 +139,12 @@ require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html
 require_grep 'zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact' README.md
 require_grep 'nextCommands' README.md
 require_grep 'viewer/index.html?bundle=' README.md
+require_grep 'ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS' README.md
+require_grep 'ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS' README.md
 require_grep 'ZMR_IOS_SHIM_TIMEOUT_MS' README.md
 require_grep 'iOS physical device' README.md
 require_grep 'devicectl' README.md
-require_grep 'Current release: `0.2.11` developer preview' README.md
+require_grep 'Current release: `0.2.12` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
@@ -220,7 +222,7 @@ require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML a
 require_grep 'CI workflow retains run traces, coverage output, and built runner artifacts' FEATURES.md
 require_grep 'agent workflow smoke' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
-require_grep 'Current release status is `0.2.11`' FEATURES.md
+require_grep 'Current release status is `0.2.12`' FEATURES.md
 require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
@@ -252,7 +254,7 @@ require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
 require_grep 'replay metadata for successful `assertNoneVisible`' CHANGELOG.md
 require_grep 'selector and timeout preserving `assertVisible` and `assertNotVisible`' CHANGELOG.md
 require_grep 'assertion intent distinct from waits' CHANGELOG.md
-require_grep '0.2.11' CHANGELOG.md
+require_grep '0.2.12' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
 require_grep 'Expo' docs/frameworks.md

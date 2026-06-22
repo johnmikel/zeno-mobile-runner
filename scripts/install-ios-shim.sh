@@ -456,7 +456,7 @@ send_request() {
     if [[ -f "\$response_file" ]]; then
       cat "\$response_file"
       printf '\\n'
-      rm -f "\$response_file"
+      rm -f "\$request_file" "\$response_file"
       return 0
     fi
     if ! is_server_running; then

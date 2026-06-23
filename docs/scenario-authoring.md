@@ -84,6 +84,18 @@ The importer supports the common subset needed for smoke scenarios:
 generated JSON before committing it; native `.zmr/*.json` scenarios remain the
 runtime contract for agents and CI.
 
+Use `setLocation` before location-dependent assertions to set simulator or
+emulator coordinates through the runner instead of shelling out from the app
+test:
+
+```json
+{ "action": "setLocation", "latitude": 51.5074, "longitude": -0.1278 }
+```
+
+On iOS simulators, ZMR grants the target app location permission before setting
+the coordinate. On Android emulators, ZMR grants runtime location permissions
+best-effort and then uses emulator geolocation.
+
 `assertVisible` and `assertNotVisible` accept the same `timeoutMs` field as
 waits when a scenario needs assertion-specific timing.
 

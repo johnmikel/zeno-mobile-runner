@@ -20,6 +20,8 @@ pub const FakeDevice = struct {
     opened_link: ?[]const u8 = null,
     settles: usize = 0,
     last_settle_timeout_ms: u64 = 0,
+    location_sets: usize = 0,
+    last_location: ?LocationRecord = null,
 
     pub fn init(allocator: std.mem.Allocator, snapshots: []types.ObservationSnapshot) FakeDevice {
         return .{
@@ -69,6 +71,14 @@ pub const FakeDevice = struct {
     pub fn openLink(self: *FakeDevice, url: []const u8) !void {
         if (self.opened_link) |value| self.allocator.free(value);
         self.opened_link = try self.allocator.dupe(u8, url);
+    }
+
+    pub fn setLocation(self: *FakeDevice, latitude: f64, longitude: f64) !void {
+        self.location_sets += 1;
+        self.last_location = .{
+            .latitude = latitude,
+            .longitude = longitude,
+        };
     }
 
     pub fn tap(self: *FakeDevice, x: i32, y: i32) !void {
@@ -125,6 +135,11 @@ pub const SwipeRecord = struct {
     x2: i32,
     y2: i32,
     duration_ms: u32,
+};
+
+pub const LocationRecord = struct {
+    latitude: f64,
+    longitude: f64,
 };
 
 pub fn cloneSnapshot(allocator: std.mem.Allocator, source: types.ObservationSnapshot) !types.ObservationSnapshot {

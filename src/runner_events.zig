@@ -137,6 +137,20 @@ pub fn recordActionStatus(tw: *trace.TraceWriter, kind: []const u8, status: []co
     try tw.recordEvent(kind, out.buffered());
 }
 
+pub fn recordSetLocation(tw: *trace.TraceWriter, status: []const u8, err: ?anyerror, latitude: f64, longitude: f64) !void {
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const out = &payload.writer;
+    try out.writeAll("{\"status\":");
+    try trace.writeJsonString(out, status);
+    if (err) |actual| {
+        try out.writeAll(",\"error\":");
+        try trace.writeJsonString(out, @errorName(actual));
+    }
+    try out.print(",\"latitude\":{d:.6},\"longitude\":{d:.6}}}", .{ latitude, longitude });
+    try tw.recordEvent("device.setLocation", out.buffered());
+}
+
 pub fn recordSwipe(tw: *trace.TraceWriter, x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) !void {
     const payload = try std.fmt.allocPrint(
         tw.allocator,

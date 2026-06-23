@@ -144,6 +144,21 @@ pub const IosDevice = struct {
         self.acceptOpenURLConfirmationBestEffort(url);
     }
 
+    pub fn setLocation(self: *IosDevice, latitude: f64, longitude: f64) !void {
+        if (self.target_kind == .physical) return error.UnsupportedDeviceCapability;
+
+        const coordinate = try std.fmt.allocPrint(self.allocator, "{d:.6},{d:.6}", .{ latitude, longitude });
+        defer self.allocator.free(coordinate);
+
+        const grant = try self.runSimctl(&.{ "privacy", self.target(), "grant", "location", self.app_id }, default_max_output);
+        defer grant.deinit(self.allocator);
+        try grant.ensureSuccess();
+
+        const result = try self.runSimctl(&.{ "location", self.target(), "set", coordinate }, default_max_output);
+        defer result.deinit(self.allocator);
+        try result.ensureSuccess();
+    }
+
     pub fn tap(self: *IosDevice, x: i32, y: i32) !void {
         try self.runShimAction(.{ .kind = .tap, .x = x, .y = y });
     }
@@ -541,6 +556,70 @@ test "ios simulator openLink keeps sweeping delayed XCTest interruptions until a
     defer allocator.free(count_raw);
     const count = try std.fmt.parseInt(u8, count_raw, 10);
     try std.testing.expectEqual(@as(u8, 6), count);
+}
+
+test "ios simulator setLocation grants app location permission and sets coordinates" {
+    const allocator = std.heap.page_allocator;
+    const argv = [_][*:0]const u8{"zmr-ios-test"};
+    stdio.initProcess(.{
+        .args = .{ .vector = argv[0..] },
+        .environ = .empty,
+    }, allocator);
+    defer stdio.deinitProcess();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var xcrun = try tmp.dir.createFile(stdio.io(), "fake-xcrun-location.sh", .{ .truncate = true });
+    {
+        var buffer: [4096]u8 = undefined;
+        var writer = xcrun.writerStreaming(stdio.io(), &buffer);
+        const script = try std.fmt.allocPrint(allocator,
+            \\#!/usr/bin/env bash
+            \\set -euo pipefail
+            \\printf '%s\n' "$*" >> ".zig-cache/tmp/{s}/xcrun.log"
+            \\if [[ "${{1:-}}" != "simctl" ]]; then
+            \\  echo "expected simctl" >&2
+            \\  exit 2
+            \\fi
+            \\shift
+            \\case "${{1:-}}" in
+            \\  privacy)
+            \\    [[ "${{2:-}}" == "fake-ios-1" && "${{3:-}}" == "grant" && "${{4:-}}" == "location" && "${{5:-}}" == "com.example.mobiletest" ]] || exit 2
+            \\    ;;
+            \\  location)
+            \\    [[ "${{2:-}}" == "fake-ios-1" && "${{3:-}}" == "set" && "${{4:-}}" == "51.507400,-0.127800" ]] || exit 2
+            \\    ;;
+            \\  *)
+            \\    echo "unsupported simctl command: $*" >&2
+            \\    exit 2
+            \\    ;;
+            \\esac
+            \\
+        , .{tmp.sub_path});
+        defer allocator.free(script);
+        try writer.interface.writeAll(script);
+        try writer.interface.flush();
+    }
+    xcrun.close(stdio.io());
+
+    const xcrun_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-xcrun-location.sh", .{tmp.sub_path});
+    defer allocator.free(xcrun_path);
+    const xcrun_path_z = try allocator.dupeZ(u8, xcrun_path);
+    defer allocator.free(xcrun_path_z);
+    if (std.c.chmod(xcrun_path_z, 0o755) != 0) return error.ChmodFailed;
+
+    var device = try IosDevice.initWithShim(allocator, xcrun_path, "fake-ios-1", "com.example.mobiletest", null);
+    defer device.deinit();
+
+    try device.setLocation(51.5074, -0.1278);
+
+    const log_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/xcrun.log", .{tmp.sub_path});
+    defer allocator.free(log_path);
+    const log = try stdio.readFileAlloc(allocator, log_path, 1024);
+    defer allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "simctl privacy fake-ios-1 grant location com.example.mobiletest") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "simctl location fake-ios-1 set 51.507400,-0.127800") != null);
 }
 
 pub fn listDevices(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {

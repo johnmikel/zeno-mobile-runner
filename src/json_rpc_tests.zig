@@ -72,7 +72,7 @@ test "json rpc dispatches core action wait assertion and trace methods" {
     try std.testing.expectEqual(@as(usize, 1), fake.swipes);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"methods\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"assert.healthy\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"version\":\"0.2.13\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"version\":\"0.2.14\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"protocolVersion\":\"2026-04-28\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"protocol\":{\"version\":\"2026-04-28\",\"minimumCompatibleVersion\":\"2026-04-28\",\"stability\":\"dev-preview\",\"breakingChangePolicy\":\"version-and-changelog\"}") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"platforms\":[\"android\",\"ios\"]") != null);

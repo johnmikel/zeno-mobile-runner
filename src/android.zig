@@ -100,6 +100,20 @@ pub const AndroidDevice = struct {
         return error.AppDidNotOpen;
     }
 
+    pub fn setLocation(self: *AndroidDevice, latitude: f64, longitude: f64) !void {
+        const latitude_arg = try std.fmt.allocPrint(self.allocator, "{d:.6}", .{latitude});
+        defer self.allocator.free(latitude_arg);
+        const longitude_arg = try std.fmt.allocPrint(self.allocator, "{d:.6}", .{longitude});
+        defer self.allocator.free(longitude_arg);
+
+        try self.grantRuntimePermissionBestEffort("android.permission.ACCESS_FINE_LOCATION");
+        try self.grantRuntimePermissionBestEffort("android.permission.ACCESS_COARSE_LOCATION");
+
+        const result = try self.runAdb(&.{ "emu", "geo", "fix", longitude_arg, latitude_arg }, default_max_output);
+        defer result.deinit(self.allocator);
+        try result.ensureSuccess();
+    }
+
     pub fn tap(self: *AndroidDevice, x: i32, y: i32) !void {
         if (self.shim_path != null) return try self.runShimAction(.{ .kind = .tap, .x = x, .y = y });
         var args = try android_shell.tap(self.allocator, x, y);
@@ -282,6 +296,12 @@ pub const AndroidDevice = struct {
         const response = try self.runShim(.{ .kind = .snapshot });
         defer self.allocator.free(response);
         return try ios_shim.parseSnapshotNodes(self.allocator, response);
+    }
+
+    fn grantRuntimePermissionBestEffort(self: *AndroidDevice, permission: []const u8) !void {
+        const result = self.runAdb(&.{ "shell", "pm", "grant", self.app_id, permission }, 64 * 1024) catch return;
+        defer result.deinit(self.allocator);
+        result.ensureSuccess() catch {};
     }
 
     fn runShimAction(self: *AndroidDevice, shim_command: ios_shim.Command) !void {

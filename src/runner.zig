@@ -8,6 +8,7 @@ const scenario = @import("scenario.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
+const fake_device = @import("fake_device.zig");
 
 pub const RunOptions = runner_config.RunOptions;
 
@@ -84,6 +85,14 @@ pub fn executeStep(
                 return err;
             };
             if (writer) |tw| try runner_events.recordActionStatus(tw, "app.openLink", "ok", null, url);
+            try settleDevice(device, options);
+        },
+        .set_location => |location| {
+            device.setLocation(location.latitude, location.longitude) catch |err| {
+                if (writer) |tw| try runner_events.recordSetLocation(tw, "failed", err, location.latitude, location.longitude);
+                return err;
+            };
+            if (writer) |tw| try runner_events.recordSetLocation(tw, "ok", null, location.latitude, location.longitude);
             try settleDevice(device, options);
         },
         .tap => |wanted| try tapSelector(device, wanted, writer, options),
@@ -309,6 +318,46 @@ fn settleDevice(device: anytype, options: RunOptions) !void {
     try device.settle(options.settle_ms);
 }
 
+test "setLocation dispatches through the device, records trace evidence, and settles" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-set-location";
+    std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(stdio.io(), dir) catch {};
+
+    const script_json =
+        \\{
+        \\  "name": "set location",
+        \\  "steps": [
+        \\    {"action": "setLocation", "latitude": 51.5074, "longitude": -0.1278}
+        \\  ]
+        \\}
+    ;
+    const script = try scenario.parseSlice(allocator, script_json);
+    defer script.deinit(allocator);
+
+    var device = fake_device.FakeDevice.init(allocator, &.{});
+    defer device.deinit();
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try runScenario(allocator, &device, script, &tw, .{ .settle_ms = 25 });
+
+    try std.testing.expectEqual(@as(usize, 1), device.location_sets);
+    try std.testing.expectApproxEqAbs(@as(f64, 51.5074), device.last_location.?.latitude, 0.000001);
+    try std.testing.expectApproxEqAbs(@as(f64, -0.1278), device.last_location.?.longitude, 0.000001);
+    try std.testing.expectEqual(@as(usize, 1), device.settles);
+    try std.testing.expectEqual(@as(u64, 25), device.last_settle_timeout_ms);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try stdio.readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"device.setLocation\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"status\":\"ok\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"latitude\":51.5074") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"longitude\":-0.1278") != null);
+}
+
 test "whenVisible skips the conditional block when the visibility probe command fails" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-when-visible-command-failed";
@@ -334,6 +383,12 @@ test "whenVisible skips the conditional block when the visibility probe command 
         pub fn openLink(self: *@This(), url: []const u8) !void {
             _ = self;
             _ = url;
+        }
+
+        pub fn setLocation(self: *@This(), latitude: f64, longitude: f64) !void {
+            _ = self;
+            _ = latitude;
+            _ = longitude;
         }
 
         pub fn tap(self: *@This(), x: i32, y: i32) !void {

@@ -13,7 +13,7 @@ test -x "$ZMR"
 
 grep -q '"ok":true' "$TMPDIR/inspect.json"
 grep -q '"schemaVersion":1' "$TMPDIR/inspect.json"
-grep -q '"runnerVersion":"0.2.13"' "$TMPDIR/inspect.json"
+grep -q '"runnerVersion":"0.2.14"' "$TMPDIR/inspect.json"
 grep -q '"protocolVersion":"2026-04-28"' "$TMPDIR/inspect.json"
 grep -q '"dir":"'"$TMPDIR"'/app"' "$TMPDIR/inspect.json"
 grep -q '"configPath":"'"$TMPDIR"'/app/.zmr/config.json"' "$TMPDIR/inspect.json"

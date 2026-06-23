@@ -31,6 +31,11 @@ pub fn requiredI32FromObject(object: std.json.ObjectMap, key: []const u8, missin
     return i32Value(value, type_error);
 }
 
+pub fn requiredF64FromObject(object: std.json.ObjectMap, key: []const u8, missing_error: anyerror, type_error: anyerror) !f64 {
+    const value = object.get(key) orelse return missing_error;
+    return f64Value(value, type_error);
+}
+
 pub fn optionalU64(params: ?std.json.Value, key: []const u8, default_value: u64, type_error: anyerror) !u64 {
     const value = field(params, key) orelse return default_value;
     return u64Value(value, type_error);
@@ -68,6 +73,14 @@ fn i32Value(value: std.json.Value, type_error: anyerror) !i32 {
 fn u64Value(value: std.json.Value, type_error: anyerror) !u64 {
     return switch (value) {
         .integer => |actual| @as(u64, @intCast(actual)),
+        else => type_error,
+    };
+}
+
+fn f64Value(value: std.json.Value, type_error: anyerror) !f64 {
+    return switch (value) {
+        .float => |actual| actual,
+        .integer => |actual| @as(f64, @floatFromInt(actual)),
         else => type_error,
     };
 }

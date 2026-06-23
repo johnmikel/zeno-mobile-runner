@@ -11,6 +11,11 @@ pub const Swipe = struct {
     duration_ms: u32 = 300,
 };
 
+pub const Location = struct {
+    latitude: f64,
+    longitude: f64,
+};
+
 pub const WaitVisible = struct {
     selector: selector.Selector,
     timeout_ms: u64 = 5000,
@@ -106,6 +111,7 @@ pub const Step = union(enum) {
     clear_state,
     snapshot,
     open_link: []const u8,
+    set_location: Location,
     tap: selector.Selector,
     type_text: TypeText,
     press_back,
@@ -224,6 +230,10 @@ fn parseRawStep(allocator: std.mem.Allocator, object: std.json.ObjectMap) anyerr
     if (std.mem.eql(u8, action, "hideKeyboard")) return .hide_keyboard;
     if (std.mem.eql(u8, action, "sleep")) return .{ .sleep_ms = try fields.optionalU64(object, "ms", 500) };
     if (std.mem.eql(u8, action, "openLink")) return .{ .open_link = try fields.requiredStringOrError(allocator, object, "url", error.StepMissingUrl) };
+    if (std.mem.eql(u8, action, "setLocation")) return .{ .set_location = .{
+        .latitude = try parseLatitude(object),
+        .longitude = try parseLongitude(object),
+    } };
     if (std.mem.eql(u8, action, "tap")) return .{ .tap = try fields.parseSelectorField(allocator, object) };
     if (std.mem.eql(u8, action, "typeText")) {
         const wanted = if (object.get("selector")) |selector_value| try selector.parseFromJson(allocator, selector_value) else null;
@@ -342,6 +352,18 @@ fn parseRawStep(allocator: std.mem.Allocator, object: std.json.ObjectMap) anyerr
     return error.unknownScenarioAction;
 }
 
+fn parseLatitude(object: std.json.ObjectMap) !f64 {
+    const latitude = try fields.requiredF64OrError(object, "latitude", error.StepMissingLatitude, error.StepLatitudeMustBeNumber);
+    if (latitude < -90.0 or latitude > 90.0) return error.StepLatitudeOutOfRange;
+    return latitude;
+}
+
+fn parseLongitude(object: std.json.ObjectMap) !f64 {
+    const longitude = try fields.requiredF64OrError(object, "longitude", error.StepMissingLongitude, error.StepLongitudeMustBeNumber);
+    if (longitude < -180.0 or longitude > 180.0) return error.StepLongitudeOutOfRange;
+    return longitude;
+}
+
 fn appendParsedSteps(allocator: std.mem.Allocator, steps: *std.ArrayList(Step), value: std.json.Value) anyerror!void {
     if (value != .array) return error.ScenarioStepsMustBeArray;
     for (value.array.items) |step_value| {
@@ -372,4 +394,28 @@ fn optionalDirection(object: std.json.ObjectMap, key: []const u8, default_value:
 fn optionalTimeoutMs(object: std.json.ObjectMap) !?u64 {
     if (object.get("timeoutMs") == null) return null;
     return try fields.optionalU64(object, "timeoutMs", 0);
+}
+
+test "parses setLocation with latitude and longitude" {
+    const allocator = std.testing.allocator;
+    const script_json =
+        \\{
+        \\  "name": "set location smoke",
+        \\  "steps": [
+        \\    {"action": "setLocation", "latitude": 51.5074, "longitude": -0.1278}
+        \\  ]
+        \\}
+    ;
+
+    const script = try parseSlice(allocator, script_json);
+    defer script.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), script.steps.len);
+    switch (script.steps[0]) {
+        .set_location => |location| {
+            try std.testing.expectApproxEqAbs(@as(f64, 51.5074), location.latitude, 0.000001);
+            try std.testing.expectApproxEqAbs(@as(f64, -0.1278), location.longitude, 0.000001);
+        },
+        else => return error.ExpectedSetLocationStep,
+    }
 }

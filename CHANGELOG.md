@@ -4,6 +4,15 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.14 (2026-06-23)
+
+### Added
+
+- Added a first-class `setLocation` scenario action for simulator/emulator
+  location control. iOS simulators grant the target app location permission and
+  set coordinates through `simctl`; Android emulators best-effort grant runtime
+  location permissions before setting emulator geolocation.
+
 ## 0.2.13 (2026-06-23)
 
 ### Fixed

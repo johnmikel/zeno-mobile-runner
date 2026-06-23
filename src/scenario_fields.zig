@@ -21,6 +21,10 @@ pub fn requiredI32OrError(object: std.json.ObjectMap, key: []const u8, missing_e
     return try json_fields.requiredI32FromObject(object, key, missing_error, error.RequiredFieldMustBeInteger);
 }
 
+pub fn requiredF64OrError(object: std.json.ObjectMap, key: []const u8, missing_error: anyerror, type_error: anyerror) !f64 {
+    return try json_fields.requiredF64FromObject(object, key, missing_error, type_error);
+}
+
 pub fn optionalU64(object: std.json.ObjectMap, key: []const u8, default_value: u64) !u64 {
     return try json_fields.optionalU64FromObject(object, key, default_value, error.OptionalFieldMustBeInteger);
 }

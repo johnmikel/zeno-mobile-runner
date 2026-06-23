@@ -69,6 +69,67 @@ ASSERT_HEALTHY_OUTPUT="$("$ZMR" validate "$TMPDIR/assert-healthy.json" --json)"
 grep -q '"ok":true' <<< "$ASSERT_HEALTHY_OUTPUT"
 grep -q '"name":"guard app health"' <<< "$ASSERT_HEALTHY_OUTPUT"
 
+cat > "$TMPDIR/set-location.json" <<'JSON'
+{
+  "name": "set simulator location",
+  "steps": [
+    { "action": "setLocation", "latitude": 51.5074, "longitude": -0.1278 }
+  ]
+}
+JSON
+
+SET_LOCATION_OUTPUT="$("$ZMR" validate "$TMPDIR/set-location.json" --json)"
+grep -q '"ok":true' <<< "$SET_LOCATION_OUTPUT"
+grep -q '"name":"set simulator location"' <<< "$SET_LOCATION_OUTPUT"
+
+cat > "$TMPDIR/set-location-bad-latitude.json" <<'JSON'
+{
+  "name": "bad simulator location",
+  "steps": [
+    { "action": "setLocation", "latitude": "London", "longitude": -0.1278 }
+  ]
+}
+JSON
+
+set +e
+SET_LOCATION_BAD_LATITUDE_OUTPUT="$("$ZMR" validate "$TMPDIR/set-location-bad-latitude.json" --json)"
+STATUS=$?
+set -e
+
+if [[ "$STATUS" -eq 0 ]]; then
+  echo "expected validate --json to exit non-zero for a non-numeric setLocation latitude" >&2
+  exit 1
+fi
+
+grep -q '"ok":false' <<< "$SET_LOCATION_BAD_LATITUDE_OUTPUT"
+grep -q '"errorCode":"scenario.invalid"' <<< "$SET_LOCATION_BAD_LATITUDE_OUTPUT"
+grep -q '"message":"scenario is invalid"' <<< "$SET_LOCATION_BAD_LATITUDE_OUTPUT"
+grep -q '"fieldPath":"$.steps\[\].latitude"' <<< "$SET_LOCATION_BAD_LATITUDE_OUTPUT"
+
+cat > "$TMPDIR/set-location-out-of-range.json" <<'JSON'
+{
+  "name": "bad simulator location",
+  "steps": [
+    { "action": "setLocation", "latitude": 91, "longitude": -0.1278 }
+  ]
+}
+JSON
+
+set +e
+SET_LOCATION_OUT_OF_RANGE_OUTPUT="$("$ZMR" validate "$TMPDIR/set-location-out-of-range.json" --json)"
+STATUS=$?
+set -e
+
+if [[ "$STATUS" -eq 0 ]]; then
+  echo "expected validate --json to exit non-zero for an out-of-range setLocation latitude" >&2
+  exit 1
+fi
+
+grep -q '"ok":false' <<< "$SET_LOCATION_OUT_OF_RANGE_OUTPUT"
+grep -q '"errorCode":"scenario.invalid"' <<< "$SET_LOCATION_OUT_OF_RANGE_OUTPUT"
+grep -q '"message":"scenario is invalid"' <<< "$SET_LOCATION_OUT_OF_RANGE_OUTPUT"
+grep -q '"fieldPath":"$.steps\[\].latitude"' <<< "$SET_LOCATION_OUT_OF_RANGE_OUTPUT"
+
 cat > "$TMPDIR/bad.json" <<'JSON'
 {"name":"bad"}
 JSON
@@ -262,6 +323,44 @@ grep -q '"ok":false' <<< "$MISSING_Y2_OUTPUT"
 grep -q '"errorCode":"scenario.invalid"' <<< "$MISSING_Y2_OUTPUT"
 grep -q '"message":"scenario is invalid"' <<< "$MISSING_Y2_OUTPUT"
 grep -q '"fieldPath":"$.steps\[\].y2"' <<< "$MISSING_Y2_OUTPUT"
+
+cat > "$TMPDIR/missing-latitude.json" <<'JSON'
+{"name":"bad","steps":[{"action":"setLocation","longitude":-0.1278}]}
+JSON
+
+set +e
+MISSING_LATITUDE_OUTPUT="$("$ZMR" validate "$TMPDIR/missing-latitude.json" --json)"
+STATUS=$?
+set -e
+
+if [[ "$STATUS" -eq 0 ]]; then
+  echo "expected validate --json to exit non-zero for a missing setLocation latitude value" >&2
+  exit 1
+fi
+
+grep -q '"ok":false' <<< "$MISSING_LATITUDE_OUTPUT"
+grep -q '"errorCode":"scenario.invalid"' <<< "$MISSING_LATITUDE_OUTPUT"
+grep -q '"message":"scenario is invalid"' <<< "$MISSING_LATITUDE_OUTPUT"
+grep -q '"fieldPath":"$.steps\[\].latitude"' <<< "$MISSING_LATITUDE_OUTPUT"
+
+cat > "$TMPDIR/missing-longitude.json" <<'JSON'
+{"name":"bad","steps":[{"action":"setLocation","latitude":51.5074}]}
+JSON
+
+set +e
+MISSING_LONGITUDE_OUTPUT="$("$ZMR" validate "$TMPDIR/missing-longitude.json" --json)"
+STATUS=$?
+set -e
+
+if [[ "$STATUS" -eq 0 ]]; then
+  echo "expected validate --json to exit non-zero for a missing setLocation longitude value" >&2
+  exit 1
+fi
+
+grep -q '"ok":false' <<< "$MISSING_LONGITUDE_OUTPUT"
+grep -q '"errorCode":"scenario.invalid"' <<< "$MISSING_LONGITUDE_OUTPUT"
+grep -q '"message":"scenario is invalid"' <<< "$MISSING_LONGITUDE_OUTPUT"
+grep -q '"fieldPath":"$.steps\[\].longitude"' <<< "$MISSING_LONGITUDE_OUTPUT"
 
 printf '{"name":"bad","steps":[' > "$TMPDIR/malformed.json"
 

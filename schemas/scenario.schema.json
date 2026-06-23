@@ -40,6 +40,7 @@
             "clearState",
             "snapshot",
             "openLink",
+            "setLocation",
             "tap",
             "typeText",
             "eraseText",
@@ -62,6 +63,8 @@
         },
         "optional": { "type": "boolean" },
         "url": { "type": "string", "minLength": 1 },
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
         "selector": { "$ref": "#/$defs/selector" },
         "selectors": {
           "type": "array",
@@ -89,6 +92,10 @@
         {
           "if": { "properties": { "action": { "const": "openLink" } } },
           "then": { "required": ["url"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "setLocation" } } },
+          "then": { "required": ["latitude", "longitude"] }
         },
         {
           "if": { "properties": { "action": { "enum": ["tap", "waitVisible", "waitNotVisible", "assertVisible", "assertNotVisible", "scrollUntilVisible"] } } },

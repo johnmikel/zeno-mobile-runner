@@ -132,6 +132,12 @@ test "runner uses native selector actions when a device exposes them" {
             _ = url;
         }
 
+        pub fn setLocation(self: *@This(), latitude: f64, longitude: f64) !void {
+            _ = self;
+            _ = latitude;
+            _ = longitude;
+        }
+
         pub fn tapBySelector(self: *@This(), wanted: selector.Selector) !bool {
             try std.testing.expectEqualStrings("Continue", wanted.text.?);
             self.native_taps += 1;

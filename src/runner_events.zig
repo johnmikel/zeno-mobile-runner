@@ -26,6 +26,23 @@ pub fn recordNativeWait(tw: *trace.TraceWriter, kind: []const u8, wanted: select
     try tw.recordEvent(kind, writer.buffered());
 }
 
+pub fn recordNativeScrollUntilVisible(
+    tw: *trace.TraceWriter,
+    wanted: selector.Selector,
+    direction: []const u8,
+    timeout_ms: u64,
+) !void {
+    var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    try writer.writeAll("{\"status\":\"ok\",\"strategy\":\"nativeSelector\",\"selector\":");
+    try trace.writeSelectorJson(writer, wanted);
+    try writer.writeAll(",\"direction\":");
+    try trace.writeJsonString(writer, direction);
+    try writer.print(",\"timeoutMs\":{d}}}", .{timeout_ms});
+    try tw.recordEvent("ui.scrollUntilVisible", writer.buffered());
+}
+
 pub fn recordNativeWaitTimeout(tw: *trace.TraceWriter, kind: []const u8, selectors: []const selector.Selector, timeout_ms: u64) !void {
     var payload: std.Io.Writer.Allocating = .init(tw.allocator);
     defer payload.deinit();

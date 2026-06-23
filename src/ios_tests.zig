@@ -58,6 +58,39 @@ test "ios shim viewport overrides retina screenshot pixels with app frame points
     try std.testing.expect(std.mem.indexOf(u8, events, "\"source\":\"ios-xctest-shim\"") != null);
 }
 
+test "ios shim exposes lightweight viewport for native scroll coordinates" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-scroll-viewport.sh", .{ .truncate = true });
+    try shim.writeAll(
+        \\#!/usr/bin/env bash
+        \\set -euo pipefail
+        \\request="$(cat)"
+        \\case "$request" in
+        \\  *'"cmd":"viewport"'*)
+        \\    printf '{"status":"ok","viewport":{"width":390,"height":844}}\n'
+        \\    ;;
+        \\  *) printf '{"status":"ok"}\n' ;;
+        \\esac
+        \\
+    );
+    try shim.chmod(0o755);
+    shim.close();
+
+    const shim_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-ios-shim-scroll-viewport.sh", .{tmp.sub_path});
+    defer allocator.free(shim_path);
+
+    var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    defer device.deinit();
+
+    const viewport = try device.scrollViewport();
+    try std.testing.expectEqual(@as(u32, 390), viewport.width);
+    try std.testing.expectEqual(@as(u32, 844), viewport.height);
+}
+
 test "ios simulator adapter lists devices and supports lifecycle snapshot smoke" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-ios-trace";
@@ -543,6 +576,85 @@ test "ios simulator openLink asks XCTest shim to accept custom scheme open confi
     defer allocator.free(log);
     try std.testing.expect(std.mem.indexOf(u8, log, "\"cmd\":\"acceptSystemAlert\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "\"text\":\"Open\"") != null);
+}
+
+test "ios simulator marks later custom links eligible for Expo dev-client fallback after dev-client launch" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-log.sh", .{ .truncate = true });
+    try shim.writeAll(
+        \\#!/usr/bin/env bash
+        \\set -euo pipefail
+        \\request="$(cat)"
+    );
+    const shim_tail = try std.fmt.allocPrint(allocator,
+        \\
+        \\printf '%s\n' "$request" >> ".zig-cache/tmp/{s}/shim.log"
+        \\printf '{{"status":"ok"}}\n'
+        \\
+    , .{tmp.sub_path});
+    defer allocator.free(shim_tail);
+    try shim.writeAll(shim_tail);
+    try shim.chmod(0o755);
+    shim.close();
+
+    const shim_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-ios-shim-log.sh", .{tmp.sub_path});
+    defer allocator.free(shim_path);
+    const log_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/shim.log", .{tmp.sub_path});
+    defer allocator.free(log_path);
+
+    var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    defer device.deinit();
+
+    try device.openLink("exp+exampleapp://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
+    try device.openLink("exampleapp:///e2e-auth?probe=1");
+
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 8192);
+    defer allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"url\":\"exampleapp:///e2e-auth?probe=1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"expoDevClientFallback\":true") != null);
+}
+
+test "ios simulator preserves Expo dev-client fallback eligibility across app stops" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var shim = try test_io.createFileIn(tmp.dir, "fake-ios-shim-log.sh", .{ .truncate = true });
+    try shim.writeAll(
+        \\#!/usr/bin/env bash
+        \\set -euo pipefail
+        \\request="$(cat)"
+    );
+    const shim_tail = try std.fmt.allocPrint(allocator,
+        \\
+        \\printf '%s\n' "$request" >> ".zig-cache/tmp/{s}/shim.log"
+        \\printf '{{"status":"ok"}}\n'
+        \\
+    , .{tmp.sub_path});
+    defer allocator.free(shim_tail);
+    try shim.writeAll(shim_tail);
+    try shim.chmod(0o755);
+    shim.close();
+
+    const shim_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-ios-shim-log.sh", .{tmp.sub_path});
+    defer allocator.free(shim_path);
+    const log_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/shim.log", .{tmp.sub_path});
+    defer allocator.free(log_path);
+
+    var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    defer device.deinit();
+
+    try device.openLink("exp+exampleapp://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
+    try device.stop();
+    try device.openLink("exampleapp:///e2e-auth?probe=1");
+
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 8192);
+    defer allocator.free(log);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"url\":\"exampleapp:///e2e-auth?probe=1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "\"expoDevClientFallback\":true") != null);
 }
 
 test "ios simulator openLink skips confirmation acceptance without a shim" {

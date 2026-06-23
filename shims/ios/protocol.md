@@ -6,6 +6,7 @@ Commands are newline-delimited JSON objects:
 
 ```json
 {"cmd":"snapshot"}
+{"cmd":"viewport"}
 {"cmd":"tap","selector":"text=Continue","x":20,"y":40}
 {"cmd":"type","selector":"identifier=email","text":"hello"}
 {"cmd":"eraseText","selector":"identifier=email","maxChars":20}
@@ -41,6 +42,13 @@ that XCTest can evaluate natively. It returns:
 
 ```json
 {"status":"ok","format":"png","base64":"..."}
+```
+
+`viewport` returns the target application frame in XCTest point coordinates
+without crawling the element hierarchy:
+
+```json
+{"status":"ok","viewport":{"width":390,"height":844}}
 ```
 
 Snapshot responses return bounded XCTest element data in a shape Zig can map

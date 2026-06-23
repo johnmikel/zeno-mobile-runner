@@ -116,6 +116,11 @@ final class ZMRShimUITestCase: XCTestCase {
                 "viewport": ZMRShim.viewport(app: app).json,
                 "nodes": ZMRShim.snapshot(app: app).map { $0.json }
             ]
+        case "viewport":
+            return [
+                "status": "ok",
+                "viewport": ZMRShim.viewport(app: app).json
+            ]
         case "screenshot":
             let screenshot = XCUIScreen.main.screenshot()
             return [
@@ -187,7 +192,12 @@ final class ZMRShimUITestCase: XCTestCase {
         case "appState":
             return ["status": "ok", "state": app.state.rawValue]
         case "acceptSystemAlert":
-            return acceptSystemAlert(buttonText: command.text ?? "Open", app: app)
+            return acceptSystemAlert(
+                buttonText: command.text ?? "Open",
+                openedURL: command.url,
+                expoDevClientFallback: command.expoDevClientFallback ?? false,
+                app: app
+            )
         default:
             return error("unknown.command", "unsupported command: \(command.cmd)")
         }
@@ -195,7 +205,7 @@ final class ZMRShimUITestCase: XCTestCase {
 
     private func commandRequiresForeground(_ command: ZMRShimCommand) -> Bool {
         switch command.cmd {
-        case "snapshot", "query", "tap", "type", "eraseText", "hideKeyboard", "swipe", "settle":
+        case "snapshot", "viewport", "query", "tap", "type", "eraseText", "hideKeyboard", "swipe", "settle":
             return true
         default:
             return false
@@ -229,7 +239,12 @@ final class ZMRShimUITestCase: XCTestCase {
         ["status": "error", "code": code, "message": message]
     }
 
-    private func acceptSystemAlert(buttonText: String, app: XCUIApplication) -> [String: Any] {
+    private func acceptSystemAlert(
+        buttonText: String,
+        openedURL: String?,
+        expoDevClientFallback: Bool,
+        app: XCUIApplication
+    ) -> [String: Any] {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         var labels = [buttonText, "Open", "Allow", "OK", "Continue"]
         labels = labels.reduce(into: [String]()) { unique, label in
@@ -264,7 +279,11 @@ final class ZMRShimUITestCase: XCTestCase {
             }
         }
 
-        let expoDeepLinkSelection = acceptExpoDevClientDeepLink(app: app)
+        let expoDeepLinkSelection = acceptExpoDevClientDeepLink(
+            openedURL: openedURL,
+            expoDevClientFallback: expoDevClientFallback,
+            app: app
+        )
         if expoDeepLinkSelection.accepted {
             acceptedCount += 1
             lastAcceptedLabel = expoDeepLinkSelection.label
@@ -282,27 +301,38 @@ final class ZMRShimUITestCase: XCTestCase {
         return ["status": "ok", "accepted": false, "count": 0]
     }
 
-    private func acceptExpoDevClientDeepLink(app: XCUIApplication) -> (accepted: Bool, label: String) {
-        guard app.staticTexts["Deep link received:"].waitForExistence(timeout: 1) else {
-            return (false, "")
+    private func acceptExpoDevClientDeepLink(
+        openedURL: String?,
+        expoDevClientFallback: Bool,
+        app: XCUIApplication
+    ) -> (accepted: Bool, label: String) {
+        let predicate = NSPredicate(
+            format: "label != '' AND label != %@ AND label != %@ AND label != %@ AND NOT label CONTAINS[c] %@ AND NOT label BEGINSWITH[c] %@ AND NOT label CONTAINS[c] %@",
+            "Deep link received:",
+            "Select an app to open it:",
+            "Go back",
+            "://",
+            "Note:",
+            "next app you open"
+        )
+
+        if app.staticTexts["Deep link received:"].waitForExistence(timeout: 1) {
+            if tapFirstMatchingExpoCandidate(
+                queries: [app.buttons, app.cells, app.staticTexts],
+                predicate: predicate
+            ) {
+                return (true, "expo-dev-client-deep-link")
+            }
         }
 
-        let candidateQueries = [
-            app.buttons.allElementsBoundByIndex,
-            app.cells.allElementsBoundByIndex,
-            app.staticTexts.allElementsBoundByIndex
-        ]
-
-        for elements in candidateQueries {
-            for element in elements {
-                let label = element.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard isExpoDevClientDeepLinkTarget(label: label), element.isHittable else {
-                    continue
-                }
-
-                element.tap()
-                Thread.sleep(forTimeInterval: 1.0)
-                return (true, label)
+        if expoDevClientFallback,
+           isCustomSchemeURL(openedURL),
+           !isExpoDevClientURL(openedURL) {
+            if tapExpoDevClientDeepLinkCoordinateFallback(app: app) {
+                return (true, "expo-dev-client-deep-link-coordinate")
+            }
+            if tapExpoDevClientDeepLinkCandidateFallback(app: app, predicate: predicate) {
+                return (true, "expo-dev-client-deep-link-candidate")
             }
         }
 
@@ -335,23 +365,12 @@ final class ZMRShimUITestCase: XCTestCase {
             return (false, "")
         }
 
-        let candidateQueries = [
-            app.buttons.allElementsBoundByIndex,
-            app.cells.allElementsBoundByIndex,
-            app.staticTexts.allElementsBoundByIndex
-        ]
-
-        for elements in candidateQueries {
-            for element in elements {
-                let label = element.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard isExpoDevClientProjectTarget(label: label), element.exists else {
-                    continue
-                }
-
-                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-                Thread.sleep(forTimeInterval: 1.0)
-                return (true, label)
-            }
+        let predicate = NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", " http://", " https://")
+        if tapFirstMatchingExpoCandidate(
+            queries: [app.buttons, app.cells, app.staticTexts],
+            predicate: predicate
+        ) {
+            return (true, "expo-dev-client-home")
         }
 
         return (false, "")
@@ -377,6 +396,59 @@ final class ZMRShimUITestCase: XCTestCase {
         }
 
         return label.contains(" http://") || label.contains(" https://")
+    }
+
+    private func tapFirstMatchingExpoCandidate(
+        queries: [XCUIElementQuery],
+        predicate: NSPredicate
+    ) -> Bool {
+        for query in queries {
+            let matching = query.matching(predicate)
+            for candidateIndex in 0..<6 {
+                let element = matching.element(boundBy: candidateIndex)
+                guard element.exists else {
+                    break
+                }
+
+                guard element.isHittable else {
+                    continue
+                }
+
+                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                Thread.sleep(forTimeInterval: 1.0)
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isCustomSchemeURL(_ value: String?) -> Bool {
+        guard let value else {
+            return false
+        }
+        return value.contains("://") && !value.hasPrefix("http://") && !value.hasPrefix("https://")
+    }
+
+    private func isExpoDevClientURL(_ value: String?) -> Bool {
+        guard let value else {
+            return false
+        }
+        return value.hasPrefix("exp+") && value.contains("://expo-development-client/")
+    }
+
+    private func tapExpoDevClientDeepLinkCoordinateFallback(app: XCUIApplication) -> Bool {
+        Thread.sleep(forTimeInterval: 1.5)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        return true
+    }
+
+    private func tapExpoDevClientDeepLinkCandidateFallback(app: XCUIApplication, predicate: NSPredicate) -> Bool {
+        tapFirstMatchingExpoCandidate(
+            queries: [app.buttons, app.cells, app.staticTexts],
+            predicate: predicate
+        )
     }
 
     private func hideKeyboard(app: XCUIApplication) -> [String: Any] {

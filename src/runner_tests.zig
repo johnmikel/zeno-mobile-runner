@@ -282,6 +282,135 @@ test "runner uses native selector queries for waits when a device exposes them" 
     try std.testing.expect(std.mem.indexOf(u8, events, "\"matchedIndex\":1") != null);
 }
 
+test "native selector wait falls back to snapshot after query command timeout" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-native-wait-timeout-snapshot-fallback";
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+
+    const NativeTimeoutThenSnapshotDevice = struct {
+        allocator: std.mem.Allocator,
+        native_queries: usize = 0,
+        largest_query_timeout_ms: u64 = 0,
+        snapshots: usize = 0,
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            try std.testing.expectEqualStrings("Personal details", wanted.text.?);
+            self.native_queries += 1;
+            self.largest_query_timeout_ms = @max(self.largest_query_timeout_ms, timeout_ms);
+            return error.CommandTimedOut;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            const nodes = try self.allocator.alloc(types.UiNode, 1);
+            nodes[0] = .{
+                .stable_id = try self.allocator.dupe(u8, "node-native-timeout-fallback"),
+                .class_name = try self.allocator.dupe(u8, "XCUIElementTypeStaticText"),
+                .text = try self.allocator.dupe(u8, "Personal details"),
+                .bounds = .{ .x = 20, .y = 280, .width = 300, .height = 44 },
+            };
+            return .{
+                .id = try self.allocator.dupe(u8, "native-timeout-fallback"),
+                .timestamp_ms = 1,
+                .nodes = nodes,
+            };
+        }
+    };
+
+    var device = NativeTimeoutThenSnapshotDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try waitUntilVisible(
+        &device,
+        .{ .text = "Personal details" },
+        100,
+        &tw,
+        .{ .settle_ms = 0, .poll_ms = 0, .action_timeout_ms = 5 },
+    ));
+    try std.testing.expectEqual(@as(usize, 2), device.native_queries);
+    try std.testing.expect(device.largest_query_timeout_ms <= 5);
+    try std.testing.expectEqual(@as(usize, 1), device.snapshots);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"observe.retry\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"error\":\"CommandTimedOut\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"target\":\"node-native-timeout-fallback\"") != null);
+}
+
+test "scroll until visible uses native selector queries before snapshot fallback" {
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache-test-runner-native-scroll";
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+
+    const NativeScrollDevice = struct {
+        allocator: std.mem.Allocator,
+        queries: usize = 0,
+        snapshots: usize = 0,
+        swipes: usize = 0,
+        settles: usize = 0,
+        last_swipe: ?struct { x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32 } = null,
+
+        pub fn visibleBySelectorWithTimeout(self: *@This(), wanted: selector.Selector, timeout_ms: u64) !?bool {
+            try std.testing.expect(timeout_ms > 0);
+            self.queries += 1;
+            if (wanted.id) |id| {
+                try std.testing.expectEqualStrings("legal-documents-card", id);
+                return self.queries >= 3;
+            }
+            return null;
+        }
+
+        pub fn snapshot(self: *@This(), writer: anytype) !types.ObservationSnapshot {
+            _ = writer;
+            self.snapshots += 1;
+            return error.UnexpectedSnapshotFallback;
+        }
+
+        pub fn scrollViewport(self: *@This()) !types.Viewport {
+            _ = self;
+            return .{ .width = 390, .height = 844 };
+        }
+
+        pub fn swipe(self: *@This(), x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) !void {
+            self.swipes += 1;
+            self.last_swipe = .{ .x1 = x1, .y1 = y1, .x2 = x2, .y2 = y2, .duration_ms = duration_ms };
+        }
+
+        pub fn settle(self: *@This(), timeout_ms: u64) !void {
+            _ = timeout_ms;
+            self.settles += 1;
+        }
+    };
+
+    var device = NativeScrollDevice{ .allocator = allocator };
+    var tw = try trace.TraceWriter.init(allocator, dir);
+    defer tw.deinit();
+
+    try std.testing.expect(try scrollUntilVisible(&device, .{ .id = "legal-documents-card" }, 1000, .down, &tw, .{ .settle_ms = 0, .poll_ms = 0 }));
+    try std.testing.expectEqual(@as(usize, 3), device.queries);
+    try std.testing.expectEqual(@as(usize, 2), device.swipes);
+    try std.testing.expectEqual(@as(usize, 2), device.settles);
+    try std.testing.expectEqual(@as(usize, 0), device.snapshots);
+    try std.testing.expectEqual(@as(i32, 195), device.last_swipe.?.x1);
+    try std.testing.expectEqual(@as(i32, 675), device.last_swipe.?.y1);
+    try std.testing.expectEqual(@as(i32, 253), device.last_swipe.?.y2);
+
+    const events_path = try std.fs.path.join(allocator, &.{ dir, "events.jsonl" });
+    defer allocator.free(events_path);
+    const events = try test_io.cwd().readFileAlloc(allocator, events_path, 1024 * 1024);
+    defer allocator.free(events);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"kind\":\"ui.scrollUntilVisible\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"strategy\":\"nativeSelector\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, events, "\"selector\":{\"id\":\"legal-documents-card\"}") != null);
+}
+
 test "native selector wait timeouts include final snapshot diagnostics" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-wait-diagnostics";

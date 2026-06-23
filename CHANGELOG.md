@@ -4,6 +4,21 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.13 (2026-06-23)
+
+### Fixed
+
+- iOS native selector waits now cap each XCTest query to the action timeout,
+  retry one transient native command failure, and then fall back to semantic
+  snapshots with diagnostics. This prevents one stuck XCTest selector query from
+  consuming the whole wait budget while still allowing transient native queries
+  to recover.
+- iOS native selector scrolling now reads the app-frame viewport from the XCTest
+  shim before generating swipe coordinates, so native scrolls use iOS point
+  dimensions instead of Android fallback dimensions.
+- Expo dev-client URL opening now uses URL-aware fallback handling and avoids
+  broad static-text enumeration while accepting deep-link chooser prompts.
+
 ## 0.2.12 (2026-06-22)
 
 ### Fixed

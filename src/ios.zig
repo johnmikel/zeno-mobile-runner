@@ -33,6 +33,7 @@ pub const IosDevice = struct {
     app_id: []const u8,
     shim_path: ?[]const u8 = null,
     target_kind: TargetKind = .simulator,
+    expo_dev_client_open_link_mode: bool = false,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -131,13 +132,16 @@ pub const IosDevice = struct {
         const result = try self.runSimctl(&.{ "openurl", self.target(), url }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
+        if (isExpoDevClientOpenLink(url)) {
+            self.expo_dev_client_open_link_mode = true;
+        }
         // Opening a URL on the simulator can raise a SpringBoard "Open in <App>?"
         // confirmation for universal links (http/https) and, just as often, for
         // custom schemes — the common Expo dev-client case
         // (exp+scheme://expo-development-client/...). Attempt a best-effort accept
         // whenever a shim is configured; the shim probes briefly and returns fast
         // when no dialog is present, so this stays cheap on the no-prompt path.
-        self.acceptOpenURLConfirmationBestEffort();
+        self.acceptOpenURLConfirmationBestEffort(url);
     }
 
     pub fn tap(self: *IosDevice, x: i32, y: i32) !void {
@@ -187,6 +191,12 @@ pub const IosDevice = struct {
 
     pub fn swipe(self: *IosDevice, x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: u32) !void {
         try self.runShimAction(.{ .kind = .swipe, .x1 = x1, .y1 = y1, .x2 = x2, .y2 = y2, .duration_ms = duration_ms });
+    }
+
+    pub fn scrollViewport(self: *IosDevice) !types.Viewport {
+        const response = try self.runShim(.{ .kind = .viewport });
+        defer self.allocator.free(response);
+        return try ios_shim.parseViewportResponse(response);
     }
 
     pub fn pressBack(self: *IosDevice) !void {
@@ -322,20 +332,25 @@ pub const IosDevice = struct {
         try ios_shim.parseOkResponse(response);
     }
 
-    fn acceptOpenURLConfirmationBestEffort(self: *IosDevice) void {
+    fn acceptOpenURLConfirmationBestEffort(self: *IosDevice, url: []const u8) void {
         if (self.shim_path == null) return;
         var attempt: usize = 0;
         while (attempt < open_link_interruption_attempts) {
             attempt += 1;
-            if (self.acceptOpenURLConfirmationOnce() catch return) return;
+            if (self.acceptOpenURLConfirmationOnce(url) catch return) return;
             if (attempt < open_link_interruption_attempts) {
                 stdio.sleepNs(open_link_interruption_retry_delay_ms * std.time.ns_per_ms);
             }
         }
     }
 
-    fn acceptOpenURLConfirmationOnce(self: *IosDevice) !bool {
-        const response = try self.runShimWithTimeout(.{ .kind = .accept_system_alert, .text = "Open" }, shim_best_effort_timeout_ms);
+    fn acceptOpenURLConfirmationOnce(self: *IosDevice, url: []const u8) !bool {
+        const response = try self.runShimWithTimeout(.{
+            .kind = .accept_system_alert,
+            .text = "Open",
+            .url = url,
+            .expo_dev_client_fallback = self.expo_dev_client_open_link_mode,
+        }, shim_best_effort_timeout_ms);
         defer self.allocator.free(response);
         return try ios_shim.parseAcceptSystemAlertResponse(response);
     }
@@ -458,6 +473,11 @@ fn parseShimTimeoutMs(raw: ?[]const u8) u64 {
     const parsed = std.fmt.parseInt(u64, value, 10) catch return default_shim_timeout_ms;
     if (parsed == 0) return default_shim_timeout_ms;
     return parsed;
+}
+
+fn isExpoDevClientOpenLink(url: []const u8) bool {
+    return std.mem.startsWith(u8, url, "exp+") and
+        std.mem.indexOf(u8, url, "://expo-development-client/") != null;
 }
 
 test "ios simulator openLink keeps sweeping delayed XCTest interruptions until accepted" {

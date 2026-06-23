@@ -9,6 +9,7 @@ const trace = @import("trace.zig");
 
 const RunOptions = runner_config.RunOptions;
 const native_health_probe_timeout_ms: u64 = 1000;
+const native_selector_transient_retry_limit: usize = 1;
 
 pub fn waitUntilVisible(
     device: anytype,
@@ -39,23 +40,36 @@ fn untilVisibleKind(
     kind: []const u8,
 ) !bool {
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    var native_query_failures: usize = 0;
     while (true) {
-        if (nativeSelectorQueryTimeoutMs(deadline)) |query_timeout_ms| {
-            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
-                if (try retryTransientObservation(err, kind, writer, deadline, options)) continue;
+        if (nativeSelectorQueryTimeoutMs(deadline, options)) |query_timeout_ms| {
+            var native_query_failed = false;
+            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| blk: {
+                if (try recordTransientNativeSelectorObservation(err, kind, writer)) {
+                    native_query_failures += 1;
+                    if (native_query_failures <= native_selector_transient_retry_limit and stdio.nowMs() < deadline) {
+                        try sleepMs(options.poll_ms);
+                        continue;
+                    }
+                    native_query_failed = true;
+                    break :blk null;
+                }
                 return err;
             };
-            if (native_result) |visible| {
-                if (visible) {
-                    if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
-                    return true;
+            if (!native_query_failed) native_query_failures = 0;
+            if (!native_query_failed) {
+                if (native_result) |visible| {
+                    if (visible) {
+                        if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
+                        return true;
+                    }
+                    if (stdio.nowMs() >= deadline) {
+                        if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
+                        return false;
+                    }
+                    try sleepMs(options.poll_ms);
+                    continue;
                 }
-                if (stdio.nowMs() >= deadline) {
-                    if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
-                    return false;
-                }
-                try sleepMs(options.poll_ms);
-                continue;
             }
         } else if (hasNativeSelectorQuery(device)) {
             if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
@@ -119,23 +133,36 @@ fn untilNotVisibleKind(
     kind: []const u8,
 ) !bool {
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    var native_query_failures: usize = 0;
     while (true) {
-        if (nativeSelectorQueryTimeoutMs(deadline)) |query_timeout_ms| {
-            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
-                if (try retryTransientObservation(err, kind, writer, deadline, options)) continue;
+        if (nativeSelectorQueryTimeoutMs(deadline, options)) |query_timeout_ms| {
+            var native_query_failed = false;
+            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| blk: {
+                if (try recordTransientNativeSelectorObservation(err, kind, writer)) {
+                    native_query_failures += 1;
+                    if (native_query_failures <= native_selector_transient_retry_limit and stdio.nowMs() < deadline) {
+                        try sleepMs(options.poll_ms);
+                        continue;
+                    }
+                    native_query_failed = true;
+                    break :blk null;
+                }
                 return err;
             };
-            if (native_result) |visible| {
-                if (!visible) {
-                    if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
-                    return true;
+            if (!native_query_failed) native_query_failures = 0;
+            if (!native_query_failed) {
+                if (native_result) |visible| {
+                    if (!visible) {
+                        if (writer) |tw| try runner_events.recordNativeWait(tw, kind, wanted, null, timeout_ms);
+                        return true;
+                    }
+                    if (stdio.nowMs() >= deadline) {
+                        if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
+                        return false;
+                    }
+                    try sleepMs(options.poll_ms);
+                    continue;
                 }
-                if (stdio.nowMs() >= deadline) {
-                    if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
-                    return false;
-                }
-                try sleepMs(options.poll_ms);
-                continue;
             }
         } else if (hasNativeSelectorQuery(device)) {
             if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, kind, &[_]selector.Selector{wanted}, timeout_ms);
@@ -178,10 +205,11 @@ pub fn waitUntilAnyVisible(
     options: RunOptions,
 ) !?usize {
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
-    while (true) {
+    var native_query_failures: usize = 0;
+    native_poll: while (true) {
         var all_native = true;
         for (selectors, 0..) |wanted, index| {
-            const query_timeout_ms = nativeSelectorQueryTimeoutMs(deadline) orelse {
+            const query_timeout_ms = nativeSelectorQueryTimeoutMs(deadline, options) orelse {
                 if (hasNativeSelectorQuery(device)) {
                     if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "wait.any", selectors, timeout_ms);
                     return null;
@@ -190,9 +218,18 @@ pub fn waitUntilAnyVisible(
                 break;
             };
             const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| {
-                if (try retryTransientObservation(err, "wait.any", writer, deadline, options)) continue;
+                if (try recordTransientNativeSelectorObservation(err, "wait.any", writer)) {
+                    native_query_failures += 1;
+                    if (native_query_failures <= native_selector_transient_retry_limit and stdio.nowMs() < deadline) {
+                        try sleepMs(options.poll_ms);
+                        continue :native_poll;
+                    }
+                    all_native = false;
+                    break;
+                }
                 return err;
             };
+            native_query_failures = 0;
             if (native_result) |visible| {
                 if (visible) {
                     if (writer) |tw| try runner_events.recordNativeWait(tw, "wait.any", wanted, index, timeout_ms);
@@ -322,7 +359,7 @@ fn nativeAssertHealthy(
 
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
     native_probe: while (true) {
-        const remaining_ms = nativeSelectorQueryTimeoutMs(deadline) orelse return null;
+        const remaining_ms = nativeSelectorRemainingTimeoutMs(deadline) orelse return null;
         const query_timeout_ms = @min(remaining_ms, nativeHealthProbeTimeoutMs(timeout_ms, options));
 
         for (health_selectors, 0..) |wanted, index| {
@@ -356,7 +393,47 @@ pub fn scrollUntilVisible(
     options: RunOptions,
 ) !bool {
     const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    var native_query_failures: usize = 0;
     while (true) {
+        if (nativeSelectorQueryTimeoutMs(deadline, options)) |query_timeout_ms| {
+            var native_query_failed = false;
+            const native_result = nativeVisibleBySelector(device, wanted, query_timeout_ms) catch |err| blk: {
+                if (try recordTransientNativeSelectorObservation(err, "ui.scrollUntilVisible", writer)) {
+                    native_query_failures += 1;
+                    if (native_query_failures <= native_selector_transient_retry_limit and stdio.nowMs() < deadline) {
+                        try sleepMs(options.poll_ms);
+                        continue;
+                    }
+                    native_query_failed = true;
+                    break :blk null;
+                }
+                return err;
+            };
+            if (!native_query_failed) native_query_failures = 0;
+            if (!native_query_failed) {
+                if (native_result) |visible| {
+                    if (visible) {
+                        if (writer) |tw| try runner_events.recordNativeScrollUntilVisible(
+                            tw,
+                            wanted,
+                            if (direction == .down) "down" else "up",
+                            timeout_ms,
+                        );
+                        return true;
+                    }
+                    if (stdio.nowMs() >= deadline) {
+                        if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "ui.scrollUntilVisible", &[_]selector.Selector{wanted}, timeout_ms);
+                        return false;
+                    }
+                    try scrollDevice(device, direction, writer, options);
+                    continue;
+                }
+            }
+        } else if (hasNativeSelectorQuery(device)) {
+            if (writer) |tw| try runner_events.recordNativeWaitTimeoutWithDiagnostics(device, tw, "ui.scrollUntilVisible", &[_]selector.Selector{wanted}, timeout_ms);
+            return false;
+        }
+
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "ui.scrollUntilVisible", writer, deadline, options)) continue;
             return err;
@@ -385,29 +462,7 @@ pub fn scrollUntilVisible(
             return false;
         }
 
-        const width = if (snap.viewport.width == 0) @as(i32, 720) else @as(i32, @intCast(snap.viewport.width));
-        const height = if (snap.viewport.height == 0) @as(i32, 1280) else @as(i32, @intCast(snap.viewport.height));
-        const x = @divTrunc(width, 2);
-        const start_y = switch (direction) {
-            .down => @divTrunc(height * 4, 5),
-            .up => @divTrunc(height * 3, 10),
-        };
-        const end_y = switch (direction) {
-            .down => @divTrunc(height * 3, 10),
-            .up => @divTrunc(height * 4, 5),
-        };
-        try device.swipe(x, start_y, x, end_y, 350);
-        if (writer) |tw| {
-            const payload = try std.fmt.allocPrint(tw.allocator, "{{\"direction\":\"{s}\",\"x\":{d},\"y1\":{d},\"y2\":{d}}}", .{
-                if (direction == .down) "down" else "up",
-                x,
-                start_y,
-                end_y,
-            });
-            defer tw.allocator.free(payload);
-            try tw.recordEvent("ui.scroll", payload);
-        }
-        try settleDevice(device, options);
+        try scrollDeviceWithViewport(device, direction, writer, options, snap.viewport);
     }
 }
 
@@ -421,7 +476,13 @@ fn nativeVisibleBySelector(device: anytype, wanted: selector.Selector, timeout_m
     return try device.visibleBySelector(wanted);
 }
 
-fn nativeSelectorQueryTimeoutMs(deadline: i64) ?u64 {
+fn nativeSelectorQueryTimeoutMs(deadline: i64, options: RunOptions) ?u64 {
+    const remaining_ms = nativeSelectorRemainingTimeoutMs(deadline) orelse return null;
+    if (options.action_timeout_ms == 0) return remaining_ms;
+    return @max(@as(u64, 1), @min(remaining_ms, options.action_timeout_ms));
+}
+
+fn nativeSelectorRemainingTimeoutMs(deadline: i64) ?u64 {
     const now = stdio.nowMs();
     if (now >= deadline) return null;
     return @as(u64, @intCast(deadline - now));
@@ -432,6 +493,16 @@ fn nativeHealthProbeTimeoutMs(timeout_ms: u64, options: RunOptions) u64 {
     probe_timeout_ms = @min(probe_timeout_ms, native_health_probe_timeout_ms);
     if (options.action_timeout_ms > 0) probe_timeout_ms = @min(probe_timeout_ms, options.action_timeout_ms);
     return @max(probe_timeout_ms, 1);
+}
+
+fn recordTransientNativeSelectorObservation(
+    err: anyerror,
+    kind: []const u8,
+    writer: ?*trace.TraceWriter,
+) !bool {
+    if (err != error.CommandTimedOut and err != error.CommandFailed) return false;
+    if (writer) |tw| try runner_events.recordObservationRetry(tw, kind, err);
+    return true;
 }
 
 fn retryTransientObservation(
@@ -446,6 +517,54 @@ fn retryTransientObservation(
     if (writer) |tw| try runner_events.recordObservationRetry(tw, kind, err);
     try sleepMs(options.poll_ms);
     return true;
+}
+
+fn scrollDevice(
+    device: anytype,
+    direction: scenario.ScrollDirection,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+) !void {
+    try scrollDeviceWithViewport(device, direction, writer, options, try scrollViewport(device));
+}
+
+fn scrollViewport(device: anytype) !@import("types.zig").Viewport {
+    if (@hasDecl(@TypeOf(device.*), "scrollViewport")) {
+        return try device.scrollViewport();
+    }
+    return .{};
+}
+
+fn scrollDeviceWithViewport(
+    device: anytype,
+    direction: scenario.ScrollDirection,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+    viewport: @import("types.zig").Viewport,
+) !void {
+    const width = if (viewport.width == 0) @as(i32, 720) else @as(i32, @intCast(viewport.width));
+    const height = if (viewport.height == 0) @as(i32, 1280) else @as(i32, @intCast(viewport.height));
+    const x = @divTrunc(width, 2);
+    const start_y = switch (direction) {
+        .down => @divTrunc(height * 4, 5),
+        .up => @divTrunc(height * 3, 10),
+    };
+    const end_y = switch (direction) {
+        .down => @divTrunc(height * 3, 10),
+        .up => @divTrunc(height * 4, 5),
+    };
+    try device.swipe(x, start_y, x, end_y, 350);
+    if (writer) |tw| {
+        const payload = try std.fmt.allocPrint(tw.allocator, "{{\"direction\":\"{s}\",\"x\":{d},\"y1\":{d},\"y2\":{d}}}", .{
+            if (direction == .down) "down" else "up",
+            x,
+            start_y,
+            end_y,
+        });
+        defer tw.allocator.free(payload);
+        try tw.recordEvent("ui.scroll", payload);
+    }
+    try settleDevice(device, options);
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {

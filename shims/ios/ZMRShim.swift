@@ -5,6 +5,8 @@ struct ZMRShimCommand: Decodable {
     let cmd: String
     let selector: String?
     let text: String?
+    let url: String?
+    let expoDevClientFallback: Bool?
     let x: Int?
     let y: Int?
     let x1: Int?

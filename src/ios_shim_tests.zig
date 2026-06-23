@@ -21,8 +21,10 @@ test "ios shim accept system alert command json is stable" {
     try ios_shim.writeCommandJson(&out.writer, .{
         .kind = .accept_system_alert,
         .text = "Open",
+        .url = "exampleapp:///probe",
+        .expo_dev_client_fallback = true,
     });
-    try std.testing.expectEqualStrings("{\"cmd\":\"acceptSystemAlert\",\"text\":\"Open\"}\n", out.written());
+    try std.testing.expectEqualStrings("{\"cmd\":\"acceptSystemAlert\",\"text\":\"Open\",\"url\":\"exampleapp:///probe\",\"expoDevClientFallback\":true}\n", out.written());
 }
 
 test "ios shim screenshot command and response are stable" {
@@ -38,6 +40,23 @@ test "ios shim screenshot command and response are stable" {
     defer allocator.free(png);
     try std.testing.expectEqual(@as(usize, 24), png.len);
     try std.testing.expect(std.mem.eql(u8, png[0..8], "\x89PNG\r\n\x1a\n"));
+}
+
+test "ios shim viewport command and response are stable" {
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try ios_shim.writeCommandJson(&out.writer, .{ .kind = .viewport });
+    try std.testing.expectEqualStrings("{\"cmd\":\"viewport\"}\n", out.written());
+
+    const viewport = try ios_shim.parseViewportResponse(
+        \\{"status":"ok","viewport":{"width":390,"height":844}}
+    );
+    try std.testing.expectEqual(@as(u32, 390), viewport.width);
+    try std.testing.expectEqual(@as(u32, 844), viewport.height);
+    try std.testing.expectError(error.IosShimMissingViewport, ios_shim.parseViewportResponse("{\"status\":\"ok\"}"));
+    try std.testing.expectError(error.IosShimInvalidViewport, ios_shim.parseViewportResponse(
+        \\{"status":"ok","viewport":{"width":0,"height":844}}
+    ));
 }
 
 test "ios shim selector strings map public selectors to XCTest fields" {

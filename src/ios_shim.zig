@@ -5,6 +5,7 @@ const types = @import("types.zig");
 
 pub const CommandKind = enum {
     snapshot,
+    viewport,
     screenshot,
     tap,
     type_text,
@@ -22,6 +23,8 @@ pub const Command = struct {
     kind: CommandKind,
     selector: ?[]const u8 = null,
     text: ?[]const u8 = null,
+    url: ?[]const u8 = null,
+    expo_dev_client_fallback: bool = false,
     x: ?i32 = null,
     y: ?i32 = null,
     x1: ?i32 = null,
@@ -42,6 +45,19 @@ pub const SnapshotResponse = struct {
     }
 };
 
+pub fn parseViewportResponse(content: []const u8) !types.Viewport {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), content, .{});
+    if (parsed.value != .object) return error.IosShimResponseMustBeObject;
+    const status = fieldString(parsed.value.object, "status") orelse return error.IosShimMissingStatus;
+    if (!std.mem.eql(u8, status, "ok")) return error.IosShimResponseNotOk;
+    const viewport_value = parsed.value.object.get("viewport") orelse return error.IosShimMissingViewport;
+    const viewport = parseViewport(viewport_value);
+    if (viewport.width == 0 or viewport.height == 0) return error.IosShimInvalidViewport;
+    return viewport;
+}
+
 pub fn writeCommandJson(writer: anytype, command: Command) !void {
     try writer.writeAll("{\"cmd\":");
     try trace.writeJsonString(writer, commandName(command.kind));
@@ -52,6 +68,13 @@ pub fn writeCommandJson(writer: anytype, command: Command) !void {
     if (command.text) |text| {
         try writer.writeAll(",\"text\":");
         try trace.writeJsonString(writer, text);
+    }
+    if (command.url) |url| {
+        try writer.writeAll(",\"url\":");
+        try trace.writeJsonString(writer, url);
+    }
+    if (command.expo_dev_client_fallback) {
+        try writer.writeAll(",\"expoDevClientFallback\":true");
     }
     if (command.x) |value| try writer.print(",\"x\":{d}", .{value});
     if (command.y) |value| try writer.print(",\"y\":{d}", .{value});
@@ -270,6 +293,7 @@ pub fn selectorString(allocator: std.mem.Allocator, wanted: selectors.Selector) 
 fn commandName(kind: CommandKind) []const u8 {
     return switch (kind) {
         .snapshot => "snapshot",
+        .viewport => "viewport",
         .screenshot => "screenshot",
         .tap => "tap",
         .type_text => "type",

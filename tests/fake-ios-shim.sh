@@ -12,6 +12,9 @@ case "$request" in
 {"status":"ok","nodes":[{"id":"continue-button","type":"XCUIElementTypeButton","label":"Continue","value":"Continue","identifier":"continue_button","bounds":{"x":0,"y":0,"width":1,"height":1},"enabled":true,"visible":true,"selected":false}]}
 JSON
     ;;
+  *'"cmd":"viewport"'*)
+    printf '{"status":"ok","viewport":{"width":390,"height":844}}\n'
+    ;;
   *'"cmd":"query"'*)
     printf '{"status":"ok","exists":true}\n'
     ;;

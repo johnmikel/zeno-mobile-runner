@@ -435,6 +435,7 @@ test("npm package excludes internal tests caches traces and build outputs", () =
     /^scripts\/__pycache__\//,
     /^scripts\/_cod[e]x_write_test\.txt$/,
     /^scripts\/python_redirect_test\.txt$/,
+    /^scripts\/verify-release-version\.sh$/,
     /^tests\/__pycache__\//,
     /(^|\/)__pycache__\//,
     /\.pyc$/,
@@ -489,7 +490,7 @@ test("shipped language-client package metadata matches the runner prerelease", (
   assert.match(rustManifest, new RegExp(`^version = "${pkg.version}"$`, "m"));
   assert.match(pythonManifest, new RegExp(`^version = "${pkg.version.replaceAll(".", "\\.")}\\.dev1"$`, "m"));
   assert.match(kotlinBuild, new RegExp(`^version = "${pkg.version}"$`, "m"));
-  // Guard against docs drifting to an ambiguous "0.2.14-dev" without the numeric suffix.
+  // Guard against docs drifting to an ambiguous "0.2.15-dev" without the numeric suffix.
   assert.doesNotMatch(features, /0\.1\.1-dev(?!\.\d)/);
   assert.match(features, new RegExp(pkg.version.replaceAll(".", "\\.")));
 });
@@ -547,7 +548,7 @@ test("packed npm package postinstall builds a runnable zmr binary", () => {
       encoding: "utf8",
     });
     assert.equal(version.status, 0, version.stderr + version.stdout);
-    assert.equal(JSON.parse(version.stdout).version, "0.2.14");
+    assert.equal(JSON.parse(version.stdout).version, "0.2.15");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

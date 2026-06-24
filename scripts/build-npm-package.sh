@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 VERSION="${ZMR_VERSION:-$(awk -F'"' '/runner_version/ { print $2; exit }' "$ROOT/src/version.zig")}"
 
+"$ROOT/scripts/verify-release-version.sh" --expected "$VERSION" >/dev/null
 ./scripts/build-release.sh
 
 rm -rf prebuilds

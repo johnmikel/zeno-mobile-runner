@@ -6,6 +6,8 @@ DIST="$ROOT/dist"
 VERSION="${ZMR_VERSION:-$(awk -F'"' '/runner_version/ { print $2; exit }' "$ROOT/src/version.zig")}"
 RELEASE_BASE_URL="${ZMR_RELEASE_BASE_URL:-https://github.com/johnmikel/zeno-mobile-runner/releases/download/v$VERSION}"
 
+"$ROOT/scripts/verify-release-version.sh" --expected "$VERSION" >/dev/null
+
 if ! command -v zig >/dev/null 2>&1; then
   echo "zig is required" >&2
   exit 127

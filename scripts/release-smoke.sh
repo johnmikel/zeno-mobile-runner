@@ -42,6 +42,14 @@ for archive in "$@"; do
   fi
 
   matched=1
+  archive_name="$(basename "$archive")"
+  expected_version="${archive_name#zmr-}"
+  expected_version="${expected_version%-$target.tar.gz}"
+  if [[ "$expected_version" == "$archive_name" || -z "$expected_version" ]]; then
+    echo "could not infer release version from archive name: $archive_name" >&2
+    exit 1
+  fi
+
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
@@ -52,7 +60,14 @@ for archive in "$@"; do
     exit 1
   fi
 
-  "$package_dir/zmr" version
+  version_output="$("$package_dir/zmr" version)"
+  printf '%s\n' "$version_output"
+  reported_version="$(awk '$1 == "zmr" { print $2; exit }' <<< "$version_output")"
+  if [[ "$reported_version" != "$expected_version" ]]; then
+    echo "release archive version mismatch for $archive_name: expected $expected_version, reported ${reported_version:-<unknown>}" >&2
+    exit 1
+  fi
+
   "$package_dir/zmr" validate "$package_dir/examples/demo-fake.json"
 
   trace_dir="$tmp/minimal-trace"

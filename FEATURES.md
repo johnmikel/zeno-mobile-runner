@@ -142,7 +142,7 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 ## Current Limitations
 
-- Current release status is `0.2.14`, a public developer preview rather than
+- Current release status is `0.2.15`, a public developer preview rather than
   a production-stable `1.0.0`.
 - Physical iOS log capture is still simulator-first. Physical iOS screenshots
   are available when the XCTest/XCUIAutomation shim is configured.

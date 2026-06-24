@@ -4,6 +4,17 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.15 (2026-06-24)
+
+### Fixed
+
+- Generated iOS shim commands now remove app-local ZMR-owned derived data paths
+  ending in `ZMRDerivedData` before `build-for-testing` refreshes. This avoids
+  reusing stale Xcode absolute paths when app checkouts are copied, while
+  refusing to delete arbitrary shared DerivedData locations.
+- Release gates now verify that `ZMR_VERSION`, `package.json`, `src/version.zig`,
+  archive names, and release-smoked binaries agree before publishing.
+
 ## 0.2.14 (2026-06-23)
 
 ### Added

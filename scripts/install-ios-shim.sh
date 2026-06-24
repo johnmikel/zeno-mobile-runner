@@ -223,6 +223,7 @@ READY_FILE="\$SERVER_DIR/ready"
 DESTINATION_ID_FILE="\$STATE_DIR/destination.id"
 BUILD_READY_FILE="\$STATE_DIR/build-for-testing.ready"
 LOG_FILE="\$STATE_DIR/xcodebuild.log"
+DERIVED_DATA_PATH_VALUE="$DERIVED_DATA_PATH"
 STDIN_FILE="\$(mktemp)"
 trap 'rm -f "\$STDIN_FILE"' EXIT
 
@@ -332,6 +333,31 @@ destination_spec() {
   printf 'platform=%s,id=%s' "\$platform_name" "\$destination_id"
 }
 
+clean_zmr_derived_data() {
+  if [[ -z "\$DERIVED_DATA_PATH_VALUE" ]]; then
+    return 0
+  fi
+
+  local derived_data_abs
+  if [[ "\$DERIVED_DATA_PATH_VALUE" == /* ]]; then
+    derived_data_abs="\$DERIVED_DATA_PATH_VALUE"
+  else
+    derived_data_abs="$APP_ROOT/\$DERIVED_DATA_PATH_VALUE"
+  fi
+  while [[ "\$derived_data_abs" == */ && "\$derived_data_abs" != "/" ]]; do
+    derived_data_abs="\${derived_data_abs%/}"
+  done
+
+  case "\$derived_data_abs" in
+    "$APP_ROOT/ZMRDerivedData"|"$APP_ROOT"/*/ZMRDerivedData)
+      rm -rf "\$derived_data_abs"
+      ;;
+    *)
+      echo "warning: refusing to delete non-ZMR derived data path: \$DERIVED_DATA_PATH_VALUE" >&2
+      ;;
+  esac
+}
+
 is_server_running() {
   if [[ ! -f "\$PID_FILE" ]]; then
     return 1
@@ -399,6 +425,7 @@ build_for_testing() {
   local destination_id build_log
   destination_id="\$(destination_spec)"
   build_log="\$STATE_DIR/xcodebuild.build.log"
+  clean_zmr_derived_data
 
   run_xcodebuild_with_timeout "iOS shim build-for-testing" "\${ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS:-5400}" "\$build_log" \\
     xcodebuild build-for-testing \\

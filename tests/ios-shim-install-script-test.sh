@@ -133,6 +133,100 @@ grep -q 'ZMR_SHIM_REQUEST_FILE' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 grep -q 'ZMR_SHIM_MODE' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 grep -q 'ZMR_SHIM_SERVER_DIR' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 
+mkdir -p "$TMPDIR/fake-bin" "$TMPDIR/app/ios/build/ZMRDerivedData"
+touch "$TMPDIR/app/ios/build/ZMRDerivedData/stale.txt"
+
+cat > "$TMPDIR/fake-bin/xcrun" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "simctl" && "${2:-}" == "list" && "${3:-}" == "devices" ]]; then
+  case "${4:-}" in
+    booted|available)
+      echo "    iPhone 15 (11111111-1111-1111-1111-111111111111) (Booted)"
+      exit 0
+      ;;
+  esac
+fi
+
+echo "unexpected xcrun args: $*" >&2
+exit 2
+SH
+chmod +x "$TMPDIR/fake-bin/xcrun"
+
+cat > "$TMPDIR/fake-bin/xcodebuild" <<SH
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "\$*" >> "$TMPDIR/xcodebuild.log"
+
+if [[ "\$*" == *"build-for-testing"* ]]; then
+  if [[ -e "$TMPDIR/app/ios/build/ZMRDerivedData/stale.txt" ]]; then
+    echo "stale derived data was not cleaned before build-for-testing" >&2
+    exit 42
+  fi
+  exit 0
+fi
+
+if [[ "\$*" == *"test-without-building"* ]]; then
+  server_dir=""
+  for arg in "\$@"; do
+    case "\$arg" in
+      ZMR_SHIM_SERVER_DIR=*)
+        server_dir="\${arg#ZMR_SHIM_SERVER_DIR=}"
+        ;;
+    esac
+  done
+  if [[ -z "\$server_dir" ]]; then
+    echo "missing ZMR_SHIM_SERVER_DIR" >&2
+    exit 2
+  fi
+  touch "\$server_dir/ready"
+  deadline=\$((SECONDS + 5))
+  while (( SECONDS < deadline )); do
+    for request_file in "\$server_dir"/request-*.json; do
+      [[ -e "\$request_file" ]] || continue
+      request_id="\${request_file##*/request-}"
+      request_id="\${request_id%.json}"
+      response_file="\$server_dir/response-\$request_id.json"
+      printf '{"status":"ok","state":"runningForeground"}\n' > "\$response_file"
+      while [[ -f "\$response_file" && SECONDS -lt deadline ]]; do
+        sleep 0.05
+      done
+      exit 0
+    done
+    sleep 0.05
+  done
+  echo "timed out waiting for generated shim request" >&2
+  exit 1
+fi
+
+echo "unexpected xcodebuild args: \$*" >&2
+exit 2
+SH
+chmod +x "$TMPDIR/fake-bin/xcodebuild"
+
+printf '{"cmd":"appState"}\n' | PATH="$TMPDIR/fake-bin:$PATH" "$TMPDIR/app/.zmr/ios-shim" > "$TMPDIR/derived-data-response.json"
+grep -q '"status":"ok"' "$TMPDIR/derived-data-response.json"
+test ! -e "$TMPDIR/app/ios/build/ZMRDerivedData/stale.txt"
+grep -q -- '-derivedDataPath ios/build/ZMRDerivedData' "$TMPDIR/xcodebuild.log"
+
+"$ROOT/scripts/install-ios-shim.sh" \
+  --app-root "$TMPDIR/shared-derived-data-app" \
+  --scheme SampleUITests \
+  --app-target SampleApp \
+  --project ios/Sample.xcodeproj \
+  --derived-data-path ios/build \
+  --bundle-id com.example.mobiletest \
+  --device booted
+
+mkdir -p "$TMPDIR/shared-derived-data-app/ios/build"
+touch "$TMPDIR/shared-derived-data-app/ios/build/stale.txt"
+printf '{"cmd":"appState"}\n' | PATH="$TMPDIR/fake-bin:$PATH" "$TMPDIR/shared-derived-data-app/.zmr/ios-shim" > "$TMPDIR/shared-derived-data-response.json" 2> "$TMPDIR/shared-derived-data-stderr.txt"
+grep -q '"status":"ok"' "$TMPDIR/shared-derived-data-response.json"
+grep -q 'refusing to delete non-ZMR derived data path: ios/build' "$TMPDIR/shared-derived-data-stderr.txt"
+test -e "$TMPDIR/shared-derived-data-app/ios/build/stale.txt"
+
 "$ROOT/scripts/install-ios-shim.sh" \
   --app-root "$TMPDIR/physical-app" \
   --scheme SampleUITests \

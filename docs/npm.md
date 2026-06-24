@@ -333,7 +333,10 @@ The generated command caches `build-for-testing` output under
 prints the last Xcode log lines when XCTest fails. Set
 `ZMR_IOS_SHIM_FORCE_REBUILD=1` after app-side target changes, or
 `ZMR_IOS_SHIM_ONESHOT=1` for a cold-start fallback while debugging app-side Xcode
-wiring.
+wiring. When `--derived-data-path` points at a ZMR-owned path ending in
+`ZMRDerivedData`, the generated command removes that directory before each
+`build-for-testing` refresh so copied app checkouts do not reuse stale absolute
+Xcode paths. It refuses to delete arbitrary shared DerivedData locations.
 
 ## Native Binary Resolution
 

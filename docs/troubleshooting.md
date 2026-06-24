@@ -208,8 +208,10 @@ This avoids failing the whole demo when one local simulator cannot start
 `launchd_sim`, while still surfacing a setup error if every available simulator
 fails to boot.
 
-If a previous Xcode build was interrupted, remove only the app-local ZMR derived
-data path configured for the shim, then rerun the shim once to prewarm it:
+The generated shim now removes app-local ZMR derived data paths ending in
+`ZMRDerivedData` before each `build-for-testing` refresh. If you intentionally
+configured a different shared DerivedData path, clean only the app-local ZMR
+cache you own, then rerun the shim once to prewarm it:
 
 ```bash
 rm -rf ios/build/ZMRDerivedData

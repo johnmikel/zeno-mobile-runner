@@ -101,6 +101,10 @@ with `--ios-shim`. It caches `build-for-testing` output and uses
 `test-without-building` for selector commands through `.zmr/ios-shim-state/`.
 Set `ZMR_IOS_SHIM_FORCE_REBUILD=1` after app-side target changes, or
 `ZMR_IOS_SHIM_ONESHOT=1` when you need to debug the slower cold-start path.
+When `--derived-data-path` points at a ZMR-owned path ending in
+`ZMRDerivedData`, the generated shim removes that directory before each
+`build-for-testing` refresh so copied app checkouts do not reuse stale absolute
+Xcode paths. It refuses to delete arbitrary shared DerivedData locations.
 
 ## Recommended App Repo Layout
 

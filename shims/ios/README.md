@@ -19,7 +19,10 @@ Current status:
   selector commands through `test-without-building`, exchanging per-command
   files under `.zmr/ios-shim-state/`. Set `ZMR_IOS_SHIM_FORCE_REBUILD=1` to
   refresh the cached test bundle, or `ZMR_IOS_SHIM_ONESHOT=1` to force the
-  slower one-command XCTest fallback for debugging.
+  slower one-command XCTest fallback for debugging. When configured with a
+  ZMR-owned derived data path ending in `ZMRDerivedData`, the command removes
+  that directory before each `build-for-testing` refresh and refuses to delete
+  arbitrary shared DerivedData paths.
 - The iOS adapter still uses `xcrun simctl` for simulator install, launch,
   terminate, open link, screenshots, and logs. It uses `xcrun devicectl` for
   physical-device lifecycle where Apple exposes a supported local command, and

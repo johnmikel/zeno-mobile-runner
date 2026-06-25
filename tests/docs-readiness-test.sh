@@ -138,6 +138,7 @@ require_grep 'zmr validate --json .zmr/login-smoke.json' README.md
 require_grep 'zmr run .zmr/login-smoke.json --json --trace-dir traces/login-smoke' README.md
 require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html --junit traces/login-smoke/junit.xml' README.md
 require_grep 'zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact' README.md
+require_grep 'zmr-support-evidence --out .zmr/support-evidence' README.md
 require_grep 'nextCommands' README.md
 require_grep 'viewer/index.html?bundle=' README.md
 require_grep 'ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS' README.md
@@ -191,6 +192,10 @@ require_grep 'zmr-create-react-native-expo-demo-app' docs/frameworks.md
 require_grep 'Expo development builds' docs/frameworks.md
 require_grep 'TypeScript and Python are the most common starting points' docs/clients.md
 require_grep 'Go, Rust, Swift, and Kotlin are reference integrations' docs/clients.md
+require_grep 'zmr-support-evidence' docs/support-matrix.md
+require_grep 'iPad evidence stays separate from iPhone evidence' docs/support-matrix.md
+require_grep 'support evidence kit' docs/production-readiness.md
+require_grep 'zmr-support-evidence' docs/ai-agents.md
 
 require_not_grep 'registry package is pending publish' README.md
 require_not_grep 'Available after the npm registry package is published' README.md

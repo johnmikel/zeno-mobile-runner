@@ -189,6 +189,17 @@ comparisons against your current E2E tool, and multi-device matrices, see
 [docs/benchmarking.md](docs/benchmarking.md) and the public
 [Benchmark Lab](docs/benchmarks/README.md) evidence.
 
+To collect product-support evidence before claiming Android, iPhone, or iPad
+readiness for your app, generate the app-local evidence kit first:
+
+```bash
+zmr-support-evidence --out .zmr/support-evidence --app-id com.example.mobiletest
+```
+
+The kit writes a device matrix template, pilot commands, and a support-claim
+checklist. Fill in device ids and app artifacts, run the 20-run gates, then
+attach redacted trace bundles and reports to the release or product review.
+
 ## Platform Support
 
 | Target | Status | Notes |
@@ -241,6 +252,8 @@ ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
 - [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
 - [docs/expo-smoke.md](docs/expo-smoke.md): reproducible Expo and iOS smoke test
 - [docs/benchmarking.md](docs/benchmarking.md): repeat-run gates, reports, device matrix, baselines
+- `zmr-support-evidence --out .zmr/support-evidence`: generate app-local
+  Android/iPhone/iPad evidence templates before making support claims
 
 **Reference**
 

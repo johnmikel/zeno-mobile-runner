@@ -62,6 +62,16 @@ Use repeated app-local pilots before making app or device claims. A single green
 demo proves wiring; a 20-run pilot proves reliability for a target class:
 
 ```bash
+zmr-support-evidence \
+  --out .zmr/support-evidence \
+  --app-id com.example.mobiletest
+```
+
+The support evidence kit writes a device matrix template, target-specific pilot
+commands, and a claim checklist. Fill in the real device ids and app artifacts
+before running the gates below.
+
+```bash
 zmr-pilot-gate \
   --android \
   --ios \

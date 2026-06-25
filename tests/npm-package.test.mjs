@@ -375,6 +375,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.equal(pkg.bin["zmr-compare-benchmarks"], "scripts/compare-benchmarks.py");
   assert.equal(pkg.bin["zmr-device-matrix"], "scripts/device-matrix.sh");
   assert.equal(pkg.bin["zmr-pilot-gate"], "scripts/pilot-gate.sh");
+  assert.equal(pkg.bin["zmr-support-evidence"], "scripts/support-evidence-kit.sh");
   assert.equal(pkg.bin["zmr-assert-ios-physical-ready"], "scripts/assert-ios-physical-ready.sh");
   assert.equal(pkg.bin["zmr-install-android-shim"], "scripts/install-android-shim.sh");
   assert.equal(pkg.bin["zmr-install-ios-shim"], "scripts/install-ios-shim.sh");
@@ -457,6 +458,7 @@ test("npm package excludes internal tests caches traces and build outputs", () =
     /^docs\/roadmap\.md$/,
     /^docs\/shipping\.md$/,
     /^docs\/dsl\.md$/,
+    /^docs\/superpowers\//,
   ];
 
   for (const filePath of paths) {
@@ -595,6 +597,7 @@ test("packed npm package installs in a temp app and drives zmr through .zmr", ()
     assert.match(tarList.stdout, /package\/scripts\/benchmark_gate\.py/);
     assert.match(tarList.stdout, /package\/scripts\/benchmark-command\.sh/);
     assert.match(tarList.stdout, /package\/scripts\/pilot-gate\.sh/);
+    assert.match(tarList.stdout, /package\/scripts\/support-evidence-kit\.sh/);
     assert.match(tarList.stdout, /package\/scripts\/release-readiness\.sh/);
     assert.doesNotMatch(tarList.stdout, /package\/scripts\/release-candidate\.sh/);
     assert.doesNotMatch(tarList.stdout, /package\/scripts\/release-gate\.sh/);

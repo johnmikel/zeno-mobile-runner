@@ -6,6 +6,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Added
 
+- Added `zmr-support-evidence`, a generator for app-local Android, iPhone, and
+  iPad support evidence kits with matrix templates, pilot commands, and claim
+  checklists.
 - Added a support matrix covering Android, iPhone, iPad, tvOS, watchOS, cloud
   device farms, and the evidence required before making stronger product
   claims.

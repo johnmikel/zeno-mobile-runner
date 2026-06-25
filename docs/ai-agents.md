@@ -241,6 +241,15 @@ Teams that collect repeated app/device pilot rows can evaluate claim readiness
 with:
 
 ```bash
+zmr-support-evidence --out .zmr/support-evidence --app-id com.example.mobiletest
+```
+
+Agents should use the generated files as scaffolding: update placeholder device
+ids, keep iPad rows separate from iPhone rows, run the generated
+`zmr-device-matrix` and `zmr-pilot-gate` commands, then summarize only the
+redacted evidence artifacts.
+
+```bash
 zmr-release-readiness --json \
   --evidence traces/zmr-pilots/evidence.jsonl \
   --target production

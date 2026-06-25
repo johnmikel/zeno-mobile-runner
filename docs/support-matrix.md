@@ -9,6 +9,16 @@ in CI without an LLM.
 Support is claimed only when ZMR has lifecycle, observation, selector/action,
 trace, and repeat-run evidence for the target class.
 
+For app-team claims, start by generating an evidence workspace:
+
+```bash
+zmr-support-evidence --out .zmr/support-evidence --app-id com.example.mobiletest
+```
+
+The generated matrix and pilot commands keep Android, iPhone, and iPad targets
+separate while using the existing `zmr-device-matrix` and `zmr-pilot-gate`
+execution paths.
+
 | Target | Status | Evidence standard | Notes |
 | --- | --- | --- | --- |
 | Android emulator | Supported | Public demo smoke plus 20-run pilot gate | ADB/UI Automator, optional Android shim, emulator lifecycle helpers |
@@ -25,7 +35,7 @@ trace, and repeat-run evidence for the target class.
 
 - Production-stable support requires a 20-run pilot gate with zero failures and
   redacted trace/report artifacts.
-- iPad evidence must stay separate from iPhone evidence. The runner path is
+- iPad evidence stays separate from iPhone evidence. The runner path is
   shared, but layouts, split views, and size-class behavior can produce
   different UI trees and selector outcomes.
 - App-owned selectors should come first: `resourceId`/`id`, accessibility

@@ -199,7 +199,7 @@ comparisons against your current E2E tool, and multi-device matrices, see
 Slow CI hardware can extend the generated iOS shim build timeout with
 `ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS`; `ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS`
 bounds each in-flight request, and `ZMR_IOS_SHIM_TIMEOUT_MS` remains the outer
-process ceiling. Current release: `0.2.15` developer preview.
+process ceiling. Current release: `0.2.16` developer preview.
 Protocol version: `2026-04-28`.
 
 ## Optional protocol clients

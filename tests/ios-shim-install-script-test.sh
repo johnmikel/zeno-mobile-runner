@@ -74,6 +74,9 @@ grep -q 'PID_FILE="$STATE_DIR/xcodebuild.pid"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'READY_FILE="$SERVER_DIR/ready"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'DESTINATION_ID_FILE="$STATE_DIR/destination.id"' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'BUILD_READY_FILE="$STATE_DIR/build-for-testing.ready"' "$TMPDIR/app/.zmr/ios-shim"
+grep -q 'BUILD_FINGERPRINT_FILE="$STATE_DIR/build-for-testing.fingerprint"' "$TMPDIR/app/.zmr/ios-shim"
+grep -q 'DERIVED_DATA_CLEAN_FINGERPRINT_FILE="$STATE_DIR/derived-data-clean.fingerprint"' "$TMPDIR/app/.zmr/ios-shim"
+grep -q 'INSTALL_FINGERPRINT_VALUE=' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'ZMR_IOS_SHIM_FORCE_REBUILD' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'request-$REQUEST_ID.json' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'response-$REQUEST_ID.json' "$TMPDIR/app/.zmr/ios-shim"
@@ -85,6 +88,10 @@ grep -q 'run_xcodebuild_with_timeout "iOS shim build-for-testing"' "$TMPDIR/app/
 grep -q 'timed out waiting for $label after' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'xcodebuild build-for-testing' "$TMPDIR/app/.zmr/ios-shim"
 grep -q 'nohup xcodebuild test-without-building' "$TMPDIR/app/.zmr/ios-shim"
+if grep -q 'rm -f "$APP_ROOT/.zmr/ios-shim-state/build-for-testing.ready"' "$ROOT/scripts/install-ios-shim.sh"; then
+  echo "install-ios-shim should preserve build-for-testing readiness when generated inputs are unchanged" >&2
+  exit 1
+fi
 grep -q 'rm -f "$APP_ROOT/.zmr/ios-shim-state/destination.id"' "$ROOT/scripts/install-ios-shim.sh"
 grep -q 'rm -rf "$APP_ROOT/.zmr/ios-shim-state/server"' "$ROOT/scripts/install-ios-shim.sh"
 grep -q 'xcrun simctl list devices available' "$TMPDIR/app/.zmr/ios-shim"
@@ -133,8 +140,12 @@ grep -q 'ZMR_SHIM_REQUEST_FILE' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 grep -q 'ZMR_SHIM_MODE' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 grep -q 'ZMR_SHIM_SERVER_DIR' "$TMPDIR/app/.zmr/ZMRShimUITests-Info.plist"
 
-mkdir -p "$TMPDIR/fake-bin" "$TMPDIR/app/ios/build/ZMRDerivedData"
-touch "$TMPDIR/app/ios/build/ZMRDerivedData/stale.txt"
+mkdir -p \
+  "$TMPDIR/fake-bin" \
+  "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleUITests-Runner.app" \
+  "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleApp.app"
+touch "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleUITests-Runner.app/stale.txt"
+touch "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleApp.app/keep.txt"
 
 cat > "$TMPDIR/fake-bin/xcrun" <<'SH'
 #!/usr/bin/env bash
@@ -161,8 +172,12 @@ set -euo pipefail
 printf '%s\n' "\$*" >> "$TMPDIR/xcodebuild.log"
 
 if [[ "\$*" == *"build-for-testing"* ]]; then
-  if [[ -e "$TMPDIR/app/ios/build/ZMRDerivedData/stale.txt" ]]; then
-    echo "stale derived data was not cleaned before build-for-testing" >&2
+  if [[ -e "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleUITests-Runner.app/stale.txt" ]]; then
+    echo "stale shim product was not cleaned before build-for-testing" >&2
+    exit 42
+  fi
+  if [[ ! -e "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleApp.app/keep.txt" ]]; then
+    echo "non-shim app products should be preserved across shim cleanup" >&2
     exit 42
   fi
   exit 0
@@ -208,8 +223,30 @@ chmod +x "$TMPDIR/fake-bin/xcodebuild"
 
 printf '{"cmd":"appState"}\n' | PATH="$TMPDIR/fake-bin:$PATH" "$TMPDIR/app/.zmr/ios-shim" > "$TMPDIR/derived-data-response.json"
 grep -q '"status":"ok"' "$TMPDIR/derived-data-response.json"
-test ! -e "$TMPDIR/app/ios/build/ZMRDerivedData/stale.txt"
+test ! -e "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleUITests-Runner.app/stale.txt"
+test -e "$TMPDIR/app/ios/build/ZMRDerivedData/Build/Products/Debug-iphonesimulator/SampleApp.app/keep.txt"
 grep -q -- '-derivedDataPath ios/build/ZMRDerivedData' "$TMPDIR/xcodebuild.log"
+
+mkdir -p "$TMPDIR/app/ios/build/ZMRDerivedData"
+touch "$TMPDIR/app/ios/build/ZMRDerivedData/reusable.txt"
+"$ROOT/scripts/install-ios-shim.sh" \
+  --app-root "$TMPDIR/app" \
+  --scheme SampleUITests \
+  --app-target SampleApp \
+  --project ios/Sample.xcodeproj \
+  --derived-data-path ios/build/ZMRDerivedData \
+  --bundle-id com.example.mobiletest \
+  --test-bundle-id com.example.mobiletest.zmr-uitests \
+  --deployment-target 16.0 \
+  --device booted
+
+printf '{"cmd":"appState"}\n' | PATH="$TMPDIR/fake-bin:$PATH" "$TMPDIR/app/.zmr/ios-shim" > "$TMPDIR/reused-build-response.json"
+grep -q '"status":"ok"' "$TMPDIR/reused-build-response.json"
+test -e "$TMPDIR/app/ios/build/ZMRDerivedData/reusable.txt"
+if [[ "$(grep -c 'build-for-testing' "$TMPDIR/xcodebuild.log")" -ne 1 ]]; then
+  echo "ios-shim should skip build-for-testing after reinstalling unchanged generated inputs" >&2
+  exit 1
+fi
 
 "$ROOT/scripts/install-ios-shim.sh" \
   --app-root "$TMPDIR/shared-derived-data-app" \

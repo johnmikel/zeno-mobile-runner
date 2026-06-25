@@ -4,6 +4,18 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.16 (2026-06-25)
+
+### Fixed
+
+- iOS Expo dev-client custom-link recovery now reopens matched project entries
+  from observed launcher state instead of reporting blind coordinate taps as
+  accepted. Visible but non-hittable launcher rows are tapped by their matched
+  frame, keeping recovery selector/state based.
+- Generated iOS shim commands now fingerprint shim inputs and preserve reusable
+  app/Pods build outputs. Reinstalls reuse unchanged `build-for-testing`
+  products, and stale cleanup removes only ZMR shim products/intermediates.
+
 ## 0.2.15 (2026-06-24)
 
 ### Fixed

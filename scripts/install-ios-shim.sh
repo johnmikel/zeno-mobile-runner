@@ -165,8 +165,28 @@ fi
 
 mkdir -p "$APP_ROOT"
 APP_ROOT="$(cd "$APP_ROOT" && pwd)"
-mkdir -p "$APP_ROOT/.zmr" "$APP_ROOT/.zmr/shims/ios"
-rm -f "$APP_ROOT/.zmr/ios-shim-state/build-for-testing.ready"
+SHIM_INSTALL_FINGERPRINT="$(
+  {
+    printf '%s\n' \
+      "$SCHEME" \
+      "$TEST_TARGET" \
+      "$TEST_BUNDLE_ID" \
+      "$WORKSPACE" \
+      "$PROJECT" \
+      "$APP_TARGET" \
+      "$BUNDLE_ID" \
+      "$DERIVED_DATA_PATH" \
+      "$DEVICE_TYPE" \
+      "$CONFIGURATION" \
+      "$DEPLOYMENT_TARGET"
+    shasum -a 256 \
+      "$ROOT/scripts/install-ios-shim.sh" \
+      "$ROOT/scripts/ensure-ios-shim-target.rb" \
+      "$ROOT/shims/ios/ZMRShim.swift" \
+      "$ROOT/shims/ios/ZMRShimUITestCase.swift"
+  } | shasum -a 256 | awk '{print $1}'
+)"
+mkdir -p "$APP_ROOT/.zmr" "$APP_ROOT/.zmr/shims/ios" "$APP_ROOT/.zmr/ios-shim-state"
 rm -f "$APP_ROOT/.zmr/ios-shim-state/destination.id"
 rm -f "$APP_ROOT/.zmr/ios-shim-state/xcodebuild.pid"
 rm -f "$APP_ROOT/.zmr/ios-shim-state/xcodebuild.log"
@@ -222,8 +242,13 @@ PID_FILE="\$STATE_DIR/xcodebuild.pid"
 READY_FILE="\$SERVER_DIR/ready"
 DESTINATION_ID_FILE="\$STATE_DIR/destination.id"
 BUILD_READY_FILE="\$STATE_DIR/build-for-testing.ready"
+BUILD_FINGERPRINT_FILE="\$STATE_DIR/build-for-testing.fingerprint"
+DERIVED_DATA_CLEAN_FINGERPRINT_FILE="\$STATE_DIR/derived-data-clean.fingerprint"
 LOG_FILE="\$STATE_DIR/xcodebuild.log"
 DERIVED_DATA_PATH_VALUE="$DERIVED_DATA_PATH"
+INSTALL_FINGERPRINT_VALUE="$SHIM_INSTALL_FINGERPRINT"
+ZMR_TEST_TARGET_NAME="$TEST_TARGET"
+ZMR_SCHEME_NAME="$SCHEME"
 STDIN_FILE="\$(mktemp)"
 trap 'rm -f "\$STDIN_FILE"' EXIT
 
@@ -337,6 +362,9 @@ clean_zmr_derived_data() {
   if [[ -z "\$DERIVED_DATA_PATH_VALUE" ]]; then
     return 0
   fi
+  if [[ "\${ZMR_IOS_SHIM_FORCE_REBUILD:-}" != "1" && -f "\$DERIVED_DATA_CLEAN_FINGERPRINT_FILE" ]] && [[ "\$(cat "\$DERIVED_DATA_CLEAN_FINGERPRINT_FILE" 2>/dev/null || true)" == "\$INSTALL_FINGERPRINT_VALUE" ]]; then
+    return 0
+  fi
 
   local derived_data_abs
   if [[ "\$DERIVED_DATA_PATH_VALUE" == /* ]]; then
@@ -350,7 +378,13 @@ clean_zmr_derived_data() {
 
   case "\$derived_data_abs" in
     "$APP_ROOT/ZMRDerivedData"|"$APP_ROOT"/*/ZMRDerivedData)
-      rm -rf "\$derived_data_abs"
+      if [[ -d "\$derived_data_abs/Build/Products" ]]; then
+        find "\$derived_data_abs/Build/Products" -depth \\( -name "\$ZMR_TEST_TARGET_NAME*" -o -name "\$ZMR_SCHEME_NAME*" \\) -exec rm -rf {} +
+      fi
+      if [[ -d "\$derived_data_abs/Build/Intermediates.noindex" ]]; then
+        find "\$derived_data_abs/Build/Intermediates.noindex" -depth \\( -name "\$ZMR_TEST_TARGET_NAME.build" -o -name "\$ZMR_SCHEME_NAME.build" \\) -exec rm -rf {} +
+      fi
+      printf '%s\\n' "\$INSTALL_FINGERPRINT_VALUE" > "\$DERIVED_DATA_CLEAN_FINGERPRINT_FILE"
       ;;
     *)
       echo "warning: refusing to delete non-ZMR derived data path: \$DERIVED_DATA_PATH_VALUE" >&2
@@ -418,7 +452,7 @@ wait_for_ready() {
 }
 
 build_for_testing() {
-  if [[ "\${ZMR_IOS_SHIM_FORCE_REBUILD:-}" != "1" && -f "\$BUILD_READY_FILE" ]]; then
+  if [[ "\${ZMR_IOS_SHIM_FORCE_REBUILD:-}" != "1" && -f "\$BUILD_READY_FILE" && -f "\$BUILD_FINGERPRINT_FILE" ]] && [[ "\$(cat "\$BUILD_FINGERPRINT_FILE" 2>/dev/null || true)" == "\$INSTALL_FINGERPRINT_VALUE" ]]; then
     return 0
   fi
 
@@ -437,6 +471,7 @@ build_for_testing() {
       ZMR_SHIM_SERVER_DIR="\$SERVER_DIR" \\
       ZMR_APP_BUNDLE_ID="$BUNDLE_ID"
 
+  printf '%s\\n' "\$INSTALL_FINGERPRINT_VALUE" > "\$BUILD_FINGERPRINT_FILE"
   touch "\$BUILD_READY_FILE"
 }
 

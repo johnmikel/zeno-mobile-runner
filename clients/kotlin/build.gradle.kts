@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.zmr"
-version = "0.2.15"
+version = "0.2.16"
 
 kotlin {
     jvmToolchain(17)

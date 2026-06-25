@@ -2,6 +2,8 @@ import Foundation
 import XCTest
 
 final class ZMRShimUITestCase: XCTestCase {
+    private let expoDevClientRecoveryTimeout: TimeInterval = 10
+
     func testRunZMRCommand() throws {
         let environment = ProcessInfo.processInfo.environment
         let app = makeApplication(bundleIdentifier: shimRuntimeValue("ZMR_APP_BUNDLE_ID", environment: environment))
@@ -318,6 +320,7 @@ final class ZMRShimUITestCase: XCTestCase {
 
         if app.staticTexts["Deep link received:"].waitForExistence(timeout: 1) {
             if tapFirstMatchingExpoCandidate(
+                app: app,
                 queries: [app.buttons, app.cells, app.staticTexts],
                 predicate: predicate
             ) {
@@ -328,12 +331,29 @@ final class ZMRShimUITestCase: XCTestCase {
         if expoDevClientFallback,
            isCustomSchemeURL(openedURL),
            !isExpoDevClientURL(openedURL) {
-            if tapExpoDevClientDeepLinkCoordinateFallback(app: app) {
-                return (true, "expo-dev-client-deep-link-coordinate")
-            }
-            if tapExpoDevClientDeepLinkCandidateFallback(app: app, predicate: predicate) {
+            return waitForExpoDevClientRecovery(app: app, deepLinkPredicate: predicate)
+        }
+
+        return (false, "")
+    }
+
+    private func waitForExpoDevClientRecovery(
+        app: XCUIApplication,
+        deepLinkPredicate: NSPredicate
+    ) -> (accepted: Bool, label: String) {
+        let deadline = Date().addingTimeInterval(expoDevClientRecoveryTimeout)
+        while Date() < deadline {
+            if app.staticTexts["Deep link received:"].exists,
+               tapExpoDevClientDeepLinkCandidateFallback(app: app, predicate: deepLinkPredicate) {
                 return (true, "expo-dev-client-deep-link-candidate")
             }
+
+            let homeSelection = resumeExpoDevClientHome(app: app)
+            if homeSelection.accepted {
+                return homeSelection
+            }
+
+            Thread.sleep(forTimeInterval: 0.2)
         }
 
         return (false, "")
@@ -367,6 +387,7 @@ final class ZMRShimUITestCase: XCTestCase {
 
         let predicate = NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", " http://", " https://")
         if tapFirstMatchingExpoCandidate(
+            app: app,
             queries: [app.buttons, app.cells, app.staticTexts],
             predicate: predicate
         ) {
@@ -399,6 +420,7 @@ final class ZMRShimUITestCase: XCTestCase {
     }
 
     private func tapFirstMatchingExpoCandidate(
+        app: XCUIApplication,
         queries: [XCUIElementQuery],
         predicate: NSPredicate
     ) -> Bool {
@@ -410,17 +432,42 @@ final class ZMRShimUITestCase: XCTestCase {
                     break
                 }
 
-                guard element.isHittable else {
-                    continue
+                if tapMatchedExpoCandidate(element: element, app: app) {
+                    return true
                 }
-
-                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-                Thread.sleep(forTimeInterval: 1.0)
-                return true
             }
         }
 
         return false
+    }
+
+    private func tapMatchedExpoCandidate(element: XCUIElement, app: XCUIApplication) -> Bool {
+        if element.isHittable {
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            Thread.sleep(forTimeInterval: 1.0)
+            return true
+        }
+
+        let visibleFrame = element.frame.intersection(app.frame)
+        guard !visibleFrame.isNull,
+              !visibleFrame.isEmpty,
+              app.frame.width > 0,
+              app.frame.height > 0 else {
+            return false
+        }
+
+        let normalizedX = (visibleFrame.midX - app.frame.minX) / app.frame.width
+        let normalizedY = (visibleFrame.midY - app.frame.minY) / app.frame.height
+        guard normalizedX >= 0,
+              normalizedX <= 1,
+              normalizedY >= 0,
+              normalizedY <= 1 else {
+            return false
+        }
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: normalizedX, dy: normalizedY)).tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        return true
     }
 
     private func isCustomSchemeURL(_ value: String?) -> Bool {
@@ -437,15 +484,9 @@ final class ZMRShimUITestCase: XCTestCase {
         return value.hasPrefix("exp+") && value.contains("://expo-development-client/")
     }
 
-    private func tapExpoDevClientDeepLinkCoordinateFallback(app: XCUIApplication) -> Bool {
-        Thread.sleep(forTimeInterval: 1.5)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        return true
-    }
-
     private func tapExpoDevClientDeepLinkCandidateFallback(app: XCUIApplication, predicate: NSPredicate) -> Bool {
         tapFirstMatchingExpoCandidate(
+            app: app,
             queries: [app.buttons, app.cells, app.staticTexts],
             predicate: predicate
         )

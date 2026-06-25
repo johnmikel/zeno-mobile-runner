@@ -2,8 +2,8 @@
 
 Raw footage comes from `scripts/record-demo-video.sh` (maintainer-only, not in
 the npm package). It produces three simulator recordings, terminal transcripts
-for every beat, traces, and the redacted bundles — all from the generated
-public Expo demo app, so the cut contains no private app references.
+for every beat, traces, and redacted bundles from the generated public Expo demo
+app, so the cut contains no private app references.
 
 Target length: 90–120 seconds. Screen layout: terminal on the left, simulator
 on the right (Screen Studio, ScreenFlow, or iMovie side-by-side).
@@ -29,7 +29,7 @@ catalog → item detail → review screen.
 Terminal shows the real run output from `terminal-a-pass.json` (pretty-print
 the `ok/status/durationMs` fields, then the `nextCommands` block).
 
-> One JSON scenario. ZMR taps, types, waits, asserts — and writes a trace.
+> One JSON scenario. ZMR taps, types, waits, asserts, and writes a trace.
 
 ## Beat 3 — Something breaks (0:40–1:05)
 
@@ -66,7 +66,7 @@ timeline, click the snapshot event, show the device screenshot + UI tree side
 by side. Optionally flash `report.html` and `junit.xml` for the CI crowd.
 
 > Every run ends with proof: screenshots, UI trees, timings, JUnit for CI,
-> and a redacted bundle you can hand to anyone.
+> and a redacted bundle you can review or share.
 
 ## Beat 6 — Close (1:45–2:00)
 
@@ -76,8 +76,8 @@ Terminal types the MCP hookup:
 claude mcp add zmr -- npx zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
-> Zeno Mobile Runner. The verification loop for AI coding agents.
-> npm install zeno-mobile-runner — MIT, runs on your machine.
+> Zeno Mobile Runner. Mobile verification for AI coding agents.
+> npm install zeno-mobile-runner. MIT, runs on your machine.
 
 ## Production notes
 

@@ -1,12 +1,14 @@
 # npm Package
 
-ZMR can be installed in a mobile app codebase as a dev dependency:
+Install the npm package inside a mobile app repo when you want the `zmr` binary,
+setup wizard, app-local scripts, schemas, examples, clients, and agent skill to
+version with the app:
 
 ```bash
 npm install --save-dev zeno-mobile-runner
 ```
 
-The package exposes:
+The package exposes these command surfaces:
 
 - `zmr`: CLI binary wrapper.
 - `zmr-init`: app-local scenario scaffolder.
@@ -44,9 +46,9 @@ The package exposes:
 - packaged docs, schemas, examples, reference clients, and the reusable
   `skills/zmr-mobile-testing` agent skill.
 
-Most app teams can start with `zmr-wizard`, generated smoke scenarios, and
-redacted traces. Use the pilot and readiness helpers when you want repeated
-local evidence for your own app and devices.
+Most app teams should start with `zmr-wizard`, generated smoke scenarios, and
+redacted traces. Use pilot and readiness helpers when you need repeated local
+evidence for your own app and devices.
 
 ## App Setup
 
@@ -67,25 +69,39 @@ This creates:
   AGENTS.md
 ```
 
-`.zmr/config.json` is the app-local source of truth for default devices, trace directories, smoke scenario paths, and suggested script commands. `.zmr/device-matrix.json` gives CI a ready Android/iOS matrix starting point. ZMR auto-discovers config from the app repo, and explicit CLI flags override it. The wizard does not inspect or depend on any other mobile test runner configuration.
-`.zmr/AGENTS.md` gives AI agents an app-local operating note with strict
-doctor/validate commands, schema discovery, direct `zmr run` smoke commands,
-JSON-RPC and MCP startup commands, selector guidance, the exact
-`zmr discover --from-trace traces/zmr-agent --out .zmr/discovered/replay-smoke.json --include-actions --validate --json`
-trace-to-test command,
-`zmr explain traces/zmr-agent --json` failure-triage command, the exact
-`zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact`
-redacted trace export command.
-`zmr-init` and wizard runs without `--package-json` write direct commands in `.zmr/AGENTS.md` so agents can execute the generated guidance immediately.
-`zmr-init` accepts the same platform, shim, and Expo dev-client scaffold flags as the wizard, plus `--package-json` for non-interactive app templates that do not need dependency checks.
-`zmr-init` prints direct `Next steps` commands before the package-script snippet so humans and agents can run the generated smoke, reliability, matrix, pilot, JSON-RPC, MCP, failure-triage, and redacted-export commands without editing `package.json`.
+`.zmr/config.json` is the app-local source of truth for default devices, trace
+directories, smoke scenario paths, and suggested script commands.
+`.zmr/device-matrix.json` gives CI a ready Android/iOS matrix starting point.
+ZMR auto-discovers config from the app repo, and explicit CLI flags override it.
+The wizard does not inspect or depend on any other mobile test runner
+configuration.
+
+`.zmr/AGENTS.md` gives AI agents an app-local operating note with:
+
+- strict doctor and validation commands
+- schema discovery
+- direct `zmr run` smoke commands
+- JSON-RPC and MCP startup commands
+- selector guidance
+- trace-to-test discovery commands
+- failure-triage commands
+- redacted trace export commands
+
+`zmr-init` and wizard runs without `--package-json` write direct commands in
+`.zmr/AGENTS.md` so agents can execute the generated guidance immediately.
+`zmr-init` accepts the same platform, shim, and Expo dev-client scaffold flags
+as the wizard, plus `--package-json` for non-interactive app templates that do
+not need dependency checks.
 For setup scripts and AI agents that need a machine-readable handoff, use
 `npx zmr-init --json --dir . --app-id com.example.mobiletest` or
 `npx zmr-wizard --json --dir . --app-id com.example.mobiletest --android --ios`.
-The JSON form is covered by `schemas/init-output.schema.json` and includes
-the generated config, scenario, Expo dev-client scenario, device matrix, and
+The JSON form is covered by `schemas/init-output.schema.json` and includes the
+generated config, scenario, Expo dev-client scenario, device matrix, and
 `AGENTS.md` paths plus `nextCommands`, `scriptCount`, and `scriptNames`.
-Wizard runs with `--package-json` write npm script commands in `.zmr/AGENTS.md` because the wizard installs those scripts into `package.json`. Run `npm run zmr:validate` after editing generated scenarios and before starting longer smoke, matrix, or pilot runs.
+Wizard runs with `--package-json` write npm script commands in `.zmr/AGENTS.md`
+because the wizard installs those scripts into `package.json`. Run
+`npm run zmr:validate` after editing generated scenarios and before starting
+longer smoke, matrix, or pilot runs.
 
 Add app-local scripts:
 
@@ -130,8 +146,9 @@ npx zmr-wizard \
   --package-json
 ```
 
-The wizard checks Node, ZMR, ADB, `xcrun`, and Zig when applicable. It scaffolds `.zmr` scenarios and can patch `package.json` scripts.
-It also ensures `traces/` is ignored in the app repo.
+The wizard checks Node, ZMR, ADB, `xcrun`, and Zig when applicable. It
+scaffolds `.zmr` scenarios, can patch `package.json` scripts, and ensures
+`traces/` is ignored in the app repo.
 When `--expo-dev-client-scheme` is set, it also writes
 `.zmr/android-dev-client-smoke.json` and `.zmr/ios-dev-client-open-link.json`.
 Package-script setup also adds `zmr:android:dev-client`,
@@ -165,8 +182,9 @@ Rerunning `zmr init --app` refreshes generated `.zmr/config.json`,
 `.zmr/device-matrix.json`, and `.zmr/AGENTS.md` the same way, while preserving
 existing scenario files. Pass `--force` only when you intentionally want to
 replace the generated smoke scenarios too.
-The reliability scripts use `zmr-benchmark` with `100%` pass-rate and zero-failure
-defaults; tune p95 thresholds only after capturing stable local baseline runs.
+The reliability scripts use `zmr-benchmark` with `100%` pass-rate and
+zero-failure defaults. Tune p95 thresholds only after capturing stable local
+baseline runs.
 The wizard only adds `zmr:readiness` for Android+iOS setups because the
 production readiness target requires Android, iOS simulator, and physical iOS
 evidence; single-platform setups should use `zmr:pilot` and the platform

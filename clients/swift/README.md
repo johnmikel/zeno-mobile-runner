@@ -1,7 +1,7 @@
 # ZMR Swift Client
 
-Small Foundation-based client for macOS test harnesses and agents that drive
-`zmr serve --transport stdio`.
+Small Foundation-based client for macOS agents and host-side test harnesses that
+drive `zmr serve --transport stdio`.
 
 Add it to a Swift package. Until this client is published as a standalone Swift
 package, consume it from a local checkout:

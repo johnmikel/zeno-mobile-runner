@@ -1,8 +1,8 @@
 # AI Agent Guide
 
-ZMR is built for external agents. The runner provides device state, typed
-actions, waits, assertions, trace explanation, and trace export; the agent
-decides the next step.
+ZMR gives external agents a mobile control plane. The runner provides device
+state, typed actions, waits, assertions, trace explanation, scenario discovery,
+and redacted export. The agent remains responsible for planning and review.
 
 ```mermaid
 sequenceDiagram
@@ -24,7 +24,8 @@ sequenceDiagram
 
 ## Agent Setup Loop
 
-Start inside the app checkout:
+Start inside the app checkout and gather machine-readable setup state before
+touching a device:
 
 ```bash
 zmr inspect --json --dir .
@@ -34,7 +35,7 @@ zmr validate --json .zmr/ios-smoke.json
 zmr schemas --json
 ```
 
-Use `zmr doctor --strict --json` in CI or setup flows that should fail on any
+Use `zmr doctor --strict --json` in CI or install flows that should fail on any
 warning. Prefer JSON output for automation because it includes stable error
 codes, field paths, and remediation hints.
 
@@ -44,13 +45,14 @@ platform smoke scenario paths, safe next commands, and explicit claim limits.
 
 ## Live JSON-RPC Session
 
-Agents should prefer `zmr serve` for interactive work:
+Use `zmr serve` when an agent needs an interactive session with repeated
+observe-act-assert turns:
 
 ```bash
 zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
-Recommended flow:
+Recommended loop:
 
 1. Call `runner.capabilities` and check protocol/platform support.
 2. Call `session.create`.
@@ -69,7 +71,7 @@ Recommended flow:
 11. Call `trace.export` with `redact: true` before sharing artifacts.
 12. Call `session.close`.
 
-Do not parse screenshots or terminal text when the same fact is available from
+Do not parse screenshots or terminal prose when the same fact is available from
 snapshot nodes, action results, CLI JSON, or trace events.
 
 If `zmr run --json` returns `status: "partial"`, inspect `partialFailure`.
@@ -109,14 +111,16 @@ The MCP server exposes mobile-specific tools:
 - `trace_events`, `trace_explain`, `trace_explore`, `trace_discover`, and
   `trace_export`
 
-Prefer `semantic_snapshot` for action planning. It avoids forcing an agent to
-infer intent from platform-specific Android/UI Automator or XCTest class names.
+Prefer `semantic_snapshot` for action planning. It prevents the agent from
+inferring product intent from platform-specific Android/UI Automator or XCTest
+class names.
 
 ## Agent-Led Discovery
 
-Agents can use ZMR to discover flows and draft scenarios by looping over
-`observe.semanticSnapshot`, one typed action, trace events, and scenario
-validation. After a session has produced trace artifacts, call JSON-RPC
+Agents can use ZMR to turn an exploratory session into a reviewable scenario.
+The safe loop is: observe with `semantic_snapshot`, take one typed action,
+inspect trace events, generate a candidate, validate it, then rerun it
+deterministically. After a session has produced trace artifacts, call JSON-RPC
 `trace.explain` or MCP `trace_explain` for in-band triage, then call JSON-RPC
 `trace.explore` or MCP `trace_explore` when the generated draft should carry a
 stated goal and guardrails. Use JSON-RPC `trace.discover` or MCP
@@ -169,7 +173,7 @@ then commit only reviewed scenario JSON.
 
 ## Scenario File Workflow
 
-For repeatable tests, generate or edit `.zmr/*.json` scenarios:
+For committed tests, generate or edit `.zmr/*.json` scenarios:
 
 ```bash
 zmr validate --json .zmr/login-smoke.json
@@ -178,21 +182,26 @@ zmr explain --json traces/zmr-login-smoke
 zmr export traces/zmr-login-smoke --out traces/zmr-login-smoke-redacted.zmrtrace --redact
 ```
 
-Use stable selectors in this order when available:
+Use stable selectors in this order:
 
 - app accessibility identifiers or resource ids
 - content descriptions or accessibility labels
 - exact visible text for stable product copy
 - `textContains` only when the visible text legitimately varies
+- `stableId` only as a fallback from the current `semantic_snapshot`
 - coordinate actions only as a last resort
 
 Use `waitAny` for screens with legitimate branches, and `whenVisible` for
 optional platform or dev-client screens. Keep credentials and app-private data
 in the app repository or environment, not in public scenarios.
+Prefer app-owned selectors for committed scenario files. `stableId` is useful
+for immediate live-session actions when a semantic node has no better selector,
+but it is less portable than an accessibility identifier or resource id.
 
 ## Failure Triage
 
-When a run fails, inspect:
+When a run fails, inspect structured evidence before changing app code or
+selectors:
 
 - `zmr run --json` terminal summary
 - `zmr explain --json <trace-dir>`
@@ -202,12 +211,12 @@ When a run fails, inspect:
 - the trace viewer report from `zmr report`
 
 Selector failures include active app context, visible text, disabled/hidden or
-offscreen exact candidates, and nearest text matches when available. Treat
-those diagnostics as the source of truth before changing a selector.
+offscreen exact candidates, and nearest text matches when available. Treat those
+diagnostics as the source of truth before changing a selector.
 
 ## Benchmarking
 
-Use ZMR repeated runs first:
+Use repeated ZMR runs before making reliability claims:
 
 ```bash
 zmr-benchmark --zmr .zmr/android-smoke.json --platform android --device emulator-5554 --app-id com.example.mobiletest --app-build <build-id-or-artifact> --runs 20 --trace-root traces/zmr-android-reliability --results traces/bench-comparison/results.jsonl --replace --min-pass-rate 100 --max-failures 0
@@ -228,7 +237,8 @@ candidate and baseline rows for your team to trust the result.
 
 ## Evidence Summaries
 
-Teams that collect repeated app/device pilot rows can evaluate them with:
+Teams that collect repeated app/device pilot rows can evaluate claim readiness
+with:
 
 ```bash
 zmr-release-readiness --json \

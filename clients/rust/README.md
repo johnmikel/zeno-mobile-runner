@@ -1,7 +1,7 @@
 # ZMR Rust Client
 
-Small synchronous JSON-RPC client for driving `zmr serve --transport stdio`
-from Rust agents and test harnesses.
+Small synchronous JSON-RPC client for Rust agents and host-side test harnesses
+that drive `zmr serve --transport stdio`.
 
 ```rust
 let mut client = zmr_client::Client::start(

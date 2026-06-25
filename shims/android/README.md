@@ -1,7 +1,8 @@
 # ZMR Android Shim
 
-This directory contains the native Android instrumentation shim scaffold that
-supplements the current ADB/UI Automator adapter.
+This directory contains the app-local Android instrumentation shim scaffold.
+The shim supplements the ADB/UI Automator adapter; it does not replace the
+public scenario or JSON-RPC contracts.
 
 Current status:
 
@@ -13,7 +14,7 @@ Current status:
   command and copies the instrumentation source file into the app repo for
   inclusion in `androidTest`.
 
-V1 target:
+Target behavior:
 
 - Faster hierarchy retrieval than repeated shell UI Automator dumps.
 - Reliable tap, type, swipe, and key actions with ADB fallback.

@@ -1,11 +1,12 @@
 # Scenario Authoring
 
-ZMR scenarios are JSON so agents can generate and mutate them without a second
-DSL. JSON is strict, schema-validatable, and easy for agents and code generators
-to emit. Keep scenarios explicit, short, and biased toward stable selectors.
+ZMR scenarios are JSON so agents, code generators, and CI scripts can create
+and mutate them without learning another DSL. The parser is strict: validate
+before a device run, keep flows explicit, and bias selectors toward app-owned
+identifiers.
 
-Scenarios can be written by hand, or generated review-first from the trace of
-a live session:
+Scenarios can be written by hand or generated review-first from the trace of a
+live session:
 
 ```mermaid
 flowchart LR
@@ -19,17 +20,22 @@ flowchart LR
 
 ## Selector Strategy
 
-Prefer selectors in this order:
+Prefer selectors in this order for committed scenarios:
 
 1. `id` or `resourceId` for app-owned controls.
 2. `contentDesc` for intentional accessibility labels.
 3. Exact `text` for stable product copy.
 4. `textContains` only for headings, errors, or partial copy that is expected to
    vary.
+5. `stableId` only as a fallback copied from the current `semantic_snapshot`
+   when no app-owned selector exists.
 
 Avoid selecting by text that includes user data, timestamps, counts, prices, or
 network-provided content. Prefer app-owned resource ids or accessibility identifiers
 over widening a selector until it matches unrelated nodes.
+Treat `stableId` as a live-session fallback: it can unblock immediate agent
+actions, but committed CI scenarios should prefer app-owned selectors because UI
+tree shape and fallback IDs can change as layouts evolve.
 
 ## Waits And Assertions
 
@@ -81,7 +87,7 @@ The importer supports the common subset needed for smoke scenarios:
 `hideKeyboard`, `assertVisible`, `assertNotVisible`, `assertHealthy`,
 `openLink`, `back`,
 `scrollUntilVisible`, `takeScreenshot`, and simple wait commands. Review the
-generated JSON before committing it; native `.zmr/*.json` scenarios remain the
+generated JSON before committing it. Native `.zmr/*.json` scenarios remain the
 runtime contract for agents and CI.
 
 Use `setLocation` before location-dependent assertions to set simulator or
@@ -115,4 +121,5 @@ The example directory includes templates for common app flows:
 
 Run `zmr validate --json <scenario.json>` before touching a device. Invalid
 scenarios report `fieldPath`, `line`, and `column` when ZMR can identify the
-source location.
+source location. Unknown root, step, and selector fields are rejected so typos do
+not silently change test intent.

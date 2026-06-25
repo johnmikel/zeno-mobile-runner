@@ -79,6 +79,7 @@ require_file "$xctest_results"
 require_file "$framework_status_doc"
 require_file docs/troubleshooting.md
 require_file docs/trace-privacy.md
+require_file docs/support-matrix.md
 require_file docs/ai-agents.md
 require_file docs/clients.md
 require_file docs/client-installation.md
@@ -116,7 +117,7 @@ for internal_doc in \
 done
 
 require_grep '^# Zeno Mobile Runner$' README.md
-require_grep 'verification loop for AI coding agents' README.md
+require_grep 'Mobile UI automation built for AI coding agents' README.md
 require_grep 'docs/assets/viewer-hero.png' README.md
 require_grep 'docs/assets/device-ios-demo.png' README.md
 require_grep 'docs/assets/device-android-demo.png' README.md
@@ -128,9 +129,9 @@ require_grep 'bun add --dev zeno-mobile-runner' README.md
 require_grep 'npx zmr-wizard --app-id com.example.mobiletest --package-json' README.md
 require_grep 'claude mcp add zmr' README.md
 require_grep 'mcpServers' README.md
-require_grep '## Why agents need this' README.md
-require_grep '## The agent verification loop' README.md
-require_grep '## Deterministic scenarios for CI' README.md
+require_grep '## Why This Exists' README.md
+require_grep '## Agent Verification Loop' README.md
+require_grep '## Deterministic Scenarios For CI' README.md
 require_grep 'clearState' README.md
 require_grep 'assertHealthy' README.md
 require_grep 'zmr validate --json .zmr/login-smoke.json' README.md
@@ -142,12 +143,15 @@ require_grep 'viewer/index.html?bundle=' README.md
 require_grep 'ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS' README.md
 require_grep 'ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS' README.md
 require_grep 'ZMR_IOS_SHIM_TIMEOUT_MS' README.md
-require_grep 'iOS physical device' README.md
+require_grep 'iPhone physical device' README.md
+require_grep 'iPad simulator' README.md
+require_grep 'Apple TV / Apple Watch' README.md
 require_grep 'devicectl' README.md
 require_grep 'Current release: `0.2.16` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
+require_grep 'docs/support-matrix.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
 require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
@@ -186,7 +190,7 @@ require_grep 'does not inspect Flutter widget trees' docs/frameworks.md
 require_grep 'zmr-create-react-native-expo-demo-app' docs/frameworks.md
 require_grep 'Expo development builds' docs/frameworks.md
 require_grep 'TypeScript and Python are the most common starting points' docs/clients.md
-require_grep 'Go, Rust, Swift, and Kotlin clients are reference integrations' docs/clients.md
+require_grep 'Go, Rust, Swift, and Kotlin are reference integrations' docs/clients.md
 
 require_not_grep 'registry package is pending publish' README.md
 require_not_grep 'Available after the npm registry package is published' README.md
@@ -223,7 +227,7 @@ require_grep 'CI workflow retains run traces, coverage output, and built runner 
 require_grep 'agent workflow smoke' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
 require_grep 'Current release status is `0.2.16`' FEATURES.md
-require_grep 'Physical iOS devices through `xcrun devicectl`' FEATURES.md
+require_grep 'Physical iPhone and iPad devices through `xcrun devicectl`' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
 require_grep 'zmr report --junit <report.xml>' CHANGELOG.md
@@ -260,7 +264,7 @@ require_grep 'React Native' docs/frameworks.md
 require_grep 'Expo' docs/frameworks.md
 require_grep 'zmr-create-react-native-expo-demo-app' docs/frameworks.md
 require_grep 'Flutter' docs/frameworks.md
-require_grep 'Flutter apps at the platform level' docs/frameworks.md
+require_grep 'Flutter apps at the Android/iOS app level' docs/frameworks.md
 require_grep 'not inspect Flutter widget trees' docs/frameworks.md
 require_grep 'accessibilityLabel' docs/frameworks.md
 require_grep 'Semantics' docs/frameworks.md
@@ -270,6 +274,8 @@ require_grep 'zmr report traces/zmr-ios --out traces/zmr-ios/report.html' docs/e
 require_grep '--junit traces/zmr-ios/junit.xml' docs/expo-smoke.md
 require_grep 'Production Readiness' docs/production-readiness.md
 require_grep 'Product Gates Before 1.0' docs/production-readiness.md
+require_grep 'iPad simulator' docs/production-readiness.md
+require_grep 'tvOS / watchOS' docs/production-readiness.md
 require_grep 'Release supply chain' docs/production-readiness.md
 require_grep 'trusted publisher must be configured' docs/production-readiness.md
 require_grep 'Agentic Standard' docs/production-readiness.md
@@ -281,6 +287,11 @@ require_grep 'pilot wrapper run that produced both `report.html` and `junit.xml`
 require_grep 'CI runs retain `traces/`, `zig-cache/coverage/`, and `zig-out/bin/zmr` for 14' docs/production-readiness.md
 require_grep 'workflow artifact for 30 days' docs/production-readiness.md
 require_grep 'Do not claim Flutter widget-tree inspection' docs/production-readiness.md
+require_grep 'Support Matrix' docs/support-matrix.md
+require_grep 'iPad physical device' docs/support-matrix.md
+require_grep 'tvOS simulator/device' docs/support-matrix.md
+require_grep 'watchOS simulator/device' docs/support-matrix.md
+require_grep 'stableId` only as a fallback' docs/support-matrix.md
 require_grep 'npm login --auth-type=web' docs/npm.md
 require_grep 'npm whoami' docs/npm.md
 require_grep 'Organization or user: `johnmikel`' docs/npm.md
@@ -340,8 +351,9 @@ require_grep 'ExploreTrace' clients/README.md
 
 require_grep 'ZMR scenarios are JSON' docs/scenario-authoring.md
 require_grep 'resource ids or accessibility identifiers' docs/scenario-authoring.md
+require_grep '`stableId` only as a fallback' docs/scenario-authoring.md
 require_grep 'Architecture Decisions' docs/adr/README.md
-require_grep 'Agent-Native Runner Boundary' docs/adr/0001-agent-native-runner-boundary.md
+require_grep 'Agent-First Runner Boundary' docs/adr/0001-agent-native-runner-boundary.md
 require_grep 'App-Local `.zmr/` Contract' docs/adr/0002-app-local-zmr-contract.md
 require_grep 'iOS XCTest Shim' docs/adr/0003-ios-simulator-xctest-shim.md
 require_grep 'Benchmark Claims And Baseline Collection' docs/adr/0004-benchmark-claims-and-baseline-collection.md
@@ -384,6 +396,7 @@ require_grep 'zmr draft --from-trace traces/zmr-agent' docs/ai-agents.md
 require_grep '--include-actions' docs/ai-agents.md
 require_grep 'selector and timeout data for `assertVisible` and `assertNotVisible`' docs/ai-agents.md
 require_grep 'arrays for `assertNoneVisible`' docs/ai-agents.md
+require_grep '`stableId` only as a fallback' docs/ai-agents.md
 require_grep 'agent-discovery.md' docs/ai-agents.md
 require_grep 'zmr-mobile-testing' skills/zmr-mobile-testing/SKILL.md
 require_grep 'trace_explore' skills/zmr-mobile-testing/SKILL.md
@@ -449,6 +462,8 @@ require_grep 'HTML/JUnit report' docs/ai-agents.md
 require_grep 'summaries include HTML/JUnit report output' docs/agent-discovery.md
 require_grep 'zmr devices --json' docs/protocol.md
 require_grep 'zmr validate <scenario.json> --json' docs/protocol.md
+require_grep 'Unknown selector keys are' docs/protocol.md
+require_grep '"stableId": "rid:email-login-submit-button:4"' docs/protocol.md
 require_grep 'zmr explain' docs/troubleshooting.md
 require_grep '--junit traces/zmr-android/junit.xml' docs/troubleshooting.md
 require_grep 'Android App Pilot Command' docs/app-integration.md

@@ -70,6 +70,9 @@ test "ios shim selector strings map public selectors to XCTest fields" {
     defer if (resource_selector) |value| allocator.free(value);
     try std.testing.expectEqualStrings("resourceId=email", resource_selector.?);
 
+    const stable_selector = try ios_shim.selectorString(allocator, .{ .stable_id = "node-42" });
+    try std.testing.expect(stable_selector == null);
+
     const desc_selector = try ios_shim.selectorString(allocator, .{ .content_desc_contains = "Log" });
     defer if (desc_selector) |value| allocator.free(value);
     try std.testing.expectEqualStrings("identifierContains=Log", desc_selector.?);

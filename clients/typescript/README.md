@@ -1,6 +1,7 @@
 # ZMR TypeScript Reference Client
 
-Zero-dependency ESM client for ZMR's newline-delimited JSON-RPC protocol.
+Zero-dependency ESM client for host-side agents and harnesses using ZMR's
+newline-delimited JSON-RPC protocol.
 
 ```js
 import { createZmrClient } from "./index.mjs";

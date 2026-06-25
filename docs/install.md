@@ -1,10 +1,14 @@
 # Install
 
-Most mobile app teams should install ZMR from npm inside the app repository.
-That keeps `.zmr/` config, scenarios, generated package scripts, and traces with
-the app they belong to.
+Install ZMR where the mobile app lives. That keeps `.zmr/` config, scenarios,
+generated package scripts, and trace output next to the app they verify.
+
+Use npm for most app teams, Homebrew or a prebuilt binary for non-JavaScript
+teams, and source builds when developing ZMR itself.
 
 ## npm Install
+
+Recommended path for app repositories:
 
 ```bash
 npm install --save-dev zeno-mobile-runner
@@ -13,8 +17,8 @@ npx zmr doctor --strict --json --config .zmr/config.json
 ```
 
 The wizard creates `.zmr/config.json`, Android and iOS smoke scenarios,
-`.zmr/device-matrix.json`, and `.zmr/AGENTS.md`. Run the generated validation
-before touching a device:
+`.zmr/device-matrix.json`, `.zmr/AGENTS.md`, and optional package scripts. Run
+the generated validation before touching a device:
 
 ```bash
 npm run zmr:validate
@@ -36,8 +40,8 @@ app-local `.zmr/` setup.
 
 ## Homebrew Or Existing Binary
 
-Teams that do not use JavaScript can install or build the `zmr` executable once
-and point any language client or script at it:
+Teams that do not use JavaScript can install or build the `zmr` executable once,
+then point any language client, MCP config, or script at that binary:
 
 ```bash
 brew install --build-from-source ./dist/homebrew/zmr.rb
@@ -60,6 +64,9 @@ verification path used by CI and release gates.
 
 ## First Run Without A Device
 
+These commands prove the binary, schemas, and fake-device demo before device
+or simulator setup enters the loop:
+
 ```bash
 zmr version --json
 zmr schemas --json
@@ -71,8 +78,8 @@ zmr validate examples/demo-fake.json
 
 ## App Codebase Integration
 
-ZMR runs outside the app process and points at app build artifacts. For real app
-pilots, pass the app root, app id, target device, and optional shim paths:
+ZMR runs outside the app process and points at app build artifacts. For a real
+app pilot, pass the app root, app id, target device, and optional shim paths:
 
 ```bash
 npx zmr-pilot-gate \
@@ -91,6 +98,8 @@ npx zmr-pilot-gate \
   --evidence-out traces/zmr-pilots/evidence.jsonl
 ```
 
-See [app-integration.md](app-integration.md), [frameworks.md](frameworks.md),
-and [config.md](config.md) for framework guidance, shim setup, `.zmr/config.json`
-defaults, and CLI override precedence.
+Next:
+
+- [app-integration.md](app-integration.md): app-side test surface and shims
+- [frameworks.md](frameworks.md): React Native, Expo, Flutter, and native apps
+- [config.md](config.md): `.zmr/config.json` defaults and CLI precedence

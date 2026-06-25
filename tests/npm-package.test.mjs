@@ -36,6 +36,11 @@ import {
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 
+test("package test script builds zmr before client examples need the binary", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  assert.match(pkg.scripts.test, /^npm run build:zmr && /);
+});
+
 test("scaffold helpers centralize generated app commands and scenarios", () => {
   const config = appConfig("com.example.demo", {
     android: true,

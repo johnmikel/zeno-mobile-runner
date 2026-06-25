@@ -1,16 +1,18 @@
 # App-Local Config
 
-ZMR uses `.zmr/config.json` as the app-local source of truth for default app ids,
-devices, scenario paths, and trace directories.
+Use `.zmr/config.json` to keep app-specific defaults in the app repository:
+app ids, device targets, scenario paths, trace directories, artifact settings,
+redaction rules, and shim command paths.
 
-The schema is published at `schemas/zmr-config.schema.json`.
-Runtime parsing follows the schema for primitive field types. For example,
+The schema is published at `schemas/zmr-config.schema.json`. Runtime parsing
+follows the schema for primitive field types. For example,
 boolean fields such as `artifacts.screenRecording`, `artifacts.screenshots`,
 `android.resetBeforeRun`, and `android.waitReady` must be JSON booleans, not
 strings. Path, id, redaction-list, and script command string fields must be
-non-empty. `zmr doctor --json --config .zmr/config.json` reports those type/value mistakes as
-structured `config` warnings. Unknown fields are rejected too, so typos in
-app-local config do not silently fall back to defaults.
+non-empty. `zmr doctor --json --config .zmr/config.json` reports those
+type/value mistakes as structured `config` warnings. Unknown fields are
+rejected too, so typos in app-local config do not silently fall back to
+defaults.
 
 Example:
 
@@ -68,7 +70,8 @@ invoked from another checkout. Relative optional tool commands such as
 `tools.adbPath` are resolved the same way when they look like paths; bare
 commands such as `adb`, `xcrun`, or `zig` stay as PATH lookups.
 
-Explicit CLI flags always win:
+Explicit CLI flags always win. Use config for stable app defaults and CLI flags
+for one-off local or CI overrides:
 
 - `--app-id` overrides `appId`
 - `--device` overrides platform `defaultDevice`
@@ -127,7 +130,7 @@ CLI `--ios-shim <path>` takes precedence over the config value for `zmr run`,
 ## Artifact Capture
 
 The `artifacts` object controls what raw trace artifacts are persisted during
-`zmr run`.
+`zmr run`. Turn off raw artifacts when traces might leave a trusted machine.
 
 - `screenshots`: write PNG screenshot artifacts.
 - `hierarchy`: write raw Android UI hierarchy XML artifacts.

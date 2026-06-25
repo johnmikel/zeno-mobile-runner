@@ -1,8 +1,9 @@
 # Android Shim Protocol
 
-The Android shim protocol is internal and may change before `v1.0.0`.
+The Android shim protocol is internal. It may change before `v1.0.0` without a
+public protocol version bump.
 
-The first implementation should mirror the public ZMR action model:
+The implementation should mirror the public ZMR action model:
 
 - `snapshot`
 - `tap`

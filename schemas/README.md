@@ -1,6 +1,8 @@
 # ZMR Schemas
 
-This directory contains draft 2020-12 JSON Schemas for public ZMR file and protocol payloads.
+This directory contains draft 2020-12 JSON Schemas for public ZMR files,
+commands, diagnostics, and protocol payloads. Agents and app setup scripts
+should use these schemas for validation instead of inferring shapes from prose.
 
 - `scenario.schema.json`: scenario files consumed by `zmr run` and `zmr validate`
 - `snapshot.schema.json`: `ObservationSnapshot` JSON emitted by live RPC and persisted trace snapshots, including viewport and optional display density metrics
@@ -13,7 +15,7 @@ This directory contains draft 2020-12 JSON Schemas for public ZMR file and proto
 - `doctor-output.schema.json`: machine-readable `zmr doctor --json` setup diagnostics, including remediation hints for actionable checks
 - `init-output.schema.json`: machine-readable `zmr init --json` bootstrap output for scenario and app-local `.zmr/` initialization
 - `import-output.schema.json`: machine-readable `zmr import --json` output for one-time scenario migration helpers
-- `devices-output.schema.json`: machine-readable `zmr devices --json` output for Android, iOS simulator, and physical iOS discovery
+- `devices-output.schema.json`: machine-readable `zmr devices --json` output for Android, iOS/iPadOS simulator, and physical iOS/iPadOS discovery
 - `validate-output.schema.json`: machine-readable `zmr validate --json` scenario preflight output
 - `version-output.schema.json`: machine-readable `zmr version --json` output for runner and protocol compatibility discovery
 - `capabilities-output.schema.json`: machine-readable `runner.capabilities` JSON-RPC result for protocol, platform support, transport, and method discovery
@@ -27,4 +29,5 @@ This directory contains draft 2020-12 JSON Schemas for public ZMR file and proto
 - `release-readiness-output.schema.json`: machine-readable `zmr-release-readiness --json` release evidence gate output
 - `schemas-output.schema.json`: machine-readable `zmr schemas --json` index of public schema names, paths, ids, and descriptions
 
-The Zig test suite verifies these files parse as JSON. Full schema validation is intentionally left to client tooling for now.
+The Zig test suite verifies these files parse as JSON. Full schema validation is
+intentionally left to client tooling for now.

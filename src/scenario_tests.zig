@@ -96,6 +96,9 @@ test "parse all simple action variants" {
 test "scenario parser rejects malformed input precisely" {
     const allocator = std.testing.allocator;
     try std.testing.expectError(error.ScenarioMustBeObject, parseSlice(allocator, "[]"));
+    try std.testing.expectError(error.UnknownScenarioField, parseSlice(allocator,
+        \\{"name":"extra root","steps":[{"action":"launch"}],"extra":true}
+    ));
     try std.testing.expectError(error.ScenarioMissingSteps, parseSlice(allocator,
         \\{"name":"missing steps"}
     ));
@@ -104,6 +107,15 @@ test "scenario parser rejects malformed input precisely" {
     ));
     try std.testing.expectError(error.StepMissingAction, parseSlice(allocator,
         \\{"name":"bad step","steps":[{}]}
+    ));
+    try std.testing.expectError(error.UnknownScenarioStepField, parseSlice(allocator,
+        \\{"name":"bad step field","steps":[{"action":"waitVisible","selector":{"text":"A"},"timeotMs":1000}]}
+    ));
+    try std.testing.expectError(error.UnknownSelectorField, parseSlice(allocator,
+        \\{"name":"bad selector","steps":[{"action":"tap","selector":{"accessibilityId":"login"}}]}
+    ));
+    try std.testing.expectError(error.SelectorMustNotBeEmpty, parseSlice(allocator,
+        \\{"name":"empty selector","steps":[{"action":"tap","selector":{}}]}
     ));
     try std.testing.expectError(error.StepActionMustBeString, parseSlice(allocator,
         \\{"name":"bad action","steps":[{"action":1}]}

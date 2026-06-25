@@ -1,13 +1,14 @@
 # Production Readiness
 
-ZMR is a public developer preview. The npm package is live, release artifacts
-are signed by GitHub release attestations, and local app teams can collect
-repeatable Android, iOS simulator, and physical iOS evidence. ZMR should not be
-called production-stable until the gates below are met and kept passing.
+ZMR is currently a public developer preview. The npm package is live, release
+artifacts are signed by GitHub release attestations, and app teams can collect
+repeatable Android, iPhone simulator, iPad simulator, and physical iOS/iPadOS
+evidence today. The product should not be described as production-stable until
+the gates below are passing and remain part of the release routine.
 
 ## Current Release Standard
 
-Every public release should satisfy:
+Every public release should satisfy these checks before publishing artifacts:
 
 - `bash tests/docs-readiness-test.sh`
 - `bash tests/public-safety-test.sh`
@@ -25,7 +26,7 @@ Every public release should satisfy:
   npx zmr version --json
   ```
 
-Tagged releases are expected to build release archives, generate
+Tagged releases should build release archives, generate
 `RELEASE_MANIFEST.json`, publish GitHub artifact attestations, upload release
 assets, and publish the npm tarball through trusted publishing after the npm
 package is configured with the `release.yml` trusted publisher.
@@ -36,12 +37,17 @@ workflow artifact for 30 days in addition to GitHub release assets.
 
 ## Product Gates Before 1.0
 
+These gates separate "usable preview" from "production-stable product claim."
+
 | Area | Required evidence | Current status |
 | --- | --- | --- |
 | Android emulator | 20-run pilot gate with zero failures and trace/report artifacts | Supported by `zmr-pilot-gate` and demo app |
 | Android physical device | 20-run pilot gate on a real connected device | Supported by ADB flow; app teams must collect evidence |
-| iOS simulator | 20-run pilot gate with XCTest shim selectors, screenshots, and reports | Supported by iOS demo and app-local shim |
-| iOS physical device | 20-run pilot gate on a real trusted device | Supported for lifecycle and shim screenshots; needs repeated public evidence |
+| iPhone simulator | 20-run pilot gate with XCTest shim selectors, screenshots, and reports | Supported by iOS demo and app-local shim |
+| iPad simulator | 20-run pilot gate on an iPad simulator with tablet layout coverage | Same iOS simulator path; needs repeated public evidence before production-stable claims |
+| iPhone physical device | 20-run pilot gate on a real trusted device | Supported for lifecycle and shim screenshots; needs repeated public evidence |
+| iPad physical device | 20-run pilot gate on a real trusted iPad | Same iOS/iPadOS physical path; app teams must collect separate tablet evidence |
+| tvOS / watchOS | Platform-specific lifecycle, shim, trace, and pilot evidence | Not supported in this preview |
 | React Native | Public setup guidance plus selector-grade app evidence using stable labels or ids | Guidance exists; repeated public demo evidence is still needed |
 | Expo | Public smoke, dev-client scaffold, and iOS/Android run evidence | Basic iOS smoke is documented; repeated matrix evidence is still needed |
 | Flutter | Platform-level Android/iOS smoke using semantics, deep links, and screenshots | Supported at platform level; widget-tree claims are intentionally out of scope |
@@ -52,7 +58,8 @@ workflow artifact for 30 days in addition to GitHub release assets.
 
 ## Reliability Evidence
 
-Use repeated app-local pilots before making app or device claims:
+Use repeated app-local pilots before making app or device claims. A single green
+demo proves wiring; a 20-run pilot proves reliability for a target class:
 
 ```bash
 zmr-pilot-gate \
@@ -81,13 +88,13 @@ zmr-release-readiness \
   --json
 ```
 
-Keep the generated evidence in the app repository unless it is fully redacted
-and safe to publish.
+Keep generated evidence in the app repository unless it is fully redacted and
+safe to publish.
 
 ## Agentic Standard
 
-ZMR is agentic when an external agent can work from structured state instead of
-screenscraping or guessing:
+ZMR meets the agent-first bar when an external agent can work from structured
+state instead of screenshots, terminal prose, or guessed coordinates:
 
 - `zmr doctor --json` explains setup state and remediation.
 - `zmr schemas --json` exposes machine-readable contracts.
@@ -105,7 +112,7 @@ screenscraping or guessing:
   trace events, trace explanation, trace discovery/exploration, scenario
   validation, and redacted export.
 
-The safe discovery pattern is still external-agent-first: observe with
+The safe discovery pattern remains external-agent-first: observe with
 `semantic_snapshot`, choose one typed action, record successful steps into a
 candidate scenario, validate it, rerun it deterministically, and require human
 review before committing generated tests.
@@ -114,10 +121,12 @@ review before committing generated tests.
 
 - Claim Android and iOS app-level support only for flows that pass local pilot
   evidence on the target device class.
+- Claim iPad support separately from iPhone support. The runner path is shared,
+  but tablet layouts and size classes can change UI trees and selector outcomes.
 - Claim React Native and Expo support through app-level lifecycle, deep links,
   accessibility labels, selectors, screenshots, traces, and reports.
 - Claim Flutter support at the Android/iOS app level when the app exposes stable
   semantics, labels, ids, or deep links.
 - Do not claim Flutter widget-tree inspection, Dart state inspection, managed
-  device-farm coverage, or a built-in autonomous test writer until those
-  features exist and have public evidence.
+  device-farm coverage, tvOS, watchOS, or a built-in autonomous test writer until
+  those features exist and have public evidence.

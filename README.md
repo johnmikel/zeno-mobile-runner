@@ -1,19 +1,19 @@
 # Zeno Mobile Runner
 
-> The verification loop for AI coding agents building Expo, React Native,
-> Flutter, and native Android/iOS apps.
+> Mobile UI automation built for AI coding agents, deterministic CI scenarios,
+> and traceable product evidence.
 
 [![CI](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/johnmikel/zeno-mobile-runner?include_prereleases)](https://github.com/johnmikel/zeno-mobile-runner/releases)
 [![npm](https://img.shields.io/npm/v/zeno-mobile-runner)](https://www.npmjs.com/package/zeno-mobile-runner)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Your coding agent can write mobile code, but it cannot see the phone. ZMR is
-its eyes and hands: a typed mobile control plane that installs and launches
-apps, observes the UI, taps and types, waits for the screen to settle, asserts
-state, and exports a replayable trace as proof. The runner does not embed an
-LLM. Agents stay outside and drive ZMR through MCP, JSON-RPC, CLI JSON, or
-JSON scenarios.
+AI agents can edit mobile apps quickly, but they need a reliable way to see the
+screen, act on native UI, and prove the result. Zeno Mobile Runner (ZMR) is that
+control plane: one local binary that installs and launches apps, captures
+semantic UI state, performs typed actions, waits and asserts, and exports a
+replayable trace. ZMR does not embed an LLM. Agents, scripts, and CI systems
+drive it through MCP, JSON-RPC, CLI JSON, or committed JSON scenarios.
 
 ![ZMR trace viewer showing a passed iOS run with timeline, device screenshot, UI tree, and selector payload](docs/assets/viewer-hero.png)
 
@@ -26,24 +26,24 @@ JSON scenarios.
 <p align="center"><em>Real on-device screenshots from ZMR traces: the same demo flow
 driven on an iOS simulator and an Android emulator.</em></p>
 
-## Why agents need this
+## Why This Exists
 
-- **Agents can't verify what they can't observe.** ZMR returns semantic UI
-  trees with stable selectors, screenshots, and typed action results an agent
-  can reason about — not raw pixels it has to guess at.
-- **Evidence, not vibes.** Every session can write a deterministic trace:
-  events, screenshots, UI hierarchies, timings, assertion results, HTML and
-  JUnit reports, and a redacted shareable bundle.
-- **Tests fall out for free.** After a live agent session, `zmr discover`
-  turns the trace into a reviewable JSON scenario that replays in CI without
-  an LLM in the loop.
+- **Agents need structured mobile state.** ZMR returns semantic UI trees,
+  stable selectors, screenshots, and typed action results, so an agent can
+  reason from product state instead of guessing from terminal output.
+- **Product claims need evidence.** Every traced session can include events,
+  screenshots, UI hierarchies, timings, assertion results, HTML and JUnit
+  reports, and a redacted bundle for review.
+- **Exploration should become tests.** After a live agent session,
+  `zmr discover` converts trace evidence into reviewable JSON scenarios that
+  replay in CI without an LLM in the loop.
 
-## How it works
+## How It Works
 
 ```mermaid
 flowchart LR
     A["AI coding agent<br/>Claude Code · Cursor · custom harness"]
-    subgraph zmr["ZMR — one small Zig binary"]
+    subgraph zmr["ZMR - one small Zig binary"]
         MCP["MCP server<br/><code>zmr mcp</code>"]
         RPC["JSON-RPC stdio/TCP<br/><code>zmr serve</code>"]
         CLI["CLI + JSON scenarios<br/><code>zmr run</code>"]
@@ -65,14 +65,16 @@ flowchart LR
     CORE --> TRACE
 ```
 
-No app instrumentation is required on Android. iOS selector actions use an
-app-local XCTest shim that the wizard scaffolds. ZMR works below the
-JavaScript/Dart layer, so React Native, Expo, Flutter, and fully native apps
-are all driven the same way. See [docs/frameworks.md](docs/frameworks.md).
+Android can run with no app instrumentation, with an optional app-local shim for
+faster native actions. iOS and iPadOS selector actions use an app-local
+XCTest/XCUIAutomation shim scaffolded by the wizard. ZMR works below the
+JavaScript and Dart layer, so React Native, Expo, Flutter, and native apps share
+the same runner model. See [docs/frameworks.md](docs/frameworks.md).
 
-## Five-minute start
+## Five-Minute Start
 
-Inside a mobile app repo:
+Run this from the mobile app repository. It installs ZMR, creates app-local
+configuration, and verifies the setup before a device run:
 
 ```bash
 npm install --save-dev zeno-mobile-runner   # bun add --dev zeno-mobile-runner
@@ -107,10 +109,10 @@ Or in an `.mcp.json` / MCP client config:
 }
 ```
 
-Then ask the agent to verify its own work: *"launch the app, walk through
-onboarding, and show me the trace."*
+Then ask the agent to verify its own work: "launch the app, walk through
+onboarding, and show me the trace."
 
-## The agent verification loop
+## Agent Verification Loop
 
 ```mermaid
 sequenceDiagram
@@ -130,7 +132,7 @@ sequenceDiagram
     ZMR-->>Agent: .zmrtrace evidence bundle
 ```
 
-The MCP server exposes the full loop as mobile-native tools:
+The MCP server exposes the loop as mobile-native tools:
 
 | Group | Tools |
 | --- | --- |
@@ -142,16 +144,16 @@ The MCP server exposes the full loop as mobile-native tools:
 | Evidence | `trace_events`, `trace_explain`, `trace_discover`, `trace_explore`, `trace_export`, `scenario_validate` |
 
 The same surface is available over JSON-RPC for harnesses that embed ZMR
-directly — see [docs/protocol.md](docs/protocol.md) and
+directly. See [docs/protocol.md](docs/protocol.md) and
 [docs/ai-agents.md](docs/ai-agents.md). When a run fails, `zmr explain`
 diagnoses the trace for humans and agents alike:
 
 ![Terminal session showing a failed run, zmr explain diagnosing the failure with visible texts, and the fixed run passing](docs/assets/cli-run-explain.png)
 
-## Deterministic scenarios for CI
+## Deterministic Scenarios For CI
 
-Scenarios are plain JSON — agents and build scripts generate, validate, and
-mutate them without a second DSL, and they replay in CI with no LLM cost:
+Scenarios are plain JSON. Agents and build scripts can generate, validate, and
+mutate them without a second DSL, then replay them in CI with no LLM cost:
 
 ```json
 {
@@ -176,8 +178,9 @@ zmr report traces/login-smoke --out traces/login-smoke/report.html --junit trace
 zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact
 ```
 
-Traced `zmr run --json` responses include executable `nextCommands` so agents
-can continue to reporting, explanation, discovery, or export without guessing.
+Traced `zmr run --json` responses include executable `nextCommands`, so agents
+can continue to reporting, explanation, discovery, or export without rebuilding
+paths from text.
 Open any exported bundle in the static [trace viewer](viewer/index.html) — or
 serve it and link straight to it with `viewer/index.html?bundle=<url>`.
 
@@ -186,14 +189,17 @@ comparisons against your current E2E tool, and multi-device matrices, see
 [docs/benchmarking.md](docs/benchmarking.md) and the public
 [Benchmark Lab](docs/benchmarks/README.md) evidence.
 
-## Platform support
+## Platform Support
 
 | Target | Status | Notes |
 | --- | --- | --- |
 | Android emulator | Supported | ADB/UI Automator, optional Android shim, emulator lifecycle helpers |
 | Android physical device | Supported | Requires ADB connection and app build/install surface |
-| iOS simulator | Supported | `simctl` plus app-local XCTest/XCUIAutomation shim for native selector actions |
-| iOS physical device | Supported, validate locally | `devicectl` lifecycle plus XCTest shim; pilot on your own app/device before relying on it in CI |
+| iPhone simulator | Supported | `simctl` plus app-local XCTest/XCUIAutomation shim for native selector actions |
+| iPad simulator | Supported, evidence-needed | Same iOS simulator path; validate tablet layouts and size-class branches before production claims |
+| iPhone physical device | Supported, validate locally | `devicectl` lifecycle plus XCTest shim; pilot on your app/device before relying on it in CI |
+| iPad physical device | Supported, evidence-needed | Same iOS/iPadOS physical path; collect separate iPad pilot evidence before claiming production readiness |
+| Apple TV / Apple Watch | Not supported in this preview | Requires separate platform lifecycle, shim, destination, and trace evidence |
 | Cloud device farms | Not included | ZMR focuses on local and self-managed device targets in this preview |
 
 Slow CI hardware can extend the generated iOS shim build timeout with
@@ -202,7 +208,7 @@ bounds each in-flight request, and `ZMR_IOS_SHIM_TIMEOUT_MS` remains the outer
 process ceiling. Current release: `0.2.16` developer preview.
 Protocol version: `2026-04-28`.
 
-## Optional protocol clients
+## Optional Protocol Clients
 
 TypeScript and Python clients are the common starting points; Go, Rust, Swift,
 and Kotlin reference clients embed the same JSON-RPC protocol from those
@@ -212,10 +218,19 @@ ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
 
 ## Documentation
 
+**Start here**
+
+- [docs/install.md](docs/install.md): install paths and first setup checks
+- [docs/support-matrix.md](docs/support-matrix.md): platform support, evidence
+  levels, and Apple-platform scope
+- [docs/production-readiness.md](docs/production-readiness.md): release,
+  reliability, privacy, and claim gates
+
 **For agents**
 
 - [docs/ai-agents.md](docs/ai-agents.md): JSON-RPC and MCP agent workflows
-- [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery, `zmr explore`/`discover`/`draft`, and the trace-to-test loop
+- [docs/agent-discovery.md](docs/agent-discovery.md): agent-led discovery,
+  `zmr explore`/`discover`/`draft`, and the trace-to-test loop
 - [skills/zmr-mobile-testing/SKILL.md](skills/zmr-mobile-testing/SKILL.md): reusable agent skill
 
 **For test authors**
@@ -232,7 +247,6 @@ ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
 - [FEATURES.md](FEATURES.md): complete feature list and limitations
 - [docs/protocol.md](docs/protocol.md): JSON-RPC methods and schemas
 - [docs/trace-privacy.md](docs/trace-privacy.md): safe trace export
-- [docs/production-readiness.md](docs/production-readiness.md): release, reliability, and agent-readiness gates
 - [docs/troubleshooting.md](docs/troubleshooting.md): common setup and runtime issues
 - [docs/benchmarks](docs/benchmarks/README.md): public-safe benchmark evidence
 

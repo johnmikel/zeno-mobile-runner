@@ -1,7 +1,8 @@
 # Trace Privacy
 
-ZMR traces are debugging artifacts. They can contain sensitive app state even
-when scenario files are generic.
+ZMR traces are product-debugging artifacts. Treat them as sensitive by default:
+even a generic scenario can capture private UI state, logs, identifiers, or
+typed inputs from the app under test.
 
 ```mermaid
 flowchart LR
@@ -24,7 +25,8 @@ Raw trace directories may include:
 
 ## Sharing Rules
 
-- Disable unnecessary raw artifacts in `.zmr/config.json`:
+- Disable unnecessary raw artifacts in `.zmr/config.json` before collecting
+  traces that may leave a trusted machine:
 
   ```json
   {

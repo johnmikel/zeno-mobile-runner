@@ -1,12 +1,13 @@
 # Contributing
 
-ZMR is a Zig-based mobile test runner for external agents and local test files.
-Keep changes small, typed, traceable, and covered by tests.
+ZMR is a Zig-based mobile runner for AI agents, app teams, and deterministic
+CI scenarios. Contributions should keep the public surface small, typed,
+traceable, and backed by tests or evidence.
 
 ## Local Checks
 
-Run the focused checks for your change first, then run the release gate before a
-PR:
+Run focused checks for the files you touched first. Before a PR or release
+candidate, run the broader gate:
 
 ```bash
 zig fmt --check build.zig src
@@ -35,8 +36,20 @@ npm pack --dry-run
 
 ## Design Expectations
 
-- Keep the public interface in scenario files, JSON-RPC, and documented CLI
-  flags.
+- Keep public behavior in scenario JSON, JSON-RPC, MCP schemas, and documented
+  CLI flags.
 - Keep platform shims behind adapter boundaries.
-- Preserve ADB/simctl fallback behavior until native shims are proven stable.
+- Preserve ADB, UI Automator, `simctl`, and `devicectl` fallback behavior until
+  native shims have evidence on the target class.
 - Prefer deterministic trace evidence over terminal-only diagnostics.
+- Keep product claims tied to [docs/support-matrix.md](docs/support-matrix.md)
+  and [docs/production-readiness.md](docs/production-readiness.md).
+
+## Documentation Expectations
+
+- Lead onboarding docs with the user outcome, then give copy-paste commands.
+- Keep protocol, schema, ADR, and benchmark docs precise rather than promotional.
+- Use app-owned selectors in examples before `stableId` or coordinate fallback.
+- Mark unsupported or evidence-needed platforms explicitly.
+- Run `bash tests/docs-readiness-test.sh` and
+  `bash tests/public-safety-test.sh` before publishing docs.

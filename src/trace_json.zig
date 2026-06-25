@@ -109,6 +109,10 @@ pub fn writeSelectorJson(writer: anytype, wanted: selector.Selector) !void {
         try jsonField(writer, "id", value, first);
         first = false;
     }
+    if (wanted.stable_id) |value| {
+        try jsonField(writer, "stableId", value, first);
+        first = false;
+    }
     if (wanted.text) |value| {
         try jsonField(writer, "text", value, first);
         first = false;

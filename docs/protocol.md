@@ -1,6 +1,9 @@
 # ZMR JSON-RPC Protocol
 
-ZMR exposes newline-delimited JSON-RPC 2.0 over stdio or localhost TCP in v1. Each request is one JSON object followed by `\n`. Each response is one JSON object followed by `\n`.
+ZMR exposes newline-delimited JSON-RPC 2.0 over stdio or localhost TCP. This is
+the contract used by reference clients, agent harnesses, and the MCP server
+internals. Each request is one JSON object followed by `\n`; each response is
+one JSON object followed by `\n`.
 
 Current runner version: `0.2.16`.
 
@@ -360,7 +363,7 @@ zmr serve --transport stdio --platform ios --ios-device-type physical --device <
 zmr mcp --config .zmr/config.json --trace-dir traces/mcp-agent-session
 ```
 
-`runner.capabilities` reports `platforms: ["android","ios"]`, `platformSupport.ios.status: "supported"`, and legacy `iosPreview: false`. Android supports emulators and connected devices. iOS simulators use `simctl` for discovery, install, launch, stop, clear-state-by-uninstall, deep links, screenshots, logs, and snapshots. Physical iOS devices use `devicectl` for discovery, install, launch, deep-link launch, clear-state-by-uninstall, and best-effort stop. Selector-grade `ui.*` methods on iOS require a configured XCTest/XCUIAutomation shim command; without one they return `IosXCTestShimRequired`. With the shim configured, single-field `ui.tap`, selector-scoped `ui.type`, selector-scoped `ui.eraseText`, `wait.*`, and `assert.*` can execute directly through XCTest. Compound selectors continue to use the portable snapshot-matching fallback. iOS snapshot responses are bounded to common XCTest element families so traces stay usable on large apps. Physical iOS screenshot artifacts use the XCTest shim; physical-device log capture is intentionally limited in this release.
+`runner.capabilities` reports `platforms: ["android","ios"]`, `platformSupport.ios.status: "supported"`, and legacy `iosPreview: false`. Android supports emulators and connected devices. iOS and iPadOS simulators use `simctl` for discovery, install, launch, stop, clear-state-by-uninstall, deep links, screenshots, logs, and snapshots. Physical iPhone and iPad devices use `devicectl` for discovery, install, launch, deep-link launch, clear-state-by-uninstall, and best-effort stop. Selector-grade `ui.*` methods on iOS require a configured XCTest/XCUIAutomation shim command; without one they return `IosXCTestShimRequired`. With the shim configured, single-field `ui.tap`, selector-scoped `ui.type`, selector-scoped `ui.eraseText`, `wait.*`, and `assert.*` can execute directly through XCTest. Compound selectors continue to use the portable snapshot-matching fallback. iOS snapshot responses are bounded to common XCTest element families so traces stay usable on large apps. Physical iOS screenshot artifacts use the XCTest shim; physical-device log capture is intentionally limited in this release.
 
 ## Core Methods
 
@@ -719,12 +722,15 @@ Current stable public codes:
 
 ## Selectors
 
-Selectors can combine fields. All provided fields must match the same visible node.
+Selectors must be non-empty and can combine fields. Unknown selector keys are
+rejected by `zmr validate`, JSON-RPC, and MCP tool handling. All provided fields
+must match the same visible node.
 
 ```json
 {
   "id": "email-login-submit-button",
   "resourceId": "email-login-submit-button",
+  "stableId": "rid:email-login-submit-button:4",
   "text": "Sign in",
   "textContains": "Sign",
   "contentDesc": "Account",
@@ -732,6 +738,11 @@ Selectors can combine fields. All provided fields must match the same visible no
   "className": "android.widget.TextView"
 }
 ```
+
+Prefer app-owned `id`/`resourceId` values, accessibility identifiers, content
+descriptions, labels, and stable text for committed scenarios. Use `stableId`
+only as a fallback copied from the current `semantic_snapshot` when an agent
+needs to act immediately and no stronger selector exists.
 
 ## Example
 
@@ -744,7 +755,8 @@ Selectors can combine fields. All provided fields must match the same visible no
 
 ## Scenario-Only Flow Primitives
 
-Scenario JSON supports additional orchestration primitives for agent-grade mobile flows:
+Scenario JSON supports additional orchestration primitives for agent-grade
+mobile flows:
 
 - `waitAny`
 - `waitNotVisible`
@@ -757,4 +769,6 @@ Scenario JSON supports additional orchestration primitives for agent-grade mobil
 - `hideKeyboard`
 - `"optional": true` on any step
 
-These are intentionally explicit JSON structures instead of YAML conditionals, so agents can generate, validate, and mutate flows without parsing a second language.
+These are intentionally explicit JSON structures instead of YAML conditionals,
+so agents can generate, validate, and mutate flows without parsing a second
+language.

@@ -1,17 +1,18 @@
 # ZMR Language Clients
 
-ZMR clients are small wrappers around the same newline-delimited JSON-RPC
-protocol exposed by:
+ZMR language clients are small host-side wrappers around the same
+newline-delimited JSON-RPC protocol exposed by:
 
 ```bash
 zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
-They are intended for AI agents, CI harnesses, and app teams that want typed
-or idiomatic calls without reimplementing JSON-RPC framing. TypeScript and
-Python are the most direct starting points for app and agent automation. Go,
-Rust, Swift, and Kotlin stay available as reference integrations for teams that
-want to embed host-side orchestration in those ecosystems.
+They are intended for AI agents, CI harnesses, and app teams that want typed or
+idiomatic calls without reimplementing JSON-RPC framing. The `zmr` binary still
+does the device work. TypeScript and Python are the most direct starting points
+for app and agent automation. Go, Rust, Swift, and Kotlin stay available as
+reference integrations for teams that want host-side orchestration in those
+ecosystems.
 Each client includes `devices()` for `device.list`, including the portable
 `ready` boolean, and a semantic snapshot helper for `observe.semanticSnapshot`
 so agents can work from normalized roles, selectors, bounds, and recommended

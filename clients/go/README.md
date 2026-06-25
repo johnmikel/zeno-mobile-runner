@@ -1,7 +1,7 @@
 # ZMR Go Client
 
-Small standard-library JSON-RPC client for driving `zmr serve --transport stdio`
-from Go agents and test harnesses.
+Small standard-library JSON-RPC client for Go agents and host-side test
+harnesses that drive `zmr serve --transport stdio`.
 
 ```go
 client, err := zmr.Start(ctx, "zmr", "serve", "--transport", "stdio")

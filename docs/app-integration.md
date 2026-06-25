@@ -1,6 +1,8 @@
 # App Integration
 
-ZMR is intentionally a separate runner. A mobile app repo does not need to vendor ZMR, but it should expose a small, stable test surface so agents can drive the app deterministically.
+ZMR is intentionally a separate runner. The app does not vendor ZMR, but it
+should expose a small, stable test surface so agents and CI can drive the app
+deterministically.
 
 Most app teams should install ZMR as a dev dependency:
 
@@ -9,14 +11,16 @@ npm install --save-dev zeno-mobile-runner
 npx zmr-wizard --app-id com.example.mobiletest --package-json
 ```
 
-That keeps scenarios and app scripts in the app repo while the runner remains versioned through npm.
+That keeps scenarios and app scripts in the app repo while the runner remains
+versioned through npm.
 For Expo development builds, add `--expo-dev-client-scheme <scheme>` to scaffold
 Android and iOS open-link smoke scenarios that load Metro before selector
 assertions run.
 
 ## React Native, Expo, And Flutter
 
-ZMR works best when the app exposes stable, user-meaningful selectors:
+ZMR works best when the app exposes stable, user-meaningful selectors and direct
+navigation paths:
 
 - React Native apps should use `testID`, `accessibilityLabel`, stable visible
   text, and deep links for direct navigation.
@@ -30,6 +34,8 @@ See [frameworks.md](frameworks.md) for framework-specific examples.
 
 ## What The App Provides
 
+Think of this as the contract between the app repo and the runner.
+
 For Android:
 
 - A debug/test APK.
@@ -40,7 +46,8 @@ For Android:
 - Optional Android instrumentation shim command for faster hierarchy and
   selector-grade actions.
 
-Create the app-local Android shim command from the ZMR package or checkout:
+Create the app-local Android shim command from the ZMR package or checkout when
+you want faster hierarchy capture or selector-grade native actions:
 
 ```bash
 npx zmr-install-android-shim \
@@ -62,7 +69,7 @@ The generated
 `.zmr/android-shim` executable is the value to pass to `--android-shim` or
 `tools.androidShimPath`.
 
-For iOS:
+For iOS/iPadOS:
 
 - A simulator `.app` build.
 - A stable bundle id, for example `com.example.mobiletest`.
@@ -71,7 +78,9 @@ For iOS:
 - Optional simulator XCTest/XCUIAutomation shim command for hierarchy and
   selector-grade actions.
 
-Create the app-local shim command from the ZMR package or checkout:
+Create the app-local XCTest/XCUIAutomation shim command from the ZMR package or
+checkout when selector actions, bounded hierarchy snapshots, or physical-device
+screenshots are required:
 
 ```bash
 npx zmr-install-ios-shim \
@@ -121,9 +130,14 @@ mobile-app/
     ios-smoke.json
 ```
 
-Keep app-owned scenarios and ZMR defaults in `.zmr/` when they are app-specific. Keep generic examples in the ZMR repo. ZMR auto-discovers `.zmr/config.json` from the app repo; explicit CLI flags still override config defaults.
+Keep app-owned scenarios and ZMR defaults in `.zmr/` when they are app-specific.
+Keep generic examples in the ZMR repo. ZMR auto-discovers `.zmr/config.json`
+from the app repo; explicit CLI flags still override config defaults.
 
 ## Android App Pilot Command
+
+Use the pilot wrapper when you want app-local reliability evidence and standard
+trace/report artifacts:
 
 ```bash
 /path/to/zeno-mobile-runner/scripts/run-android-pilot.sh \
@@ -156,7 +170,8 @@ equivalent `android.avdName`, `android.createAvdIfMissing`,
 `artifacts.screenRecording` values in `.zmr/config.json`. Treat recordings like
 screenshots: keep them local or share only when the app state is safe.
 
-The Android wrapper expects the default APK path under the app root. Override it when needed:
+The Android wrapper expects the default APK path under the app root. Override it
+when needed:
 
 ```bash
 /path/to/zeno-mobile-runner/scripts/run-android-pilot.sh \
@@ -167,7 +182,9 @@ The Android wrapper expects the default APK path under the app root. Override it
 
 ## Public Android Demo Command
 
-For a generic public Android app:
+Use the public demo before connecting ZMR to a private app. It proves local
+Android install, launch, selector action, typing, snapshot, and trace capture
+with generic artifacts:
 
 ```bash
 npx zmr-demo-android --out /tmp/zmr-android-demo --device emulator-5554 --avd <avd-name>
@@ -186,12 +203,11 @@ adb install -r /tmp/zmr-android-demo/build/app-debug.apk
   --trace-dir /tmp/zmr-android-demo/traces/android-demo
 ```
 
-Use this path to prove local Android install, launch, selector action, typing,
-snapshot, and trace capture before wiring ZMR into a private app.
+Use this path before wiring ZMR into a private app.
 
 ## iOS Demo Command
 
-For a generic public demo app with the shim already installed:
+Use the public iOS demo before connecting ZMR to a private iOS or iPadOS app:
 
 ```bash
 npx zmr-demo-ios --out /tmp/zmr-ios-demo --device booted
@@ -218,7 +234,8 @@ Then boot a simulator and run:
   --ios-shim /tmp/zmr-ios-demo/.zmr/ios-shim
 ```
 
-Build the app for an iOS simulator, boot a simulator, then run:
+For a private app, build the app for an iOS simulator, boot a simulator, then
+run:
 
 ```bash
 /path/to/zeno-mobile-runner/scripts/run-ios-pilot.sh \
@@ -239,17 +256,21 @@ visible labels, hidden/disabled/offscreen candidates, and nearest text matches.
 When the app is already running, ZMR uses the shim `appState` response as an
 idempotent launch confirmation if `simctl launch` itself returns an error.
 
-On iOS simulators, `clearState` means best-effort app uninstall by bundle id.
-For physical iOS devices, lifecycle commands go through `devicectl` and
-selector commands go through the same app-local XCTest shim, subject to signing,
-provisioning, Developer Mode, and local Xcode availability. Screenshot
+On iOS and iPadOS simulators, `clearState` means best-effort app uninstall by
+bundle id. Use the same `--platform ios --ios-device-type simulator` path for
+iPhone and iPad simulators, but collect separate iPad evidence when tablet
+layouts, split views, or size classes can change the UI tree.
+
+For physical iPhone and iPad devices, lifecycle commands go through `devicectl`
+and selector commands go through the same app-local XCTest shim, subject to
+signing, provisioning, Developer Mode, and local Xcode availability. Screenshot
 artifacts use the XCTest shim; log artifact capture is simulator-first in this
 release.
 Use a simulator-built `iphonesimulator` `.app` for simulator runs. A signed
 device `.ipa` must be run with `--ios-device-type physical`; the pilot wrapper
 rejects device IPAs on simulator runs before installing anything.
 Use `--ios-device-type physical` with a concrete device identifier from
-`zmr devices` for physical pilot runs:
+`zmr devices` for physical iPhone or iPad pilot runs:
 
 ```bash
 /path/to/zeno-mobile-runner/scripts/run-ios-pilot.sh \
@@ -267,6 +288,8 @@ If the app is already missing, ZMR treats the simulator as clean and continues.
 Install the simulator `.app` again before launch/open-link steps that need it.
 
 ## Direct CLI Use
+
+Use direct CLI commands when debugging a scenario or wiring custom CI steps.
 
 Android:
 
@@ -330,5 +353,6 @@ session.
 ## Public Artifact Rules
 
 - Share `*-redacted.zmrtrace` bundles.
-- Do not publish raw Metro logs, simulator logs, or unredacted screenshot bundles from private apps.
+- Do not publish raw Metro logs, simulator logs, or unredacted screenshot
+  bundles from private apps.
 - Run `bash tests/public-safety-test.sh` before publishing this repo.

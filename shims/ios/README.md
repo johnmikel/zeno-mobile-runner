@@ -1,11 +1,11 @@
 # ZMR iOS Shim
 
-This directory contains the XCTest/XCUIAutomation shim scaffold used for
-selector-grade iOS automation.
+This directory contains the app-local XCTest/XCUIAutomation shim scaffold used
+for selector-grade iOS and iPadOS automation.
 
-The public ZMR API remains the scenario file and JSON-RPC protocol. The shim
-protocol is an internal local transport between the Zig runner and an app-local
-UI test runner.
+The public ZMR API remains scenario JSON, JSON-RPC, MCP tools, and CLI flags.
+The shim protocol is an internal local transport between the Zig runner and an
+app-local UI test runner.
 
 Current status:
 

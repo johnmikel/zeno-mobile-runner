@@ -1,8 +1,9 @@
 # Benchmarking
 
-ZMR benchmark output is intentionally simple: each run appends one JSON object
-to `results.jsonl`, and `zmr report` turns that directory into local HTML and
-optional JUnit XML artifacts.
+Benchmarking in ZMR is evidence-first. Each run appends one JSON object to
+`results.jsonl`, and `zmr report` turns the directory into local HTML plus
+optional JUnit XML artifacts. Use repeated runs for reliability claims and
+matched baseline rows for speed claims.
 
 ## Public Evidence
 
@@ -39,6 +40,9 @@ setup, and Android/iOS ZMR workflow scenarios, but no public timing rows yet.
 
 ## Single Tool Benchmark
 
+Use a single-tool benchmark to prove that ZMR can run a scenario repeatedly on a
+target with the required pass rate and latency threshold:
+
 ```bash
 scripts/benchmark.sh \
   --zmr examples/android-app-login-smoke.json \
@@ -71,7 +75,8 @@ zmr report traces/bench-<timestamp> \
 
 ## Pilot Wrapper
 
-The configurable Android pilot script can run both sample scenarios repeatedly:
+Use pilot wrappers when the benchmark should look like a real app release gate.
+The configurable Android pilot script can run sample scenarios repeatedly:
 
 ```bash
 ./scripts/run-android-pilot.sh \
@@ -173,15 +178,18 @@ Benchmark reports include:
 - links to each run's `events.jsonl`
 - optional JUnit XML with one testcase per benchmark row for CI test reports
 
-Before making public performance claims, run the same scenario repeatedly on a clean emulator image and include the raw `results.jsonl` plus the redacted trace bundle for any failure.
+Before making public performance claims, run the same scenario repeatedly on a
+clean emulator or simulator state and retain the raw `results.jsonl` plus the
+redacted trace bundle for any failure.
 
 ![ZMR HTML trace report showing the trace summary and per-event timeline](assets/report-html.png)
 
 ## Compare Against A Baseline
 
-Use `zmr-compare-benchmarks` when a private app repo has benchmark rows from
-ZMR and another local runner. The public ZMR repo keeps this generic: rows are
-grouped by the `tool` field and no external runner is hardcoded.
+Use `zmr-compare-benchmarks` only when a private app repo has benchmark rows
+from ZMR and another local runner for the same app path. The public ZMR repo
+keeps this generic: rows are grouped by the `tool` field and no external runner
+is hardcoded.
 
 Collect ZMR rows into the shared comparison file first:
 

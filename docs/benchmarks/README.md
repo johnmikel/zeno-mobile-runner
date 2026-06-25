@@ -1,7 +1,8 @@
 # Benchmark Evidence
 
 This directory contains public-safe benchmark evidence collected from
-reproducible ZMR demo apps.
+reproducible ZMR demo apps. Treat each file as fixture-specific evidence, not a
+global performance claim.
 
 Evidence here is intentionally narrow:
 
@@ -11,6 +12,7 @@ Evidence here is intentionally narrow:
   baseline was collected on the same app build, device state, and scenario.
 - Raw local traces are not committed because generated reports and JUnit files
   can include absolute local paths. Public rows are sanitized before commit.
+- Product claims should point to the matching evidence pack and its scope.
 
 ## Evidence Packs
 

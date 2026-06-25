@@ -1,12 +1,14 @@
 # Protocol Versioning
 
-ZMR exposes two public automation surfaces:
+Use this page when changing scenario JSON, JSON-RPC, MCP-visible schemas, trace
+schemas, or stable error codes. ZMR exposes two public automation surfaces:
 
 - scenario JSON files consumed by `zmr run`
 - JSON-RPC methods exposed by `zmr serve`
 
-The current protocol version is a date string. Before `v1.0.0`, breaking changes
-are allowed only when the protocol version and changelog are updated together.
+The current protocol version is a date string. Before `v1.0.0`, breaking
+changes are allowed only when the protocol version and changelog are updated
+together.
 `runner.capabilities` exposes this policy in machine-readable form:
 
 ```json

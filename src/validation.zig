@@ -87,9 +87,13 @@ fn diagnoseFailure(allocator: std.mem.Allocator, content: []const u8, err: anyer
     if (syntaxLocation(allocator, content)) |location| return location;
     return switch (err) {
         error.ScenarioMustBeObject => try pathDiagnostic(allocator, content, "$", null),
+        error.UnknownScenarioField,
+        => try pathDiagnostic(allocator, content, "$", null),
         error.ScenarioMissingSteps,
         error.ScenarioStepsMustBeArray,
         => try pathDiagnostic(allocator, content, "$.steps", "steps"),
+        error.UnknownScenarioStepField,
+        => try pathDiagnostic(allocator, content, "$.steps[]", null),
         error.StepMissingAction,
         error.StepActionMustBeString,
         error.unknownAction,
@@ -120,6 +124,7 @@ fn diagnoseFailure(allocator: std.mem.Allocator, content: []const u8, err: anyer
         error.MissingSelector,
         error.StepMissingSelector,
         error.SelectorMustNotBeEmpty,
+        error.UnknownSelectorField,
         => try pathDiagnostic(allocator, content, "$.steps[].selector", "selector"),
         error.MissingSelectors,
         error.StepMissingSelectors,

@@ -1,4 +1,4 @@
-# 0001: Agent-Native Runner Boundary
+# 0001: Agent-First Runner Boundary
 
 ## Status
 

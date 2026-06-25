@@ -1,6 +1,8 @@
 # Demo
 
-Run the local demo with no emulator, simulator, app, or credentials:
+Run the local demo when you want a fast proof of the CLI, schemas, fake-device
+flows, reference clients, trace output, and diagnostics without an emulator,
+simulator, app build, or credentials:
 
 ```bash
 ./scripts/demo.sh
@@ -94,14 +96,15 @@ snapshot handling.
 Load any generated `.zmrtrace` in `viewer/index.html` to inspect the replay
 timeline, payloads, screenshot, UI tree, selected node details, and raw
 artifacts side-by-side. When the viewer and the bundle are served over HTTP,
-link straight to a loaded trace with `viewer/index.html?bundle=<url>` — useful
-for CI artifact links and shared triage.
+link straight to a loaded trace with `viewer/index.html?bundle=<url>`, which is
+useful for CI artifact links and shared triage.
 
 ![ZMR trace viewer with a loaded Android demo trace showing the timeline, device screenshot, and UI tree](assets/viewer-android.png)
 
 ## Real Android Pilot Demo
 
-Run the Android pilot against a sample app test build:
+Run the Android pilot against a sample app test build when you want real
+emulator/device evidence:
 
 ```bash
 ./scripts/run-android-pilot.sh \

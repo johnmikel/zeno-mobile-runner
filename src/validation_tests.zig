@@ -55,6 +55,38 @@ test "validation returns selector field diagnostics for missing selector" {
     try std.testing.expect(result.column == null);
 }
 
+test "validation rejects unknown fields before device execution" {
+    const result = try validateSlice(std.testing.allocator,
+        \\{
+        \\  "name": "invalid",
+        \\  "steps": [
+        \\    {"action": "waitVisible", "selector": {"text": "Dashboard"}, "timeotMs": 1000}
+        \\  ]
+        \\}
+    );
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expect(!result.ok);
+    try std.testing.expectEqualStrings("scenario.invalid", result.error_code.?);
+    try std.testing.expectEqualStrings("$.steps[]", result.path.?);
+}
+
+test "validation rejects unknown selector fields before device execution" {
+    const result = try validateSlice(std.testing.allocator,
+        \\{
+        \\  "name": "invalid",
+        \\  "steps": [
+        \\    {"action": "tap", "selector": {"accessibilityId": "login"}}
+        \\  ]
+        \\}
+    );
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expect(!result.ok);
+    try std.testing.expectEqualStrings("selector.invalid", result.error_code.?);
+    try std.testing.expectEqualStrings("$.steps[].selector", result.path.?);
+}
+
 test "validation returns action field diagnostics for unknown action" {
     const result = try validateSlice(std.testing.allocator,
         \\{

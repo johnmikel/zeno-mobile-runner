@@ -1,9 +1,10 @@
-# Features
+# Feature Overview
 
-Zeno Mobile Runner is a local, agent-native mobile test runner for Android,
-iOS simulators, and physical iOS devices. It is designed for external agents and normal test files: ZMR
-controls devices, exposes typed observations, executes actions, waits for UI
-state, and writes deterministic traces. It does not embed an LLM.
+Zeno Mobile Runner is a local mobile automation runner for AI agents, app
+teams, and CI systems. It controls Android and iOS/iPadOS targets, exposes typed
+observations and actions, validates JSON scenarios, and writes deterministic
+trace evidence. It does not embed an LLM; external agents stay in charge of
+planning.
 
 ## Platform Support
 
@@ -11,12 +12,16 @@ state, and writes deterministic traces. It does not embed an LLM.
   optional app-local instrumentation shim.
 - Android emulator lifecycle helpers for boot, wait-ready, reset, snapshot
   restore, optional AVD creation, and optional screen recording.
-- iOS simulators through `xcrun simctl` for lifecycle, install, launch, deep
-  links, screenshots, logs, clear-state-by-uninstall, and device discovery.
-- Physical iOS devices through `xcrun devicectl` for discovery, install,
-  launch, deep-link launch, clear-state-by-uninstall, and best-effort stop.
-- iOS selector actions through an app-local XCTest/XCUIAutomation shim on
-  simulators and physical devices.
+- iOS and iPadOS simulators through `xcrun simctl` for lifecycle, install,
+  launch, deep links, screenshots, logs, clear-state-by-uninstall, and device
+  discovery.
+- Physical iPhone and iPad devices through `xcrun devicectl` for discovery,
+  install, launch, deep-link launch, clear-state-by-uninstall, and best-effort
+  stop.
+- iOS/iPadOS selector actions through an app-local XCTest/XCUIAutomation shim
+  on simulators and physical devices.
+- Explicit claim boundaries for iPad, tvOS, watchOS, physical devices, and
+  cloud device farms in [docs/support-matrix.md](docs/support-matrix.md).
 
 ## App Integration
 
@@ -79,8 +84,8 @@ state, and writes deterministic traces. It does not embed an LLM.
 
 ## Scenario Execution
 
-- JSON scenarios with launch, stop, clear state, open link, tap, type, erase
-  text, hide keyboard, swipe, back/home-equivalent navigation, waits,
+- Strict JSON scenarios with launch, stop, clear state, open link, tap, type,
+  erase text, hide keyboard, swipe, back/home-equivalent navigation, waits,
   assertions, snapshots, optional steps, conditionals, repeats, sleeps, and
   scroll-until-visible.
 - Selector matching for text, text contains, content description, resource id,
@@ -146,6 +151,9 @@ state, and writes deterministic traces. It does not embed an LLM.
   a production-stable `1.0.0`.
 - Physical iOS log capture is still simulator-first. Physical iOS screenshots
   are available when the XCTest/XCUIAutomation shim is configured.
+- iPad uses the same iOS/iPadOS automation path, but tablet production claims
+  require separate evidence because layout and size-class behavior can diverge.
+- tvOS and watchOS are not supported in this preview.
 - Broad cloud device farm certification is out of scope for this preview.
 - Public benchmark fixtures are generic. Performance claims for a real app
   should come from equivalent app-local candidate and baseline runs.

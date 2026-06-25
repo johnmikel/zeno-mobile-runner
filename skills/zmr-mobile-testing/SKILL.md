@@ -5,9 +5,9 @@ description: Use when testing mobile apps with Zeno Mobile Runner, integrating a
 
 # ZMR Mobile Testing
 
-Use ZMR as the typed control plane for mobile app testing. Keep model reasoning
-outside the runner; use ZMR for device discovery, observations, actions, waits,
-assertions, traces, and diagnostics.
+Use ZMR as the typed mobile control plane for agent-led app verification. Keep
+model reasoning outside the runner; use ZMR for device discovery, observations,
+actions, waits, assertions, traces, diagnostics, and redacted evidence.
 
 ## Start From App-Local State
 
@@ -30,7 +30,7 @@ Use `zmr doctor --strict --json` for CI-style gates.
 
 ## Agent Session Pattern
 
-Prefer JSON-RPC over stdio for interactive agent work:
+Prefer a long-running JSON-RPC session for interactive agent work:
 
 ```bash
 zmr serve --transport stdio --config .zmr/config.json --trace-dir traces/zmr-agent
@@ -96,9 +96,10 @@ zmr run .zmr/<scenario>.json --json --trace-dir traces/zmr-<scenario>
 zmr explain --json traces/zmr-<scenario>
 ```
 
-Prefer stable selectors: resource id or accessibility identifier first,
-content description/accessibility label second, exact text third, textContains
-only when copy varies, coordinates last.
+Prefer stable selectors: resource id or accessibility identifier first, content
+description/accessibility label second, exact text third, `textContains` only
+when copy varies, `stableId` only as a live-session fallback, and coordinates
+last.
 
 Use `waitAny` for valid branches and `whenVisible` for optional screens. Keep
 credentials, private app terms, and private traces out of public docs and

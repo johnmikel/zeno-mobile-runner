@@ -4,6 +4,28 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Added
+
+- Added a support matrix covering Android, iPhone, iPad, tvOS, watchOS, cloud
+  device farms, and the evidence required before making stronger product
+  claims.
+
+### Changed
+
+- Reworked onboarding, agent workflow, app integration, support, readiness,
+  troubleshooting, benchmarking, client, shim, schema, and contribution docs
+  around DX-friendly setup paths, evidence-first product claims, and
+  agent-first mobile verification.
+- MCP tool schemas now expose strict selector shapes, including `stableId`, so
+  agents can discover supported selector fields directly from tool metadata.
+
+### Fixed
+
+- Scenario parsing and validation now reject unknown root, step, and selector
+  fields instead of silently accepting typos.
+- Selectors now reject empty selector objects and support `stableId` matching as
+  a live-session fallback from semantic snapshots.
+
 ## 0.2.16 (2026-06-25)
 
 ### Fixed

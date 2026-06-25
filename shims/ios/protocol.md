@@ -1,6 +1,7 @@
 # iOS Shim Protocol
 
-The iOS shim protocol is internal and may change before `v1.0.0`.
+The iOS shim protocol is internal. It may change before `v1.0.0` without a
+public protocol version bump.
 
 Commands are newline-delimited JSON objects:
 

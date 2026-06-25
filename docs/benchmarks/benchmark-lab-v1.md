@@ -21,7 +21,7 @@ React Native, Expo, Flutter, native Android, and native iOS. The lab is not a
 generic benchmark scoreboard. Each fixture must represent an app workflow a
 developer can inspect, build, run, and adapt.
 
-The near-term wedge is agent-native mobile testing: structured observation,
+The near-term wedge is agent-first mobile testing: structured observation,
 selector-grade actions, trace-first debugging, and reviewable scenario
 generation. Benchmarks should prove the local runner path is fast and reliable
 without overstating what one fixture demonstrates.

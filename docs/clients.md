@@ -1,14 +1,15 @@
 # Client Guide
 
 ZMR clients are reference implementations for the JSON-RPC protocol used by
-`zmr serve`. They are intentionally small and dependency-light.
+`zmr serve`. They are intentionally small, dependency-light, and host-side.
+They do not replace the `zmr` binary and they do not run inside the app under
+test.
 
 TypeScript and Python are the most common starting points for app teams and
-agent harnesses. Go, Rust, Swift, and Kotlin clients are reference integrations
-for teams that want to embed the protocol from those ecosystems. Go and Rust
-include typed trace discovery and scenario validation helpers for host-side
-agent loops; Swift and Kotlin include lightweight discovery and validation
-helpers for host-side automation.
+agent harnesses. Go, Rust, Swift, and Kotlin are reference integrations for
+teams that want host-side orchestration in those ecosystems. Go and Rust include
+typed trace discovery and scenario validation helpers; Swift and Kotlin include
+lightweight discovery and validation helpers for native mobile teams.
 
 | Language | Entry point | Example |
 | --- | --- | --- |

@@ -39,6 +39,9 @@ test "mcp protocol writes initialize and tool list responses" {
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"trace_export\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"goal\":{\"type\":\"string\"}") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"inputSchema\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"selector\":{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"stableId\":{\"type\":\"string\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"selectors\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1") != null);
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, tools.written(), "\n"));
 }
 

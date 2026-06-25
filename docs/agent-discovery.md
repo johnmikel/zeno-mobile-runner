@@ -1,15 +1,15 @@
 # Agent Discovery
 
-ZMR supports agent-led discovery today through its JSON-RPC and MCP interfaces,
-trace events, semantic snapshot artifacts, guarded trace exploration, in-band
-trace discovery, and offline scenario drafting. An external agent can observe
-the app, choose typed actions, inspect trace events, ask ZMR to write a small
-repeatable scenario from the trace, and then edit it as it learns a flow.
+ZMR supports agent-led discovery through JSON-RPC, MCP, trace events, semantic
+snapshots, guarded trace exploration, in-band trace discovery, and offline
+scenario drafting. An external agent can observe the app, choose typed actions,
+inspect trace events, ask ZMR to write a repeatable scenario from the trace, and
+then edit that scenario as it learns the flow.
 
 `zmr explore` is the built-in review-first exploration command. It is
 trace-backed, not an unbounded crawler: it does not launch devices, invent
-missing actions, discover credentials, or commit files. Keep autonomous
-planning in the agent, and keep ZMR as the deterministic mobile control plane.
+missing actions, discover credentials, or commit files. Keep autonomous planning
+in the agent; keep ZMR as the deterministic mobile control plane.
 
 ```mermaid
 flowchart LR
@@ -120,7 +120,7 @@ flowchart LR
    generated replay steps, and `skippedEventCount` is the number of events left
    out.
 
-11. After editing a generated scenario, validate it in-band with JSON-RPC:
+12. After editing a generated scenario, validate it in-band with JSON-RPC:
 
    ```json
    {"jsonrpc":"2.0","id":8,"method":"scenario.validate","params":{"path":".zmr/discovered/replay-smoke.json"}}
@@ -130,7 +130,7 @@ flowchart LR
    result matches `zmr validate --json`, including field paths and source
    locations for invalid files.
 
-12. Use the lower-level draft primitive when you want separate surface and
+13. Use the lower-level draft primitive when you want separate surface and
    replay files. For a conservative surface-smoke scenario:
 
    ```bash
@@ -160,16 +160,16 @@ flowchart LR
    timeout context for successful waits and timeout diagnostics.
    Unsupported events stay out of the scenario and are reported as warnings.
 
-13. Edit the draft, discovery, or exploration output into a candidate flow, for example
-   `.zmr/discovered/login-smoke.json`, by copying only steps that were observed
-   and understood.
-14. Validate the candidate scenario:
+14. Edit the draft, discovery, or exploration output into a candidate flow, for
+   example `.zmr/discovered/login-smoke.json`, by copying only steps that were
+   observed and understood.
+15. Validate the candidate scenario:
 
    ```bash
    zmr validate --json .zmr/discovered/login-smoke.json
    ```
 
-15. Re-run it deterministically:
+16. Re-run it deterministically:
 
    ```bash
    zmr run .zmr/discovered/login-smoke.json \
@@ -179,7 +179,7 @@ flowchart LR
      --json
    ```
 
-16. Export a redacted bundle before sharing artifacts:
+17. Export a redacted bundle before sharing artifacts:
 
     ```bash
     zmr export traces/zmr-login-smoke \

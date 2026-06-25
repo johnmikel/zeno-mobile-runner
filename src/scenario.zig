@@ -179,6 +179,7 @@ pub fn parseSlice(allocator: std.mem.Allocator, content: []const u8) !Scenario {
     defer parsed.deinit();
     if (parsed.value != .object) return error.ScenarioMustBeObject;
     const root = parsed.value.object;
+    try rejectUnknownRootFields(root);
 
     const name = try fields.requiredString(allocator, root, "name");
     errdefer allocator.free(name);
@@ -204,6 +205,7 @@ pub fn parseSlice(allocator: std.mem.Allocator, content: []const u8) !Scenario {
 fn parseStep(allocator: std.mem.Allocator, value: std.json.Value) anyerror!Step {
     if (value != .object) return error.StepMustBeObject;
     const object = value.object;
+    try rejectUnknownStepFields(object);
     var parsed = try parseRawStep(allocator, object);
     errdefer parsed.deinit(allocator);
 
@@ -350,6 +352,47 @@ fn parseRawStep(allocator: std.mem.Allocator, object: std.json.ObjectMap) anyerr
     }
 
     return error.unknownScenarioAction;
+}
+
+fn rejectUnknownRootFields(object: std.json.ObjectMap) !void {
+    var iterator = object.iterator();
+    while (iterator.next()) |entry| {
+        const key = entry.key_ptr.*;
+        if (std.mem.eql(u8, key, "name") or
+            std.mem.eql(u8, key, "appId") or
+            std.mem.eql(u8, key, "steps")) continue;
+        return error.UnknownScenarioField;
+    }
+}
+
+fn rejectUnknownStepFields(object: std.json.ObjectMap) !void {
+    var iterator = object.iterator();
+    while (iterator.next()) |entry| {
+        if (!isKnownStepField(entry.key_ptr.*)) return error.UnknownScenarioStepField;
+    }
+}
+
+fn isKnownStepField(key: []const u8) bool {
+    return std.mem.eql(u8, key, "action") or
+        std.mem.eql(u8, key, "optional") or
+        std.mem.eql(u8, key, "url") or
+        std.mem.eql(u8, key, "latitude") or
+        std.mem.eql(u8, key, "longitude") or
+        std.mem.eql(u8, key, "selector") or
+        std.mem.eql(u8, key, "selectors") or
+        std.mem.eql(u8, key, "text") or
+        std.mem.eql(u8, key, "maxChars") or
+        std.mem.eql(u8, key, "x1") or
+        std.mem.eql(u8, key, "y1") or
+        std.mem.eql(u8, key, "x2") or
+        std.mem.eql(u8, key, "y2") or
+        std.mem.eql(u8, key, "durationMs") or
+        std.mem.eql(u8, key, "timeoutMs") or
+        std.mem.eql(u8, key, "direction") or
+        std.mem.eql(u8, key, "times") or
+        std.mem.eql(u8, key, "steps") or
+        std.mem.eql(u8, key, "step") or
+        std.mem.eql(u8, key, "ms");
 }
 
 fn parseLatitude(object: std.json.ObjectMap) !f64 {

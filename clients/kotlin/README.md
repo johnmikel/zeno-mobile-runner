@@ -1,6 +1,6 @@
 # ZMR Kotlin Client
 
-Small JVM client for Kotlin agents and test harnesses that drive
+Small JVM client for Kotlin agents and host-side test harnesses that drive
 `zmr serve --transport stdio`.
 
 For now, build it from a local checkout and consume the generated jar:

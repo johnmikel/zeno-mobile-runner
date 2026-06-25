@@ -1,9 +1,8 @@
 # Expo Smoke Test
 
-This is the quickest public smoke path for an Expo app. It proves that the npm
-package installs, the wizard scaffolds a scenario, ZMR can launch an iOS app,
-and the runner can produce screenshots, traces, HTML reports, JUnit XML, and
-redacted trace bundles.
+This is the quickest public smoke path for an Expo app. It proves npm install,
+wizard scaffold, iOS app launch, screenshot capture, trace collection, HTML
+reporting, JUnit XML, and redacted export.
 
 Run the flow below on a local iOS simulator before treating a specific app build
 as validated.

@@ -1,6 +1,7 @@
 # ZMR Python Reference Client
 
-Standard-library Python client for ZMR's newline-delimited JSON-RPC protocol.
+Standard-library Python client for host-side agents and harnesses using ZMR's
+newline-delimited JSON-RPC protocol.
 
 ```python
 from zmr_client import ZmrClient

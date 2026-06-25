@@ -1,6 +1,7 @@
 # Troubleshooting
 
-Start with structured diagnostics instead of reading terminal output by hand:
+Start with structured diagnostics. They give humans, agents, and CI scripts the
+same setup state, error codes, field paths, and remediation hints:
 
 ```bash
 zmr doctor --json
@@ -13,25 +14,25 @@ zmr explain traces/zmr-android
 `zmr doctor --json` is the first command to run when setup is unclear. It
 reports Zig, ADB, Android device count, `xcrun`, iOS simulator state, physical
 iOS device state, and configured Android/iOS shim command paths in a
-machine-readable shape that scripts and agents can inspect. Device readiness
-checks report `warning` when ADB sees zero devices, `xcrun` sees zero booted
-iOS simulators, `devicectl` sees zero paired physical iOS devices, or all
-listed physical devices are disconnected/unavailable, with stable
+machine-readable shape. Device readiness checks report `warning` when ADB sees
+zero devices, `xcrun` sees zero booted iOS simulators, `devicectl` sees zero
+paired physical iOS devices, or all listed physical devices are
+disconnected/unavailable, with stable
 `setup.android.no_devices`, `setup.ios.no_booted_simulators`,
 `setup.ios.no_physical_devices`, and
 `setup.ios.no_ready_physical_devices` error codes.
 Missing tool and shim checks also include stable setup codes such as
 `setup.adb.not_found` and `setup.android_shim.not_found`.
 By default `doctor` exits zero after printing diagnostics so interactive setup
-can keep going; add `--strict` when CI or install scripts should exit non-zero
+can keep going. Add `--strict` when CI or install scripts should exit non-zero
 for any warning or missing check.
-When run with `--config .zmr/config.json`, it
-first reports whether the config file itself loaded, then validates configured
-smoke scenario files from `android.smokeScenario` and
-`ios.smokeScenario` so app-local setup mistakes fail before device orchestration
-starts. Config files with wrong types, such as string values for boolean
-artifact controls, unknown fields, such as misspelled `smokeScenario`, or empty strings
-where paths/app ids/script commands are required are reported as `config` warnings.
+
+When run with `--config .zmr/config.json`, `doctor` first reports whether the
+config file loaded, then validates configured smoke scenario files from
+`android.smokeScenario` and `ios.smokeScenario` so app-local setup mistakes fail
+before device orchestration starts. Config files with wrong types, unknown
+fields such as misspelled `smokeScenario`, or empty strings where paths, app
+ids, or script commands are required are reported as `config` warnings.
 Those warnings include `fieldPath` in JSON mode when ZMR can identify the
 invalid `.zmr/config.json` key, plus stable `errorCode` values for setup
 automation.
@@ -109,6 +110,7 @@ zmr validate --json .zmr/android-smoke.json
 The JSON output includes `errorCode`, `fieldPath`, `line`, and `column` when ZMR
 can locate the source. Fix schema and selector mistakes there first; device
 state debugging is slower and less reliable when the scenario itself is invalid.
+Unknown root, step, and selector fields are rejected to catch typos early.
 
 ## Android Device Issues
 
@@ -234,7 +236,8 @@ with the `appState` command above.
 
 ## Trace And Failure Issues
 
-When a run fails, do not rerun blindly. Inspect the recorded failure:
+When a run fails, inspect the recorded failure before changing selectors or
+rerunning:
 
 ```bash
 zmr explain traces/zmr-android

@@ -1,12 +1,13 @@
 # Client Installation
 
-ZMR has two layers:
+ZMR has two layers. Install the binary first; add a language client only when
+your agent or harness needs idiomatic host-side calls.
 
 1. The `zmr` binary controls devices, runs scenarios, serves JSON-RPC, and writes traces.
 2. Language clients are optional wrappers around `zmr serve --transport stdio`.
 
 For fastest adoption, install the binary once with npm or Homebrew. Then use a
-language client only when you want tests or agents written in that language.
+language client only when tests or agents are written in that language.
 
 ## Binary First
 

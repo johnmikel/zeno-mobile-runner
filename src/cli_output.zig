@@ -31,6 +31,7 @@ pub fn writeImportJson(writer: anytype, format: []const u8, source_path: []const
     try writeShellArgJsonContent(writer, result.out_path);
     try writer.writeAll("\"");
     try writeImportNextCommandsJson(writer, result.out_path);
+    if (std.mem.eql(u8, format, "maestro")) try writeMaestroCompatibilityJson(writer);
     try writer.writeAll("}\n");
 }
 
@@ -40,6 +41,36 @@ fn writeImportNextCommandsJson(writer: anytype, out_path: []const u8) !void {
     try writer.writeAll("\",\"zmr run ");
     try writeShellArgJsonContent(writer, out_path);
     try writer.writeAll(" --json --trace-dir traces/zmr-run\"]");
+}
+
+fn writeMaestroCompatibilityJson(writer: anytype) !void {
+    try writer.writeAll(",\"compatibility\":{\"source\":\"maestro-yaml\",\"native\":\"zmr-json\",\"mode\":\"smoke-subset\",\"reviewRequired\":true,\"unsupportedCommandPolicy\":\"fail-fast\",\"supportedCommands\":[");
+    const commands = [_][]const u8{
+        "launchApp",
+        "stopApp",
+        "clearState",
+        "clearAppState",
+        "tapOn",
+        "inputText",
+        "eraseText",
+        "hideKeyboard",
+        "assertVisible",
+        "assertNotVisible",
+        "assertHealthy",
+        "openLink",
+        "back",
+        "pressBack",
+        "scrollUntilVisible",
+        "takeScreenshot",
+        "waitUntilVisible",
+        "waitUntilNotVisible",
+        "waitForAnimationToEnd",
+    };
+    for (commands, 0..) |command, index| {
+        if (index > 0) try writer.writeAll(",");
+        try trace.writeJsonString(writer, command);
+    }
+    try writer.writeAll("],\"unsupportedFamilies\":[\"runFlow\",\"retry\",\"repeat\",\"conditions\",\"hooks\",\"javascript\",\"ai-assertions\",\"media\",\"orientation\",\"permissions\",\"clipboard\",\"locale\",\"cloud-only-options\"],\"notes\":[\"Import is a one-time migration helper; commit and review the generated ZMR JSON scenario before CI use.\",\"Unsupported Maestro commands fail the import instead of being guessed.\"]}");
 }
 
 pub fn writeInitAppJson(writer: anytype, dir: []const u8, app_id: []const u8) !void {

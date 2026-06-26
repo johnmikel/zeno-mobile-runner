@@ -75,12 +75,18 @@ making the whole flow flaky.
 ## Importing Existing Flows
 
 Use the importer as a one-time migration helper when evaluating ZMR against an
-existing mobile-flow YAML suite:
+existing Maestro or mobile-flow YAML suite:
 
 ```bash
+zmr import maestro flows/login.yaml --out .zmr/login-smoke.json --json
 zmr import flow-yaml flows/login.yaml --out .zmr/login-smoke.json --json
 zmr validate .zmr/login-smoke.json
 ```
+
+Prefer `zmr import maestro` when the source file is a Maestro flow. The JSON
+response includes a compatibility report with the supported command subset,
+unsupported command families, and the review requirement. The lower-level
+`flow-yaml` spelling remains available for generic mobile-flow YAML inputs.
 
 The importer supports the common subset needed for smoke scenarios:
 `launchApp`, `stopApp`, `clearState`, `tapOn`, `inputText`, `eraseText`,

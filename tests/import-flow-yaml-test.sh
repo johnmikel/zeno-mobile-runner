@@ -39,6 +39,13 @@ grep -q '"out":"'"$TMPDIR"'/.zmr/imported.json"' "$TMPDIR/import.json"
 grep -q '"stepCount":10' "$TMPDIR/import.json"
 grep -q '"nextCommands":\["zmr validate --json '"$TMPDIR"'/.zmr/imported.json","zmr run '"$TMPDIR"'/.zmr/imported.json --json --trace-dir traces/zmr-run"\]' "$TMPDIR/import.json"
 
+"$ZMR" import maestro "$TMPDIR/flow.yaml" --out "$TMPDIR/.zmr/imported-maestro.json" --json > "$TMPDIR/import-maestro.json"
+grep -q '"format":"maestro"' "$TMPDIR/import-maestro.json"
+grep -q '"compatibility":{"source":"maestro-yaml","native":"zmr-json"' "$TMPDIR/import-maestro.json"
+grep -q '"reviewRequired":true' "$TMPDIR/import-maestro.json"
+grep -q '"unsupportedCommandPolicy":"fail-fast"' "$TMPDIR/import-maestro.json"
+"$ZMR" validate "$TMPDIR/.zmr/imported-maestro.json"
+
 "$ZMR" import flow-yaml "$TMPDIR/flow.yaml" --out "$TMPDIR/.zmr/imported flow.json" --json > "$TMPDIR/import-space.json"
 if ! grep -q "\"nextCommands\":\[\"zmr validate --json '$TMPDIR/.zmr/imported flow.json'\",\"zmr run '$TMPDIR/.zmr/imported flow.json' --json --trace-dir traces/zmr-run\"\]" "$TMPDIR/import-space.json"; then
   echo "import --json should include shell-quoted validate and run handoffs" >&2

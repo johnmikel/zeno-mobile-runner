@@ -301,17 +301,19 @@ Single-scenario mode reports the created scenario and next validation command:
 
 ## Import Output Contract
 
-`zmr import flow-yaml <flow.yaml> --out .zmr/imported.json --json` converts a
-supported subset of mobile-flow YAML into native ZMR scenario JSON. The
-response is covered by `schemas/import-output.schema.json`:
+`zmr import maestro <flow.yaml> --out .zmr/imported.json --json` converts a
+supported subset of Maestro YAML into native ZMR scenario JSON. The lower-level
+`zmr import flow-yaml` spelling remains available for generic mobile-flow YAML.
+The response is covered by `schemas/import-output.schema.json`:
 
 ```json
-{"ok":true,"format":"flow-yaml","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
+{"ok":true,"format":"maestro","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"],"compatibility":{"source":"maestro-yaml","native":"zmr-json","mode":"smoke-subset","reviewRequired":true,"unsupportedCommandPolicy":"fail-fast","supportedCommands":["launchApp","tapOn"],"unsupportedFamilies":["runFlow"],"notes":["Import is a one-time migration helper; commit and review the generated ZMR JSON scenario before CI use."]}}
 ```
 
 The importer is intentionally a migration helper, not a runtime dependency.
 After import, agents and CI should treat the generated `.zmr/*.json` file as
-the source of truth and run `nextCommands` in order.
+the source of truth and run `nextCommands` in order. Unsupported Maestro command
+families fail fast instead of being guessed.
 
 ## Validate Output Contract
 

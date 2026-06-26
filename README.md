@@ -1,19 +1,19 @@
 # Zeno Mobile Runner
 
-> Mobile UI automation built for AI coding agents, deterministic CI scenarios,
-> and traceable product evidence.
+> Agent-first mobile verification with deterministic CI scenarios and
+> replayable product evidence.
 
 [![CI](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/johnmikel/zeno-mobile-runner?include_prereleases)](https://github.com/johnmikel/zeno-mobile-runner/releases)
 [![npm](https://img.shields.io/npm/v/zeno-mobile-runner)](https://www.npmjs.com/package/zeno-mobile-runner)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-AI agents can edit mobile apps quickly, but they need a reliable way to see the
-screen, act on native UI, and prove the result. Zeno Mobile Runner (ZMR) is that
-control plane: one local binary that installs and launches apps, captures
-semantic UI state, performs typed actions, waits and asserts, and exports a
-replayable trace. ZMR does not embed an LLM. Agents, scripts, and CI systems
-drive it through MCP, JSON-RPC, CLI JSON, or committed JSON scenarios.
+AI agents can edit mobile apps quickly, but they need a reliable way to inspect
+the screen, act on native UI, and prove the result. Zeno Mobile Runner (ZMR) is
+that verification control plane: one local binary that installs and launches
+apps, captures semantic UI state, performs typed actions, waits and asserts, and
+exports a replayable trace. ZMR does not embed an LLM. Agents, scripts, and CI
+systems drive it through MCP, JSON-RPC, CLI JSON, or committed JSON scenarios.
 
 ![ZMR trace viewer showing a passed iOS run with timeline, device screenshot, UI tree, and selector payload](docs/assets/viewer-hero.png)
 
@@ -28,6 +28,8 @@ driven on an iOS simulator and an Android emulator.</em></p>
 
 ## Why This Exists
 
+- **Agents should verify their own changes.** ZMR turns mobile app state into
+  structured observations and typed tool results that fit AI coding loops.
 - **Agents need structured mobile state.** ZMR returns semantic UI trees,
   stable selectors, screenshots, and typed action results, so an agent can
   reason from product state instead of guessing from terminal output.
@@ -178,6 +180,13 @@ zmr report traces/login-smoke --out traces/login-smoke/report.html --junit trace
 zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact
 ```
 
+Teams migrating from Maestro can start with the explicit compatibility command:
+
+```bash
+zmr import maestro flows/login.yaml --out .zmr/login-smoke.json --json
+zmr validate --json .zmr/login-smoke.json
+```
+
 Traced `zmr run --json` responses include executable `nextCommands`, so agents
 can continue to reporting, explanation, discovery, or export without rebuilding
 paths from text.
@@ -221,6 +230,9 @@ ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
 **Start here**
 
 - [docs/install.md](docs/install.md): install paths and first setup checks
+- [docs/maestro-migration.md](docs/maestro-migration.md): migrate Maestro smoke flows into reviewed ZMR JSON
+- [docs/json-traces-vs-yaml.md](docs/json-traces-vs-yaml.md): why JSON scenarios plus traces are the ZMR runtime contract
+- [docs/zmr-live.md](docs/zmr-live.md): live agent verification workflow with MCP, traces, viewer, and export
 - [docs/support-matrix.md](docs/support-matrix.md): platform support, evidence
   levels, and Apple-platform scope
 - [docs/production-readiness.md](docs/production-readiness.md): release,
@@ -238,9 +250,11 @@ ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
 - [docs/install.md](docs/install.md): source, npm, Homebrew, and app setup
 - [docs/frameworks.md](docs/frameworks.md): React Native, Expo, Flutter, and native app guidance
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
+- [docs/command-reference.md](docs/command-reference.md): public command use, agent handoff, CI use, failures, and artifacts
 - [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims
 - [docs/expo-smoke.md](docs/expo-smoke.md): reproducible Expo and iOS smoke test
 - [docs/benchmarking.md](docs/benchmarking.md): repeat-run gates, reports, device matrix, baselines
+- [docs/self-managed-parallel-ci.md](docs/self-managed-parallel-ci.md): parallel execution without a hosted cloud dependency
 
 **Reference**
 

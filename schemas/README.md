@@ -14,7 +14,7 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `zmr-config.schema.json`: app-local `.zmr/config.json` defaults used by the CLI and npm wizard, including Android emulator lifecycle defaults
 - `doctor-output.schema.json`: machine-readable `zmr doctor --json` setup diagnostics, including remediation hints for actionable checks
 - `init-output.schema.json`: machine-readable `zmr init --json` bootstrap output for scenario and app-local `.zmr/` initialization
-- `import-output.schema.json`: machine-readable `zmr import --json` output for one-time scenario migration helpers
+- `import-output.schema.json`: machine-readable `zmr import --json` output for one-time scenario migration helpers, including Maestro compatibility metadata
 - `devices-output.schema.json`: machine-readable `zmr devices --json` output for Android, iOS/iPadOS simulator, and physical iOS/iPadOS discovery
 - `validate-output.schema.json`: machine-readable `zmr validate --json` scenario preflight output
 - `version-output.schema.json`: machine-readable `zmr version --json` output for runner and protocol compatibility discovery

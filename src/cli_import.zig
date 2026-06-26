@@ -69,7 +69,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     while (args.next()) |arg| try raw_args.append(allocator, arg);
 
     const parsed = try parseArgs(raw_args.items);
-    if (!std.mem.eql(u8, parsed.format, "flow-yaml")) return error.UnsupportedImportFormat;
+    if (!isSupportedFormat(parsed.format)) return error.UnsupportedImportFormat;
 
     const result = try importer.importFlowYamlFile(allocator, parsed.source_path, parsed.out_path.?, .{
         .name = parsed.name,
@@ -91,4 +91,8 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
         try stdout.writeAll("\n");
     }
     try stdout_io.flush();
+}
+
+fn isSupportedFormat(format: []const u8) bool {
+    return std.mem.eql(u8, format, "flow-yaml") or std.mem.eql(u8, format, "maestro");
 }

@@ -92,8 +92,9 @@ planning.
   class name, role/class, enabled/visible/selected state, and bounds-aware
   target validation.
 - Wait and retry behavior around transient observation failures.
-- Import helper for a documented subset of common mobile-flow YAML commands
-  into native `.zmr/*.json` scenarios.
+- `zmr import maestro` and `zmr import flow-yaml` helpers for a documented
+  subset of common Maestro/mobile-flow YAML commands into native `.zmr/*.json`
+  scenarios, with a compatibility report for Maestro migrations.
 - Trace-backed draft helper for generating reviewable surface and replay
   scenarios from observed UI state and successful supported trace actions.
 

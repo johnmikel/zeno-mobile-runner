@@ -103,6 +103,27 @@ test "import json shell quotes next command with spaces in path" {
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr validate --json '/tmp/mobile app/imported flow.json'\",\"zmr run '/tmp/mobile app/imported flow.json' --json --trace-dir traces/zmr-run\"]") != null);
 }
 
+test "maestro import json includes compatibility report" {
+    var json = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json.deinit();
+
+    const result = importer.ImportResult{
+        .out_path = ".zmr/login.json",
+        .name = "Login smoke",
+        .app_id = "com.example.mobiletest",
+        .step_count = 4,
+    };
+
+    try cli_output.writeImportJson(&json.writer, "maestro", "flows/login.yaml", result);
+
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"format\":\"maestro\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"compatibility\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"source\":\"maestro-yaml\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"native\":\"zmr-json\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"reviewRequired\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"unsupportedCommandPolicy\":\"fail-fast\"") != null);
+}
+
 test "doctor output treats warnings and missing checks as unhealthy" {
     const checks = [_]doctor.Check{
         .{

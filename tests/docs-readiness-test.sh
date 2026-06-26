@@ -117,7 +117,8 @@ for internal_doc in \
 done
 
 require_grep '^# Zeno Mobile Runner$' README.md
-require_grep 'Mobile UI automation built for AI coding agents' README.md
+require_grep 'Agent-first mobile verification with deterministic CI scenarios' README.md
+require_grep 'replayable product evidence' README.md
 require_grep 'docs/assets/viewer-hero.png' README.md
 require_grep 'docs/assets/device-ios-demo.png' README.md
 require_grep 'docs/assets/device-android-demo.png' README.md

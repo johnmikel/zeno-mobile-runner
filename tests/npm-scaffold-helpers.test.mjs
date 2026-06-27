@@ -12,7 +12,7 @@ test("command helper module owns generated command strings", async () => {
 
   assert.equal(commands.shellQuote("plain/path"), "plain/path");
   assert.equal(commands.shellQuote("path with spaces"), "'path with spaces'");
-  assert.equal(commands.smokeRunCommand({ platform: "android", androidShim: "./.zmr/android shim" }), "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --android-shim './.zmr/android shim'");
+  assert.equal(commands.smokeRunCommand({ platform: "android", androidShim: "./.zmr/android shim" }), "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device --android-shim './.zmr/android shim'");
   assert.equal(commands.smokeReportCommand({ platform: "android" }), "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml");
   assert.equal(commands.smokeReportCommand({ platform: "ios" }), "zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml");
   assert.equal(commands.devClientReportCommand({ platform: "android" }), "zmr report traces/zmr-android-dev-client --out traces/zmr-android-dev-client/report.html --junit traces/zmr-android-dev-client/junit.xml");
@@ -139,8 +139,8 @@ test("scaffold helper module owns init JSON metadata", async () => {
 	      "zmr validate --json /tmp/mobile-app/.zmr/ios-smoke.json",
 	    ],
 	    smokeCommands: [
-	      "zmr run /tmp/mobile-app/.zmr/android-smoke.json --device emulator-5554 --trace-dir /tmp/mobile-app/traces/zmr-android",
-	      "zmr run /tmp/mobile-app/.zmr/ios-smoke.json --platform ios --device booted --trace-dir /tmp/mobile-app/traces/zmr-ios",
+		      "zmr run /tmp/mobile-app/.zmr/android-smoke.json --device emulator-5554 --trace-dir /tmp/mobile-app/traces/zmr-android --ensure-device",
+		      "zmr run /tmp/mobile-app/.zmr/ios-smoke.json --platform ios --device booted --trace-dir /tmp/mobile-app/traces/zmr-ios --ensure-device",
 	    ],
 	    scriptCount: 16,
 	    scriptNames: [
@@ -184,7 +184,7 @@ test("scaffold init JSON metadata only advertises generated platform scenarios",
     "zmr validate --json /tmp/mobile-app/.zmr/ios-smoke.json",
   ]);
   assert.deepEqual(output.smokeCommands, [
-    "zmr run /tmp/mobile-app/.zmr/ios-smoke.json --platform ios --device booted --trace-dir /tmp/mobile-app/traces/zmr-ios",
+    "zmr run /tmp/mobile-app/.zmr/ios-smoke.json --platform ios --device booted --trace-dir /tmp/mobile-app/traces/zmr-ios --ensure-device",
   ]);
   assert.deepEqual(output.scriptNames, [
     "doctor",
@@ -241,8 +241,8 @@ test("scaffold init JSON metadata includes Expo dev-client script names", async 
     "zmr validate --json /tmp/mobile-app/.zmr/ios-dev-client-open-link.json",
   ]);
   assert.deepEqual(output.smokeCommands, [
-    "zmr run /tmp/mobile-app/.zmr/android-smoke.json --device emulator-5554 --trace-dir /tmp/mobile-app/traces/zmr-android",
-    "zmr run /tmp/mobile-app/.zmr/ios-smoke.json --platform ios --device booted --trace-dir /tmp/mobile-app/traces/zmr-ios",
+    "zmr run /tmp/mobile-app/.zmr/android-smoke.json --device emulator-5554 --trace-dir /tmp/mobile-app/traces/zmr-android --ensure-device",
+    "zmr run /tmp/mobile-app/.zmr/ios-smoke.json --platform ios --device booted --trace-dir /tmp/mobile-app/traces/zmr-ios --ensure-device",
   ]);
 });
 
@@ -282,7 +282,7 @@ test("agent helper module owns generated AI-agent quick-start instructions", asy
   const agents = await import(url.pathToFileURL(path.join(root, "npm", "agents.mjs")));
   const config = {
     scripts: {
-      android: "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android",
+      android: "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device",
       androidReport: "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml",
       androidReliability: "zmr-benchmark --zmr .zmr/android-smoke.json",
       matrix: "zmr-device-matrix --matrix .zmr/device-matrix.json",
@@ -355,7 +355,7 @@ test("package script helper module owns package.json script mapping", async () =
       doctor: "zmr doctor --strict --json --config .zmr/config.json",
       schemas: "zmr schemas --json",
       validate: "zmr validate --json .zmr/android-smoke.json",
-      android: "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android",
+      android: "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device",
       androidReport: "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml",
       androidReliability: "zmr-benchmark --zmr .zmr/android-smoke.json",
       pilotGate: "zmr-pilot-gate --android",
@@ -419,13 +419,13 @@ test("app config helper module owns generated .zmr config data", async () => {
   assert.equal(config.ios.enabled, true);
   assert.equal(config.tools.androidShimPath, "./.zmr/android shim");
   assert.equal(config.tools.iosShimPath, "./.zmr/ios shim");
-  assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --android-shim './.zmr/android shim'");
+  assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device --android-shim './.zmr/android shim'");
   assert.equal(config.scripts.androidReport, "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml");
-  assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ios-shim './.zmr/ios shim'");
+  assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device --ios-shim './.zmr/ios shim'");
   assert.equal(config.scripts.iosReport, "zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml");
-  assert.equal(config.scripts.androidDevClient, "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client");
+  assert.equal(config.scripts.androidDevClient, "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client --ensure-device");
   assert.equal(config.scripts.androidDevClientReport, "zmr report traces/zmr-android-dev-client --out traces/zmr-android-dev-client/report.html --junit traces/zmr-android-dev-client/junit.xml");
-  assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client");
+  assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client --ensure-device");
   assert.equal(config.scripts.iosDevClientReport, "zmr report traces/zmr-ios-dev-client --out traces/zmr-ios-dev-client/report.html --junit traces/zmr-ios-dev-client/junit.xml");
   assert.equal(config.scripts.validate, "zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json && zmr validate --json .zmr/android-dev-client-smoke.json && zmr validate --json .zmr/ios-dev-client-open-link.json");
   assert.equal(config.scripts.explain, "zmr explain traces/zmr-agent --json");

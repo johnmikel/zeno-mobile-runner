@@ -68,7 +68,8 @@
         "avdSystemImage": { "type": "string", "minLength": 1 },
         "avdDeviceProfile": { "type": "string", "minLength": 1 },
         "resetBeforeRun": { "type": "boolean", "default": false },
-        "waitReady": { "type": "boolean", "default": false }
+        "waitReady": { "type": "boolean", "default": false },
+        "ensureDevice": { "type": "boolean", "default": false }
       }
     }
   }

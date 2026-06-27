@@ -1,11 +1,11 @@
 export function smokeRunCommand({ platform, androidShim = "", iosShim = "" }) {
   if (platform === "android") {
-    const args = ["zmr", "run", ".zmr/android-smoke.json", "--device", "emulator-5554", "--trace-dir", "traces/zmr-android"];
+    const args = ["zmr", "run", ".zmr/android-smoke.json", "--device", "emulator-5554", "--trace-dir", "traces/zmr-android", "--ensure-device"];
     if (androidShim) args.push("--android-shim", androidShim);
     return shellJoin(args);
   }
   if (platform === "ios") {
-    const args = ["zmr", "run", ".zmr/ios-smoke.json", "--platform", "ios", "--device", "booted", "--trace-dir", "traces/zmr-ios"];
+    const args = ["zmr", "run", ".zmr/ios-smoke.json", "--platform", "ios", "--device", "booted", "--trace-dir", "traces/zmr-ios", "--ensure-device"];
     if (iosShim) args.push("--ios-shim", iosShim);
     return shellJoin(args);
   }
@@ -76,10 +76,10 @@ export function reliabilityCommand({ scenario, platform = "", device, appId, xcr
 
 export function devClientRunCommand({ platform }) {
   if (platform === "android") {
-    return "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client";
+    return "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client --ensure-device";
   }
   if (platform === "ios") {
-    return "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client";
+    return "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client --ensure-device";
   }
   throw new Error(`unsupported dev-client platform: ${platform}`);
 }

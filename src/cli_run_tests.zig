@@ -18,4 +18,10 @@ test "parse args rejects missing option values and invalid platform values" {
     try std.testing.expectError(error.MissingAndroidAvdSystemImage, cli_run.parseArgs(&.{"--avd-system-image"}));
     try std.testing.expectError(error.MissingAndroidAvdDeviceProfile, cli_run.parseArgs(&.{"--avd-device"}));
     try std.testing.expectError(error.MissingDiscoverOut, cli_run.parseArgs(&.{"--discover-out"}));
+
+    const ensure = try cli_run.parseArgs(&.{"--ensure-device"});
+    try std.testing.expect(ensure.raw.ensure_device.?);
+
+    const no_ensure = try cli_run.parseArgs(&.{"--no-ensure-device"});
+    try std.testing.expectEqual(false, no_ensure.raw.ensure_device.?);
 }

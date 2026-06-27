@@ -57,7 +57,7 @@ test "init app json reports generated agent instructions" {
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"agentInstructionsPath\":\"./.zmr/AGENTS.md\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"next\":\"zmr doctor --strict --json --config ./.zmr/config.json\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr doctor --strict --json --config ./.zmr/config.json\",\"zmr schemas --json\",\"zmr validate --json ./.zmr/android-smoke.json\",\"zmr validate --json ./.zmr/ios-smoke.json\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"smokeCommands\":[\"zmr run ./.zmr/android-smoke.json --device emulator-5554 --trace-dir ./traces/zmr-android\",\"zmr run ./.zmr/ios-smoke.json --platform ios --device booted --trace-dir ./traces/zmr-ios\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"smokeCommands\":[\"zmr run ./.zmr/android-smoke.json --device emulator-5554 --trace-dir ./traces/zmr-android --ensure-device\",\"zmr run ./.zmr/ios-smoke.json --platform ios --device booted --trace-dir ./traces/zmr-ios --ensure-device\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"scriptCount\":16") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"scriptNames\":[\"doctor\",\"schemas\",\"validate\",\"android\",\"androidReport\",\"androidReliability\",\"ios\",\"iosReport\",\"iosReliability\",\"matrix\",\"pilotGate\",\"readiness\",\"serve\",\"mcp\",\"explain\",\"exportTrace\"]") != null);
 }
@@ -71,7 +71,7 @@ test "init app json shell quotes next commands with spaces in paths" {
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"configPath\":\"/tmp/mobile app/.zmr/config.json\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"next\":\"zmr doctor --strict --json --config '/tmp/mobile app/.zmr/config.json'\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"nextCommands\":[\"zmr doctor --strict --json --config '/tmp/mobile app/.zmr/config.json'\",\"zmr schemas --json\",\"zmr validate --json '/tmp/mobile app/.zmr/android-smoke.json'\",\"zmr validate --json '/tmp/mobile app/.zmr/ios-smoke.json'\"]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"smokeCommands\":[\"zmr run '/tmp/mobile app/.zmr/android-smoke.json' --device emulator-5554 --trace-dir '/tmp/mobile app/traces/zmr-android'\",\"zmr run '/tmp/mobile app/.zmr/ios-smoke.json' --platform ios --device booted --trace-dir '/tmp/mobile app/traces/zmr-ios'\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json.written(), "\"smokeCommands\":[\"zmr run '/tmp/mobile app/.zmr/android-smoke.json' --device emulator-5554 --trace-dir '/tmp/mobile app/traces/zmr-android' --ensure-device\",\"zmr run '/tmp/mobile app/.zmr/ios-smoke.json' --platform ios --device booted --trace-dir '/tmp/mobile app/traces/zmr-ios' --ensure-device\"]") != null);
 }
 
 test "init scenario json shell quotes next command with spaces in path" {

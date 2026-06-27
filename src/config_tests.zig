@@ -18,6 +18,7 @@ test "config parser reads app-local defaults" {
         \\    "restoreSnapshot": "zmr-clean",
         \\    "resetBeforeRun": true,
         \\    "waitReady": true,
+        \\    "ensureDevice": true,
         \\    "createAvdIfMissing": true,
         \\    "avdSystemImage": "system-images;android-35;google_apis;arm64-v8a",
         \\    "avdDeviceProfile": "pixel_6"
@@ -42,6 +43,7 @@ test "config parser reads app-local defaults" {
     try std.testing.expectEqualStrings("zmr-clean", cfg.android.restore_snapshot.?);
     try std.testing.expect(cfg.android.reset_before_run);
     try std.testing.expect(cfg.android.wait_ready);
+    try std.testing.expect(cfg.android.ensure_device);
     try std.testing.expect(cfg.android.create_avd_if_missing);
     try std.testing.expectEqualStrings("system-images;android-35;google_apis;arm64-v8a", cfg.android.avd_system_image.?);
     try std.testing.expectEqualStrings("pixel_6", cfg.android.avd_device_profile.?);
@@ -63,6 +65,15 @@ test "config parser rejects non-boolean platform flags" {
         \\  "schemaVersion": 1,
         \\  "android": {
         \\    "enabled": "true"
+        \\  }
+        \\}
+    ));
+
+    try std.testing.expectError(error.ConfigFieldMustBeBool, parseSlice(std.testing.allocator,
+        \\{
+        \\  "schemaVersion": 1,
+        \\  "ios": {
+        \\    "ensureDevice": "true"
         \\  }
         \\}
     ));

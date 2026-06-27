@@ -50,7 +50,7 @@ The script builds `zig-out/bin/zmr`, then runs:
 - `zmr init --app --json --dir traces/demo-init-app --app-id com.example.demoapp`
   followed by validation and strict config-driven doctor checks from that
   generated app-local workspace
-- `zmr import flow-yaml traces/demo-flow-yaml-flow.yaml --out traces/demo-imported-flow.json --json`
+- `zmr import maestro traces/demo-flow-yaml-flow.yaml --out traces/demo-imported-flow.json --json`
   followed by validation of the generated native ZMR scenario
 - `zmr run examples/demo-fake.json --trace-dir traces/demo-fake-android --json`
 - `scripts/device-matrix.sh --matrix traces/demo-device-matrix.json --trace-root traces/demo-device-matrix`
@@ -112,11 +112,13 @@ emulator/device evidence:
   --device emulator-5554
 ```
 
-To force a known emulator state, direct `zmr run` supports `--android-avd`,
-`--create-avd-if-missing`, `--avd-system-image`, `--avd-device`,
-`--restore-snapshot`, `--reset-emulator`, and `--wait-emulator`. The pilot
-wrapper accepts the same state controls while also building/installing the app.
-Add `--screen-record` to keep a pilot-level MP4 under the trace root:
+Direct `zmr run --ensure-device` can boot an Android emulator or iOS simulator
+before the scenario starts. To force a known Android emulator state, direct
+`zmr run` also supports `--android-avd`, `--create-avd-if-missing`,
+`--avd-system-image`, `--avd-device`, `--restore-snapshot`,
+`--reset-emulator`, and `--wait-emulator`. The pilot wrapper accepts the same
+state controls while also building/installing the app. Add `--screen-record` to
+keep a pilot-level MP4 under the trace root:
 
 ```bash
 ./scripts/run-android-pilot.sh \

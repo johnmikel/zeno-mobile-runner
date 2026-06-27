@@ -17,6 +17,7 @@ test "run options apply app-local config defaults and let cli flags override" {
         \\    "restoreSnapshot": "zmr-clean",
         \\    "resetBeforeRun": true,
         \\    "waitReady": true,
+        \\    "ensureDevice": true,
         \\    "createAvdIfMissing": true,
         \\    "avdSystemImage": "system-images;android-35;google_apis;arm64-v8a",
         \\    "avdDeviceProfile": "pixel_6"
@@ -63,9 +64,11 @@ test "run options apply app-local config defaults and let cli flags override" {
     try std.testing.expectEqualStrings("pixel_6", resolved.android_avd_device_profile.?);
     try std.testing.expect(resolved.android_reset_before_run);
     try std.testing.expect(resolved.android_wait_ready);
+    try std.testing.expect(resolved.ensure_device);
 
     const preflight = run_options.androidPreflight(resolved, "adb", "emulator", "avdmanager").?;
     try std.testing.expectEqualStrings("Small_Phone", preflight.avd_name.?);
+    try std.testing.expect(preflight.ensure_ready);
 
     const capture = run_options.traceCapture(cfg);
     try std.testing.expect(!capture.capture_screenshots);
@@ -80,6 +83,7 @@ test "run options apply app-local config defaults and let cli flags override" {
         .app_id = "com.example.cli",
         .android_shim_path = "./custom-android-shim",
         .ios_shim_path = "./custom-ios-shim",
+        .ensure_device = false,
         .platform = .android,
     }, cfg);
 
@@ -89,6 +93,7 @@ test "run options apply app-local config defaults and let cli flags override" {
     try std.testing.expectEqualStrings("com.example.cli", overridden.app_id);
     try std.testing.expectEqualStrings("./custom-android-shim", overridden.android_shim_path.?);
     try std.testing.expectEqualStrings("./custom-ios-shim", overridden.ios_shim_path.?);
+    try std.testing.expect(!overridden.ensure_device);
 
     const serve_resolved = run_options.resolveServe(.{
         .serial = null,

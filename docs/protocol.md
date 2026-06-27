@@ -281,7 +281,7 @@ generated app-local file, direct paths for the config/scenario/matrix/agent
 files, first-run commands, and the generated script names:
 
 ```json
-{"ok":true,"mode":"app","dir":".","appId":"com.example.mobiletest","created":["./.zmr/config.json","./.zmr/android-smoke.json","./.zmr/ios-smoke.json","./.zmr/device-matrix.json","./.zmr/AGENTS.md"],"configPath":"./.zmr/config.json","androidScenarioPath":"./.zmr/android-smoke.json","iosScenarioPath":"./.zmr/ios-smoke.json","deviceMatrixPath":"./.zmr/device-matrix.json","agentInstructionsPath":"./.zmr/AGENTS.md","next":"zmr doctor --strict --json --config ./.zmr/config.json","nextCommands":["zmr doctor --strict --json --config ./.zmr/config.json","zmr schemas --json","zmr validate --json ./.zmr/android-smoke.json","zmr validate --json ./.zmr/ios-smoke.json"],"smokeCommands":["zmr run ./.zmr/android-smoke.json --device emulator-5554 --trace-dir ./traces/zmr-android","zmr run ./.zmr/ios-smoke.json --platform ios --device booted --trace-dir ./traces/zmr-ios"],"scriptCount":16,"scriptNames":["doctor","schemas","validate","android","androidReport","androidReliability","ios","iosReport","iosReliability","matrix","pilotGate","readiness","serve","mcp","explain","exportTrace"]}
+{"ok":true,"mode":"app","dir":".","appId":"com.example.mobiletest","created":["./.zmr/config.json","./.zmr/android-smoke.json","./.zmr/ios-smoke.json","./.zmr/device-matrix.json","./.zmr/AGENTS.md"],"configPath":"./.zmr/config.json","androidScenarioPath":"./.zmr/android-smoke.json","iosScenarioPath":"./.zmr/ios-smoke.json","deviceMatrixPath":"./.zmr/device-matrix.json","agentInstructionsPath":"./.zmr/AGENTS.md","next":"zmr doctor --strict --json --config ./.zmr/config.json","nextCommands":["zmr doctor --strict --json --config ./.zmr/config.json","zmr schemas --json","zmr validate --json ./.zmr/android-smoke.json","zmr validate --json ./.zmr/ios-smoke.json"],"smokeCommands":["zmr run ./.zmr/android-smoke.json --device emulator-5554 --trace-dir ./traces/zmr-android --ensure-device","zmr run ./.zmr/ios-smoke.json --platform ios --device booted --trace-dir ./traces/zmr-ios --ensure-device"],"scriptCount":16,"scriptNames":["doctor","schemas","validate","android","androidReport","androidReliability","ios","iosReport","iosReliability","matrix","pilotGate","readiness","serve","mcp","explain","exportTrace"]}
 ```
 
 Agents should read `agentInstructionsPath` for the app-local operating note and
@@ -301,12 +301,14 @@ Single-scenario mode reports the created scenario and next validation command:
 
 ## Import Output Contract
 
-`zmr import flow-yaml <flow.yaml> --out .zmr/imported.json --json` converts a
-supported subset of mobile-flow YAML into native ZMR scenario JSON. The
-response is covered by `schemas/import-output.schema.json`:
+`zmr import maestro <flow.yaml> --out .zmr/imported.json --json` converts a
+supported subset of Maestro/mobile-flow YAML into native ZMR scenario JSON.
+`flow-yaml` remains accepted as a generic format name; use `maestro` for
+migration work so compatibility reports and follow-up docs can stay explicit.
+The response is covered by `schemas/import-output.schema.json`:
 
 ```json
-{"ok":true,"format":"flow-yaml","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
+{"ok":true,"format":"maestro","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
 ```
 
 The importer is intentionally a migration helper, not a runtime dependency.

@@ -160,13 +160,13 @@ Use a saved emulator snapshot for repeatability:
 ```
 
 `--screen-record` writes `screenrecord.mp4` under the pilot trace root. For
-direct traced runs, use `zmr run --android-avd Small_Phone
+direct traced runs, use `zmr run --ensure-device --android-avd Small_Phone
 --create-avd-if-missing --avd-system-image
 'system-images;android-35;google_apis;arm64-v8a' --avd-device pixel_6
 --restore-snapshot zmr-clean --wait-emulator --screen-record`, or set the
 equivalent `android.avdName`, `android.createAvdIfMissing`,
 `android.avdSystemImage`, `android.avdDeviceProfile`,
-`android.restoreSnapshot`, `android.waitReady`, and
+`android.restoreSnapshot`, `android.waitReady`, `android.ensureDevice`, and
 `artifacts.screenRecording` values in `.zmr/config.json`. Treat recordings like
 screenshots: keep them local or share only when the app state is safe.
 
@@ -314,6 +314,7 @@ xcrun simctl install booted /path/to/Sample.app
 zmr run .zmr/ios-shim-smoke.json \
   --platform ios \
   --device booted \
+  --ensure-device \
   --app-id com.example.mobiletest \
   --ios-shim ./.zmr/ios-shim \
   --trace-dir traces/ios-smoke

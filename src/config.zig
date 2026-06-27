@@ -13,6 +13,7 @@ pub const PlatformConfig = struct {
     avd_device_profile: ?[]const u8 = null,
     reset_before_run: bool = false,
     wait_ready: bool = false,
+    ensure_device: bool = false,
     create_avd_if_missing: bool = false,
 
     pub fn deinit(self: *PlatformConfig, allocator: std.mem.Allocator) void {
@@ -142,6 +143,7 @@ fn platformConfig(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) !P
         "avdDeviceProfile",
         "resetBeforeRun",
         "waitReady",
+        "ensureDevice",
     });
     return .{
         .enabled = try optionalBool(object, "enabled") orelse false,
@@ -154,6 +156,7 @@ fn platformConfig(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) !P
         .avd_device_profile = try optionalString(allocator, object, "avdDeviceProfile"),
         .reset_before_run = try optionalBool(object, "resetBeforeRun") orelse false,
         .wait_ready = try optionalBool(object, "waitReady") orelse false,
+        .ensure_device = try optionalBool(object, "ensureDevice") orelse false,
         .create_avd_if_missing = try optionalBool(object, "createAvdIfMissing") orelse false,
     };
 }

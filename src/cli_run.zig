@@ -7,6 +7,7 @@ const cli_discover = @import("cli_discover.zig");
 const cli_output = @import("cli_output.zig");
 const config_paths = @import("config_paths.zig");
 const ios = @import("ios.zig");
+const ios_devices = @import("ios_devices.zig");
 const runner = @import("runner.zig");
 const run_options = @import("run_options.zig");
 const scenario = @import("scenario.zig");
@@ -97,6 +98,10 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
             parsed.raw.android_reset_before_run = true;
         } else if (std.mem.eql(u8, arg, "--wait-emulator")) {
             parsed.raw.android_wait_ready = true;
+        } else if (std.mem.eql(u8, arg, "--ensure-device")) {
+            parsed.raw.ensure_device = true;
+        } else if (std.mem.eql(u8, arg, "--no-ensure-device")) {
+            parsed.raw.ensure_device = false;
         } else if (std.mem.eql(u8, arg, "--json")) {
             parsed.json = true;
         } else if (std.mem.startsWith(u8, arg, "--")) {
@@ -184,6 +189,9 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
                 runAndroidWithTrace(allocator, &device, script, trace_dir, capture) catch |err| break :blk err;
             },
             .ios => {
+                if (resolved.ensure_device and resolved.ios_device_type == .simulator) {
+                    try ios_devices.ensureSimulatorBooted(allocator, xcrun_path, resolved.serial);
+                }
                 var device = try ios.IosDevice.initWithKindAndShim(allocator, xcrun_path, resolved.serial, app_id, iosTargetKind(resolved.ios_device_type), ios_shim_path);
                 defer device.deinit();
                 runWithTrace(allocator, &device, script, trace_dir, capture) catch |err| break :blk err;

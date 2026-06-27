@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdio = @import("stdio.zig");
+const android_device_info = @import("android_device_info.zig");
 const command = @import("command.zig");
 
 const default_timeout_ms = 15_000;
@@ -16,17 +17,38 @@ pub const PreflightOptions = struct {
     avd_device_profile: ?[]const u8 = null,
     reset_before_run: bool = false,
     wait_ready: bool = false,
+    ensure_ready: bool = false,
     event_log_path: ?[]const u8 = null,
 };
 
 pub fn hasWork(options: PreflightOptions) bool {
-    return options.reset_before_run or options.wait_ready or options.create_avd_if_missing or options.avd_name != null or options.restore_snapshot != null;
+    return options.ensure_ready or options.reset_before_run or options.wait_ready or options.create_avd_if_missing or options.avd_name != null or options.restore_snapshot != null;
 }
 
 pub fn runPreflight(allocator: std.mem.Allocator, options: PreflightOptions) !void {
     if (!hasWork(options)) return;
 
-    if ((options.reset_before_run or options.restore_snapshot != null or options.create_avd_if_missing or options.avd_name != null) and options.avd_name == null) {
+    const must_run_lifecycle = options.reset_before_run or options.restore_snapshot != null or options.create_avd_if_missing;
+    if (options.ensure_ready and !must_run_lifecycle and try requestedDeviceReady(allocator, options)) {
+        if (options.wait_ready) try waitReady(allocator, options);
+        return;
+    }
+
+    var owned_avd: ?[]u8 = null;
+    defer if (owned_avd) |avd| allocator.free(avd);
+    const avd_name = if (options.avd_name) |avd|
+        avd
+    else blk: {
+        if (!options.ensure_ready) break :blk null;
+        var list = try runEmulator(allocator, options, &.{"-list-avds"});
+        defer list.deinit(allocator);
+        try list.ensureSuccess();
+        const first = (try firstAvdNameFromList(list.stdout)) orelse return error.NoAndroidAvdAvailable;
+        owned_avd = try allocator.dupe(u8, first);
+        break :blk owned_avd.?;
+    };
+
+    if ((options.reset_before_run or options.restore_snapshot != null or options.create_avd_if_missing or avd_name != null) and avd_name == null) {
         return error.MissingAndroidAvdName;
     }
     if (options.create_avd_if_missing and options.avd_system_image == null) {
@@ -34,7 +56,7 @@ pub fn runPreflight(allocator: std.mem.Allocator, options: PreflightOptions) !vo
     }
 
     if (options.create_avd_if_missing) {
-        try createAvdIfMissing(allocator, options, options.avd_name.?);
+        try createAvdIfMissing(allocator, options, avd_name.?);
     }
 
     if (options.reset_before_run) {
@@ -42,13 +64,30 @@ pub fn runPreflight(allocator: std.mem.Allocator, options: PreflightOptions) !vo
         if (reset) |result| result.deinit(allocator);
     }
 
-    if (options.avd_name) |avd| {
+    if (avd_name) |avd| {
         try startEmulator(allocator, options, avd);
     }
 
-    if (options.wait_ready) {
+    if (options.wait_ready or options.ensure_ready) {
         try waitReady(allocator, options);
     }
+}
+
+fn requestedDeviceReady(allocator: std.mem.Allocator, options: PreflightOptions) !bool {
+    const devices = android_device_info.listDevices(allocator, options.adb_path) catch return false;
+    defer {
+        for (devices) |device| device.deinit(allocator);
+        allocator.free(devices);
+    }
+    for (devices) |device| {
+        if (!std.mem.eql(u8, device.state, "device")) continue;
+        if (options.device_serial) |serial| {
+            if (std.mem.eql(u8, device.serial, serial)) return true;
+        } else {
+            return true;
+        }
+    }
+    return false;
 }
 
 fn createAvdIfMissing(allocator: std.mem.Allocator, options: PreflightOptions, avd: []const u8) !void {
@@ -77,6 +116,16 @@ fn avdListContains(output: []const u8, avd: []const u8) bool {
         if (std.mem.eql(u8, line, avd)) return true;
     }
     return false;
+}
+
+pub fn firstAvdNameFromList(output: []const u8) !?[]const u8 {
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r\n");
+        if (line.len == 0) continue;
+        return line;
+    }
+    return null;
 }
 
 fn runEmulator(allocator: std.mem.Allocator, options: PreflightOptions, extra: []const []const u8) !command.ExecResult {

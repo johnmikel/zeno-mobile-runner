@@ -29,7 +29,7 @@ cat > "$TMPDIR/app/.zmr/config.json" <<'JSON'
     "traceDir": "traces/zmr-ios"
   },
   "scripts": {
-    "ios": "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios"
+    "ios": "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device"
   }
 }
 JSON

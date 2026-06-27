@@ -28,6 +28,7 @@ pub const RawRunOptions = struct {
     android_avd_device_profile: ?[]const u8 = null,
     android_reset_before_run: ?bool = null,
     android_wait_ready: ?bool = null,
+    ensure_device: ?bool = null,
     platform: Platform = .android,
     ios_device_type: IosDeviceType = .simulator,
 };
@@ -46,6 +47,7 @@ pub const ResolvedRunOptions = struct {
     android_avd_device_profile: ?[]const u8,
     android_reset_before_run: bool,
     android_wait_ready: bool,
+    ensure_device: bool,
     platform: Platform,
     ios_device_type: IosDeviceType,
 };
@@ -86,6 +88,7 @@ pub fn resolveRun(raw: RawRunOptions, cfg: ?config.Config) ResolvedRunOptions {
         .android_avd_device_profile = raw.android_avd_device_profile orelse if (platform_cfg) |pc| pc.avd_device_profile else null,
         .android_reset_before_run = raw.android_reset_before_run orelse if (platform_cfg) |pc| pc.reset_before_run else false,
         .android_wait_ready = raw.android_wait_ready orelse if (platform_cfg) |pc| pc.wait_ready else false,
+        .ensure_device = raw.ensure_device orelse if (platform_cfg) |pc| pc.ensure_device else false,
         .platform = raw.platform,
         .ios_device_type = raw.ios_device_type,
     };
@@ -122,6 +125,7 @@ pub fn androidPreflight(
         .avd_device_profile = resolved.android_avd_device_profile,
         .reset_before_run = resolved.android_reset_before_run,
         .wait_ready = resolved.android_wait_ready,
+        .ensure_ready = resolved.ensure_device,
     };
     return if (android_emulator.hasWork(options)) options else null;
 }

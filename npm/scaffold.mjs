@@ -139,12 +139,12 @@ export function appInitOutput(appRoot, appId, plan, { packageScripts = false } =
   } else {
     if (androidScenarioPath) {
       smokeCommands.push(
-        `zmr run ${shellQuote(androidScenarioPath)} --device emulator-5554 --trace-dir ${shellQuote(pathJoin(appRoot, "traces", "zmr-android"))}`,
+        `zmr run ${shellQuote(androidScenarioPath)} --device emulator-5554 --trace-dir ${shellQuote(pathJoin(appRoot, "traces", "zmr-android"))} --ensure-device`,
       );
     }
     if (iosScenarioPath) {
       smokeCommands.push(
-        `zmr run ${shellQuote(iosScenarioPath)} --platform ios --device booted --trace-dir ${shellQuote(pathJoin(appRoot, "traces", "zmr-ios"))}`,
+        `zmr run ${shellQuote(iosScenarioPath)} --platform ios --device booted --trace-dir ${shellQuote(pathJoin(appRoot, "traces", "zmr-ios"))} --ensure-device`,
       );
     }
   }

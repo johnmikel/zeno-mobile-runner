@@ -54,7 +54,7 @@ test("scaffold helpers centralize generated app commands and scenarios", () => {
   assert.equal(config.ios.enabled, true);
   assert.equal(config.tools.androidShimPath, "./.zmr/android shim");
   assert.equal(config.tools.iosShimPath, "./.zmr/ios shim");
-  assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --android-shim './.zmr/android shim'");
+  assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device --android-shim './.zmr/android shim'");
   assert.equal(config.scripts.readiness, readinessCommand());
   assert.equal(packageScripts(config)["zmr:readiness"], readinessCommand());
   assert.deepEqual(wizardChecks({ android: true, ios: false, nodePath: "/usr/bin/node", zmrPath: "/tmp/zmr" }), [
@@ -222,8 +222,8 @@ test("scaffold helpers centralize generated app commands and scenarios", () => {
     "assertHealthy",
     "snapshot",
   ]);
-  assert.equal(devClientRunCommand({ platform: "android" }), "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client");
-  assert.equal(devClientRunCommand({ platform: "ios" }), "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client");
+  assert.equal(devClientRunCommand({ platform: "android" }), "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client --ensure-device");
+  assert.equal(devClientRunCommand({ platform: "ios" }), "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client --ensure-device");
   assert.deepEqual(scenarioFiles("com.example.demo", { android: true, ios: true }).map((file) => file.path), [
     "android-smoke.json",
     "ios-smoke.json",

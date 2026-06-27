@@ -14,10 +14,65 @@ pub fn listSimulators(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]t
     return try parseSimulatorsJson(allocator, result.stdout);
 }
 
+pub fn listBootableSimulators(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {
+    const result = try runSimctlCommand(allocator, xcrun_path, &.{ "list", "devices", "--json" }, 4 * 1024 * 1024);
+    defer result.deinit(allocator);
+    try result.ensureSuccess();
+    return try parseBootableSimulatorsJson(allocator, result.stdout);
+}
+
 pub fn listPhysical(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {
     const json = try runDevicectlJsonCommand(allocator, xcrun_path, &.{ "list", "devices" });
     defer allocator.free(json);
     return try parsePhysicalDevicesJson(allocator, json);
+}
+
+pub fn ensureSimulatorBooted(allocator: std.mem.Allocator, xcrun_path: []const u8, target: ?[]const u8) !void {
+    const wanted = target orelse "booted";
+    const devices = try listBootableSimulators(allocator, xcrun_path);
+    defer {
+        for (devices) |device| device.deinit(allocator);
+        allocator.free(devices);
+    }
+
+    if (!std.mem.eql(u8, wanted, "booted")) {
+        for (devices) |device| {
+            if (!std.mem.eql(u8, device.serial, wanted)) continue;
+            if (std.mem.eql(u8, device.state, "Booted")) return try waitForBootStatus(allocator, xcrun_path, wanted);
+            return try bootAndWait(allocator, xcrun_path, wanted);
+        }
+        return try bootAndWait(allocator, xcrun_path, wanted);
+    }
+
+    for (devices) |device| {
+        if (std.mem.eql(u8, device.state, "Booted")) return try waitForBootStatus(allocator, xcrun_path, "booted");
+    }
+    for (devices) |device| {
+        if (!std.mem.eql(u8, device.state, "Shutdown")) continue;
+        if (try bootAndWaitBestEffort(allocator, xcrun_path, device.serial)) return;
+    }
+    return error.NoIosSimulatorAvailable;
+}
+
+fn bootAndWait(allocator: std.mem.Allocator, xcrun_path: []const u8, target: []const u8) !void {
+    var boot = try runSimctlCommand(allocator, xcrun_path, &.{ "boot", target }, default_max_output);
+    defer boot.deinit(allocator);
+    try boot.ensureSuccess();
+    try waitForBootStatus(allocator, xcrun_path, target);
+}
+
+fn bootAndWaitBestEffort(allocator: std.mem.Allocator, xcrun_path: []const u8, target: []const u8) !bool {
+    var boot = try runSimctlCommand(allocator, xcrun_path, &.{ "boot", target }, default_max_output);
+    defer boot.deinit(allocator);
+    boot.ensureSuccess() catch return false;
+    waitForBootStatus(allocator, xcrun_path, target) catch return false;
+    return true;
+}
+
+fn waitForBootStatus(allocator: std.mem.Allocator, xcrun_path: []const u8, target: []const u8) !void {
+    var status = try runSimctlCommand(allocator, xcrun_path, &.{ "bootstatus", target, "-b" }, default_max_output);
+    defer status.deinit(allocator);
+    try status.ensureSuccess();
 }
 
 pub fn runSimctlCommand(
@@ -112,6 +167,51 @@ pub fn parseSimulatorsJson(allocator: std.mem.Allocator, content: []const u8) ![
     }
 
     return try devices.toOwnedSlice(allocator);
+}
+
+pub fn parseBootableSimulatorsJson(allocator: std.mem.Allocator, content: []const u8) ![]types.DeviceInfo {
+    return try parseSimulatorsJsonWithStates(allocator, content, &.{ "Booted", "Shutdown" });
+}
+
+fn parseSimulatorsJsonWithStates(allocator: std.mem.Allocator, content: []const u8, wanted_states: []const []const u8) ![]types.DeviceInfo {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.SimctlDevicesMustBeObject;
+    const devices_value = parsed.value.object.get("devices") orelse return error.SimctlDevicesMissingDevices;
+    if (devices_value != .object) return error.SimctlDevicesMustBeObject;
+
+    var devices = std.ArrayList(types.DeviceInfo).empty;
+    errdefer {
+        for (devices.items) |device| device.deinit(allocator);
+        devices.deinit(allocator);
+    }
+
+    var runtime_iterator = devices_value.object.iterator();
+    while (runtime_iterator.next()) |runtime_entry| {
+        const runtime_devices = runtime_entry.value_ptr.*;
+        if (runtime_devices != .array) continue;
+        for (runtime_devices.array.items) |device_value| {
+            if (device_value != .object) continue;
+            const object = device_value.object;
+            if (fieldBool(object, "isAvailable") == false) continue;
+            const udid = fieldString(object, "udid") orelse continue;
+            const state = fieldString(object, "state") orelse continue;
+            if (!stateAllowed(state, wanted_states)) continue;
+            try devices.append(allocator, .{
+                .serial = try allocator.dupe(u8, udid),
+                .state = try allocator.dupe(u8, state),
+            });
+        }
+    }
+
+    return try devices.toOwnedSlice(allocator);
+}
+
+fn stateAllowed(state: []const u8, wanted_states: []const []const u8) bool {
+    for (wanted_states) |wanted| {
+        if (std.mem.eql(u8, state, wanted)) return true;
+    }
+    return false;
 }
 
 pub fn parsePhysicalDevicesJson(allocator: std.mem.Allocator, content: []const u8) ![]types.DeviceInfo {

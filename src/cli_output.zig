@@ -102,10 +102,12 @@ fn writeInitSmokeCommandsJson(writer: anytype, dir: []const u8) !void {
     try writeJoinedPathShellArgJsonContent(writer, dir, scaffold.app_android_smoke_file);
     try writer.writeAll(" --device emulator-5554 --trace-dir ");
     try writeJoinedPathShellArgJsonContent(writer, dir, "traces/zmr-android");
+    try writer.writeAll(" --ensure-device");
     try writer.writeAll("\",\"zmr run ");
     try writeJoinedPathShellArgJsonContent(writer, dir, scaffold.app_ios_smoke_file);
     try writer.writeAll(" --platform ios --device booted --trace-dir ");
     try writeJoinedPathShellArgJsonContent(writer, dir, "traces/zmr-ios");
+    try writer.writeAll(" --ensure-device");
     try writer.writeAll("\"]");
 }
 

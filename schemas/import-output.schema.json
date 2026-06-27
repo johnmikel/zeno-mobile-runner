@@ -7,7 +7,7 @@
   "required": ["ok", "format", "source", "out", "name", "appId", "stepCount", "next", "nextCommands"],
   "properties": {
     "ok": { "const": true },
-    "format": { "enum": ["flow-yaml"] },
+    "format": { "enum": ["flow-yaml", "maestro"] },
     "source": { "type": "string", "minLength": 1 },
     "out": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },

@@ -451,7 +451,7 @@ test "cli init module parses app scaffold and scenario modes" {
     try std.testing.expectError(error.unknownFlag, cli_init.parseArgs(&.{ "--app", "smoke.json" }));
 }
 
-test "cli import module parses flow yaml migration options" {
+test "cli import module parses flow yaml and maestro migration options" {
     const parsed = try cli_import.parseArgs(&.{
         "flow-yaml",
         "flows/login.yaml",
@@ -472,6 +472,16 @@ test "cli import module parses flow yaml migration options" {
     try std.testing.expectEqualStrings("com.example.app", parsed.app_id.?);
     try std.testing.expect(parsed.force);
     try std.testing.expect(parsed.json);
+
+    try std.testing.expect(cli_import.isSupportedFormat("flow-yaml"));
+    try std.testing.expect(cli_import.isSupportedFormat("maestro"));
+    try std.testing.expect(!cli_import.isSupportedFormat("detox"));
+
+    const maestro = try cli_import.parseArgs(&.{ "maestro", "flows/login.yaml", "--out", ".zmr/login.json", "--json" });
+    try std.testing.expectEqualStrings("maestro", maestro.format);
+    try std.testing.expectEqualStrings("flows/login.yaml", maestro.source_path);
+    try std.testing.expectEqualStrings(".zmr/login.json", maestro.out_path.?);
+    try std.testing.expect(maestro.json);
     try std.testing.expectError(error.MissingImportFormat, cli_import.parseArgs(&.{}));
     try std.testing.expectError(error.MissingImportOut, cli_import.parseArgs(&.{ "flow-yaml", "flows/login.yaml" }));
 }
@@ -570,6 +580,7 @@ test "cli run module parses scenario device platform and emulator options" {
         "clean",
         "--reset-emulator",
         "--wait-emulator",
+        "--ensure-device",
         "--screen-record",
     });
 
@@ -594,14 +605,16 @@ test "cli run module parses scenario device platform and emulator options" {
     try std.testing.expectEqualStrings("clean", parsed.raw.android_restore_snapshot.?);
     try std.testing.expect(parsed.raw.android_reset_before_run.?);
     try std.testing.expect(parsed.raw.android_wait_ready.?);
+    try std.testing.expect(parsed.raw.ensure_device.?);
     try std.testing.expect(parsed.raw.screen_recording.?);
 
-    const ios_args = try cli_run.parseArgs(&.{ "--platform", "ios", "--ios-device-type", "physical", "--xcrun", "./tools/xcrun", "--ios-shim", "./.zmr/ios-shim" });
+    const ios_args = try cli_run.parseArgs(&.{ "--platform", "ios", "--ios-device-type", "physical", "--xcrun", "./tools/xcrun", "--ios-shim", "./.zmr/ios-shim", "--no-ensure-device" });
     try std.testing.expectEqual(run_options.Platform.ios, ios_args.raw.platform);
     try std.testing.expectEqual(run_options.IosDeviceType.physical, ios_args.raw.ios_device_type);
     try std.testing.expectEqualStrings("./tools/xcrun", ios_args.xcrun_path);
     try std.testing.expect(ios_args.xcrun_path_set);
     try std.testing.expectEqualStrings("./.zmr/ios-shim", ios_args.raw.ios_shim_path.?);
+    try std.testing.expectEqual(false, ios_args.raw.ensure_device.?);
 
     const config_only = try cli_run.parseArgs(&.{});
     try std.testing.expect(config_only.raw.scenario_path == null);

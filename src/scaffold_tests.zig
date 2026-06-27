@@ -115,10 +115,10 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr doctor --strict --json --config .zmr/config.json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr schemas --json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr validate --json .zmr/android-smoke.json && zmr validate --json .zmr/ios-smoke.json") != null);
-    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android") != null);
+    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr report traces/zmr-android --out traces/zmr-android/report.html --junit traces/zmr-android/junit.xml") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.mobiletest --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000") != null);
-    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios") != null);
+    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.mobiletest --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr explain traces/zmr-agent --json") != null);

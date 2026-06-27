@@ -71,7 +71,7 @@ test("init command creates app-local scenario and npm script snippets", () => {
     assert.equal(config.artifacts.hierarchy, true);
     assert.equal(config.artifacts.logs, true);
     assert.equal(config.artifacts.screenRecording, false);
-    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android");
+    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device");
     assert.match(config.scripts.androidReliability, /export ZMR_BIN=/);
     assert.match(config.scripts.androidReliability, /"\$ZMR_BIN" report traces\/zmr-android-reliability/);
     assert.doesNotMatch(config.scripts.androidReliability, /&& zmr report/);
@@ -136,7 +136,7 @@ test("init command can patch package scripts non-interactively", () => {
 
     const pkg = JSON.parse(fs.readFileSync(path.join(tmp, "package.json"), "utf8"));
     assert.equal(pkg.scripts.test, "vitest");
-    assert.equal(pkg.scripts["zmr:android"], "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android");
+    assert.equal(pkg.scripts["zmr:android"], "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device");
     assert.equal(pkg.scripts["zmr:android:reliability"].includes("--app-id com.example.demo"), true);
     assert.equal(pkg.scripts["zmr:explain"], "zmr explain traces/zmr-agent --json");
     assert.equal(pkg.scripts["zmr:export"], "zmr export traces/zmr-agent --out traces/zmr-agent-redacted.zmrtrace --redact");
@@ -346,7 +346,7 @@ test("init command can target selected platforms and Expo dev-client scenarios",
     assert.equal(config.ios.enabled, true);
     assert.equal(config.tools.iosShimPath, "./.zmr/ios-shim");
     assert.equal(config.scripts.android, undefined);
-    assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client");
+    assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client --ensure-device");
     assert.equal(config.scripts.readiness, undefined);
     assert.equal(fs.existsSync(path.join(tmp, ".zmr", "android-smoke.json")), false);
     assert.ok(fs.existsSync(path.join(tmp, ".zmr", "ios-smoke.json")));
@@ -487,8 +487,8 @@ test("wizard checks necessities, scaffolds scenarios, and patches package script
     const pkg = JSON.parse(fs.readFileSync(path.join(tmp, "package.json"), "utf8"));
     assert.equal(pkg.scripts["zmr:doctor"], "zmr doctor --strict --json --config .zmr/config.json");
     assert.equal(pkg.scripts["zmr:schemas"], "zmr schemas --json");
-    assert.equal(pkg.scripts["zmr:android"], "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android");
-    assert.equal(pkg.scripts["zmr:ios"], "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios");
+    assert.equal(pkg.scripts["zmr:android"], "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device");
+    assert.equal(pkg.scripts["zmr:ios"], "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device");
     assert.equal(pkg.scripts["zmr:matrix"], "ZMR_BIN=${ZMR_BIN:-zmr} zmr-device-matrix --matrix .zmr/device-matrix.json --trace-root traces/zmr-matrix --min-pass-rate 100 --max-failures 0");
 
     const config = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "config.json"), "utf8"));
@@ -650,7 +650,7 @@ test("wizard can configure an iOS shim path for selector-grade simulator runs", 
     assert.equal(config.scripts.android, undefined);
     assert.equal(config.scripts.androidReliability, undefined);
     assert.equal(config.scripts.androidDevClient, undefined);
-    assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ios-shim ./.zmr/ios-shim");
+    assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device --ios-shim ./.zmr/ios-shim");
     assert.equal(
       config.scripts.iosReliability,
       'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --ios-shim ./.zmr/ios-shim --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml',
@@ -707,8 +707,8 @@ test("wizard quotes shim paths with spaces in generated package scripts", () => 
     const pkg = JSON.parse(fs.readFileSync(path.join(tmp, "package.json"), "utf8"));
     assert.equal(config.tools.androidShimPath, "./.zmr/android shim");
     assert.equal(config.tools.iosShimPath, "./.zmr/ios shim");
-    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --android-shim './.zmr/android shim'");
-    assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ios-shim './.zmr/ios shim'");
+    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device --android-shim './.zmr/android shim'");
+    assert.equal(config.scripts.ios, "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device --ios-shim './.zmr/ios shim'");
     assert.match(config.scripts.androidReliability, /--android-shim '\.\/\.zmr\/android shim'/);
     assert.match(config.scripts.iosReliability, /--ios-shim '\.\/\.zmr\/ios shim'/);
     assert.match(config.scripts.pilotGate, /--ios-shim '\.\/\.zmr\/ios shim'/);
@@ -757,9 +757,9 @@ test("wizard can scaffold Expo dev-client open-link scenarios", () => {
     assert.equal(androidScenario.steps[3].action, "assertNoneVisible");
 
     const config = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "config.json"), "utf8"));
-    assert.equal(config.scripts.androidDevClient, "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client");
+    assert.equal(config.scripts.androidDevClient, "zmr run .zmr/android-dev-client-smoke.json --device emulator-5554 --trace-dir traces/zmr-android-dev-client --ensure-device");
     assert.equal(config.scripts.androidDevClientReport, "zmr report traces/zmr-android-dev-client --out traces/zmr-android-dev-client/report.html --junit traces/zmr-android-dev-client/junit.xml");
-    assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client");
+    assert.equal(config.scripts.iosDevClient, "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client --ensure-device");
     assert.equal(config.scripts.iosDevClientReport, "zmr report traces/zmr-ios-dev-client --out traces/zmr-ios-dev-client/report.html --junit traces/zmr-ios-dev-client/junit.xml");
 
     const pkg = JSON.parse(fs.readFileSync(path.join(tmp, "package.json"), "utf8"));
@@ -802,7 +802,7 @@ test("wizard can configure an Android shim path for native instrumentation runs"
     assert.equal(result.status, 0, result.stderr);
     const config = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "config.json"), "utf8"));
     assert.equal(config.tools.androidShimPath, "./.zmr/android-shim");
-    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --android-shim ./.zmr/android-shim");
+    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device --android-shim ./.zmr/android-shim");
     assert.equal(
       config.scripts.androidReliability,
       'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/android-smoke.json --device emulator-5554 --app-id com.example.demo --android-shim ./.zmr/android-shim --runs 20 --trace-root traces/zmr-android-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 30000 && "$ZMR_BIN" report traces/zmr-android-reliability --out traces/zmr-android-reliability/report.html --junit traces/zmr-android-reliability/junit.xml',
@@ -835,9 +835,9 @@ test("wizard removes stale readiness script for single-platform setup", () => {
   try {
     fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({
       scripts: {
-        "zmr:ios": "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios",
+        "zmr:ios": "zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device",
         "zmr:ios:reliability": 'export ZMR_BIN="${ZMR_BIN:-zmr}"; zmr-benchmark --zmr .zmr/ios-smoke.json --platform ios --device booted --app-id com.example.demo --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml',
-        "zmr:ios:dev-client": "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client",
+        "zmr:ios:dev-client": "zmr run .zmr/ios-dev-client-open-link.json --platform ios --device booted --trace-dir traces/zmr-ios-dev-client --ensure-device",
         "zmr:readiness": "zmr-release-readiness --evidence traces/zmr-pilots/evidence.jsonl --target production --json",
         "custom:test": "echo keep",
       },
@@ -916,7 +916,7 @@ test("wizard rerun refreshes generated config and matrix for selected platforms"
     const matrix = JSON.parse(fs.readFileSync(path.join(tmp, ".zmr", "device-matrix.json"), "utf8"));
     assert.equal(config.android.enabled, true);
     assert.equal(config.ios.enabled, false);
-    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android");
+    assert.equal(config.scripts.android, "zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device");
     assert.equal(config.scripts.ios, undefined);
     assert.equal(config.scripts.readiness, undefined);
     assert.deepEqual(matrix.devices.map((device) => device.name), ["android-emulator"]);

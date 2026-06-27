@@ -7,12 +7,12 @@ redaction rules, and shim command paths.
 The schema is published at `schemas/zmr-config.schema.json`. Runtime parsing
 follows the schema for primitive field types. For example,
 boolean fields such as `artifacts.screenRecording`, `artifacts.screenshots`,
-`android.resetBeforeRun`, and `android.waitReady` must be JSON booleans, not
-strings. Path, id, redaction-list, and script command string fields must be
-non-empty. `zmr doctor --json --config .zmr/config.json` reports those
-type/value mistakes as structured `config` warnings. Unknown fields are
-rejected too, so typos in app-local config do not silently fall back to
-defaults.
+`android.resetBeforeRun`, `android.waitReady`, and `ios.ensureDevice` must be
+JSON booleans, not strings. Path, id, redaction-list, and script command string
+fields must be non-empty. `zmr doctor --json --config .zmr/config.json`
+reports those type/value mistakes as structured `config` warnings. Unknown
+fields are rejected too, so typos in app-local config do not silently fall back
+to defaults.
 
 Example:
 
@@ -31,13 +31,15 @@ Example:
     "avdSystemImage": "system-images;android-35;google_apis;arm64-v8a",
     "avdDeviceProfile": "pixel_6",
     "resetBeforeRun": false,
-    "waitReady": true
+    "waitReady": true,
+    "ensureDevice": true
   },
   "ios": {
     "enabled": true,
     "defaultDevice": "booted",
     "smokeScenario": ".zmr/ios-smoke.json",
-    "traceDir": "traces/zmr-ios"
+    "traceDir": "traces/zmr-ios",
+    "ensureDevice": true
   },
   "artifacts": {
     "screenshots": true,
@@ -76,7 +78,7 @@ for one-off local or CI overrides:
 - `--app-id` overrides `appId`
 - `--device` overrides platform `defaultDevice`
 - `--trace-dir` overrides platform `traceDir`
-- `--android-avd`, `--create-avd-if-missing`, `--avd-system-image`, `--avd-device`, `--restore-snapshot`, `--reset-emulator`, and `--wait-emulator` override Android emulator lifecycle defaults
+- `--android-avd`, `--create-avd-if-missing`, `--avd-system-image`, `--avd-device`, `--restore-snapshot`, `--reset-emulator`, `--wait-emulator`, `--ensure-device`, and `--no-ensure-device` override device lifecycle defaults
 - `--screen-record` and `--no-screen-record` override `artifacts.screenRecording`
 - a positional scenario path overrides platform `smokeScenario`
 - `--adb`, `--emulator`, `--avdmanager`, `--android-shim`, `--xcrun`, `--ios-shim`, and `--zig` override optional tool paths
@@ -86,6 +88,9 @@ for one-off local or CI overrides:
 The Android platform config can boot and wait for an emulator before a traced
 `zmr run` starts:
 
+- `ensureDevice`: when the requested Android device is not ready, boot the
+  configured `avdName`; if no `avdName` is configured, boot the first local AVD
+  from `emulator -list-avds`, then wait for `sys.boot_completed=1`.
 - `avdName`: AVD name passed to the Android emulator.
 - `createAvdIfMissing`: check `emulator -list-avds` and create the AVD when absent.
 - `avdSystemImage`: installed Android system image package for `avdmanager create avd`.
@@ -94,11 +99,17 @@ The Android platform config can boot and wait for an emulator before a traced
 - `resetBeforeRun`: best-effort `adb emu kill` before booting the configured AVD.
 - `waitReady`: wait for `adb wait-for-device` and `sys.boot_completed=1`.
 
-The equivalent CLI flags are `--android-avd <name>`,
+The equivalent CLI flags are `--ensure-device`, `--no-ensure-device`,
+`--android-avd <name>`,
 `--create-avd-if-missing`, `--avd-system-image <package>`,
 `--avd-device <profile>`, `--restore-snapshot <name>`, `--reset-emulator`,
 and `--wait-emulator`. AVD creation, snapshot restore, and reset require an AVD
 name. AVD creation also requires an installed system image package.
+
+For iOS simulator runs, `ensureDevice` or `--ensure-device` reuses an already
+booted simulator when one exists. If the target is `booted` and none are
+running, ZMR boots the first available shutdown simulator and waits for
+`simctl bootstatus -b`. Physical iOS devices are never auto-booted.
 
 ## Android Shim
 

@@ -2,6 +2,19 @@ const std = @import("std");
 const test_io = @import("test_io.zig");
 const android_emulator = @import("android_emulator.zig");
 
+test "android emulator preflight can choose the first available avd when ensure device is requested" {
+    try std.testing.expectEqualStrings("Pixel_8", (try android_emulator.firstAvdNameFromList(
+        \\Pixel_8
+        \\Small_Phone
+        \\
+    )).?);
+    try std.testing.expect((try android_emulator.firstAvdNameFromList(
+        \\
+        \\
+        \\
+    )) == null);
+}
+
 test "android emulator preflight resets boots from snapshot and waits ready" {
     const allocator = std.testing.allocator;
     try test_io.cwd().makePath("zig-cache");
@@ -15,6 +28,7 @@ test "android emulator preflight resets boots from snapshot and waits ready" {
         .device_serial = "fake-android-1",
         .avd_name = "Small_Phone",
         .restore_snapshot = "zmr-clean",
+        .ensure_ready = true,
         .reset_before_run = true,
         .wait_ready = true,
         .event_log_path = log_path,

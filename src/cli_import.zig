@@ -63,13 +63,17 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
     };
 }
 
+pub fn isSupportedFormat(format: []const u8) bool {
+    return std.mem.eql(u8, format, "flow-yaml") or std.mem.eql(u8, format, "maestro");
+}
+
 pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
     var raw_args = std.ArrayList([]const u8).empty;
     defer raw_args.deinit(allocator);
     while (args.next()) |arg| try raw_args.append(allocator, arg);
 
     const parsed = try parseArgs(raw_args.items);
-    if (!std.mem.eql(u8, parsed.format, "flow-yaml")) return error.UnsupportedImportFormat;
+    if (!isSupportedFormat(parsed.format)) return error.UnsupportedImportFormat;
 
     const result = try importer.importFlowYamlFile(allocator, parsed.source_path, parsed.out_path.?, .{
         .name = parsed.name,

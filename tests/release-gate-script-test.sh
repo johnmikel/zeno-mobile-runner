@@ -4,11 +4,25 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 output="$("$ROOT/scripts/release-gate.sh" --dry-run 2>&1)"
+static_output="$("$ROOT/scripts/release-gate.sh" --phase static --dry-run 2>&1)"
+phase_list="$("$ROOT/scripts/release-gate.sh" --list-phases)"
 
-python3 - "$output" <<'PY'
+set +e
+unknown_phase_output="$("$ROOT/scripts/release-gate.sh" --phase nope --dry-run 2>&1)"
+unknown_phase_status=$?
+set -e
+if [[ "$unknown_phase_status" -ne 2 ]]; then
+  echo "release-gate should reject unknown phases with exit 2" >&2
+  exit 1
+fi
+grep -q 'unknown release gate phase: nope' <<< "$unknown_phase_output"
+
+python3 - "$output" "$static_output" "$phase_list" <<'PY'
 import sys
 
 output = sys.argv[1]
+static_output = sys.argv[2]
+phase_list = sys.argv[3].splitlines()
 
 required = [
     "zig fmt --check build.zig src",
@@ -84,6 +98,25 @@ required = [
 
 for command in required:
     assert command in output, command
+
+assert phase_list == [
+    "static",
+    "platform-scripts",
+    "clients",
+    "protocol-smoke",
+    "release-artifacts",
+]
+assert "== release gate phase: static ==" in output
+assert "== release gate phase: platform-scripts ==" in output
+assert "== release gate phase: clients ==" in output
+assert "== release gate phase: protocol-smoke ==" in output
+assert "== release gate phase: release-artifacts ==" in output
+
+assert "== release gate phase: static ==" in static_output
+assert "zig fmt --check build.zig src" in static_output
+assert "bash tests/benchmark-lab-test.sh" in static_output
+assert "./scripts/demo.sh" not in static_output
+assert "./scripts/build-release.sh" not in static_output
 
 assert "External pilot gates not run by default" in output
 assert "./scripts/pilot-gate.sh --android --android-app-root /path/to/mobile-app --android-app-id com.example.mobiletest --android-device emulator-5554 --runs 20 --min-pass-rate 100 --max-failures 0 --evidence-out /path/to/mobile-app/traces/zmr-pilots/evidence.jsonl" in output

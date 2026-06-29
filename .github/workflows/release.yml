@@ -13,6 +13,7 @@ jobs:
       ZIG_VERSION: "0.16.0"
     permissions:
       attestations: write
+      artifact-metadata: write
       contents: write
       id-token: write
     steps:
@@ -45,11 +46,31 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
-      - name: Local release gate
+      - name: Release gate - static
         run: |
           ZMR_VERSION="${GITHUB_REF_NAME#v}" \
           ZMR_RELEASE_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
-          ./scripts/release-gate.sh
+          ./scripts/release-gate.sh --phase static
+      - name: Release gate - platform scripts
+        run: |
+          ZMR_VERSION="${GITHUB_REF_NAME#v}" \
+          ZMR_RELEASE_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
+          ./scripts/release-gate.sh --phase platform-scripts
+      - name: Release gate - clients
+        run: |
+          ZMR_VERSION="${GITHUB_REF_NAME#v}" \
+          ZMR_RELEASE_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
+          ./scripts/release-gate.sh --phase clients
+      - name: Release gate - protocol smoke
+        run: |
+          ZMR_VERSION="${GITHUB_REF_NAME#v}" \
+          ZMR_RELEASE_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
+          ./scripts/release-gate.sh --phase protocol-smoke
+      - name: Release gate - release artifacts
+        run: |
+          ZMR_VERSION="${GITHUB_REF_NAME#v}" \
+          ZMR_RELEASE_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
+          ./scripts/release-gate.sh --phase release-artifacts
       - name: Build npm package
         run: |
           npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
@@ -62,7 +83,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Attest release artifacts
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest@v4
         with:
           subject-path: |
             dist/*.tar.gz
@@ -73,7 +94,7 @@ jobs:
             dist/homebrew/zmr.rb
             dist/SHA256SUMS
       - name: Upload GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.tar.gz

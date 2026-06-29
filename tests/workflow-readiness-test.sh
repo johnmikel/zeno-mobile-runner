@@ -43,11 +43,19 @@ grep -q 'ziglang.org/download/${ZIG_VERSION}' "$RELEASE"
 grep -q 'gem install xcodeproj' "$RELEASE"
 grep -q 'timeout-minutes: 45' "$RELEASE"
 grep -q 'ZMR_VERSION="${GITHUB_REF_NAME#v}"' "$RELEASE"
-grep -q './scripts/release-gate.sh' "$RELEASE"
+grep -q './scripts/release-gate.sh --phase static' "$RELEASE"
+grep -q './scripts/release-gate.sh --phase platform-scripts' "$RELEASE"
+grep -q './scripts/release-gate.sh --phase clients' "$RELEASE"
+grep -q './scripts/release-gate.sh --phase protocol-smoke' "$RELEASE"
+grep -q './scripts/release-gate.sh --phase release-artifacts' "$RELEASE"
 grep -q 'attestations: write' "$RELEASE"
 grep -q 'id-token: write' "$RELEASE"
-grep -q 'actions/attest-build-provenance@v2' "$RELEASE"
-grep -q 'softprops/action-gh-release@v2' "$RELEASE"
+grep -q 'actions/attest@v4' "$RELEASE"
+grep -q 'softprops/action-gh-release@v3' "$RELEASE"
+if grep -q 'actions/attest-build-provenance@v2\|softprops/action-gh-release@v2' "$RELEASE"; then
+  echo "release workflow should not use Node 20-era release actions" >&2
+  exit 1
+fi
 grep -q 'dist/RELEASE_MANIFEST.json' "$RELEASE"
 grep -q 'actions/setup-node@v6' "$RELEASE"
 grep -q 'node-version: "24"' "$RELEASE"

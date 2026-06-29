@@ -22,7 +22,7 @@ Every public release should satisfy these checks before publishing artifacts:
 - a fresh curl installer smoke:
 
   ```bash
-  ./install.sh --version 0.2.16 --dry-run
+  ./install.sh --version 0.2.17 --dry-run
   ```
 
 - a fresh npm convenience smoke:

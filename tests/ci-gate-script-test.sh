@@ -40,6 +40,7 @@ required = [
     "bash tests/macos-notarization-script-test.sh",
     "bash tests/homebrew-formula-test.sh",
     "bash tests/install-script-test.sh",
+    "bash tests/public-metadata-guard-test.sh",
     "bash tests/docs-readiness-test.sh",
     "bash tests/workflow-readiness-test.sh",
     "bash tests/demo-script-test.sh",

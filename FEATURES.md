@@ -148,7 +148,7 @@ planning.
 
 ## Current Limitations
 
-- Current release status is `0.2.16`, a public developer preview rather than
+- Current release status is `0.2.17`, a public developer preview rather than
   a production-stable `1.0.0`.
 - Physical iOS log capture is still simulator-first. Physical iOS screenshots
   are available when the XCTest/XCUIAutomation shim is configured.

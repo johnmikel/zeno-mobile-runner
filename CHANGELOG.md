@@ -4,11 +4,16 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.17 (2026-06-29)
+
 ### Added
 
 - Added a curl-first `install.sh` for framework-neutral native binary installs,
   including OS/arch release archive selection, mandatory `SHA256SUMS`
   verification, dry-run output, and installer coverage in CI/release gates.
+- Added a public metadata guard that fails CI/release gates when public docs,
+  current branch metadata, remote branch metadata, or tag metadata reintroduce
+  unwanted contributor identity strings.
 - Added a support matrix covering Android, iPhone, iPad, tvOS, watchOS, cloud
   device farms, and the evidence required before making stronger product
   claims.

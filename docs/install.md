@@ -3,12 +3,50 @@
 Install ZMR where the mobile app lives. That keeps `.zmr/` config, scenarios,
 generated package scripts, and trace output next to the app they verify.
 
-Use npm for most app teams, Homebrew or a prebuilt binary for non-JavaScript
-teams, and source builds when developing ZMR itself.
+Use the curl installer for the framework-neutral path. It installs the native
+`zmr` binary from the GitHub release archive for your OS and CPU, verifies the
+archive against `SHA256SUMS`, and leaves app setup to `zmr init --app`. npm
+remains the convenience path for JavaScript teams that want package scripts and
+helper bins in `node_modules/.bin`.
 
-## npm Install
+## Curl Install
 
-Recommended path for app repositories:
+Recommended path for native Android, native iOS, Flutter, React Native, Expo,
+and mixed mobile repositories:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+zmr init --app --app-id com.example.mobiletest
+zmr doctor --strict --json --config .zmr/config.json
+```
+
+The installer defaults to the latest GitHub release. It downloads
+`zmr-<version>-<target>.tar.gz` plus `SHA256SUMS` from the release, and refuses
+to install when the archive checksum entry is missing or mismatched:
+
+```bash
+./install.sh --version 0.2.16 --dry-run
+```
+
+Dry-run output includes `checksum-verification: required`, the selected
+platform target, the archive URL, and the checksum URL. Use
+`--install-dir <dir>` to install somewhere other than `~/.local/bin`, or
+`--base-url <url>` when testing release candidates from a staging bucket.
+
+The native binary works the same way regardless of app framework:
+
+```bash
+zmr validate .zmr/android-smoke.json
+zmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device
+zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
+```
+
+## JavaScript Teams
+
+Use npm when the app repo wants ZMR pinned as a dev dependency, generated npm
+scripts, and the helper commands such as `zmr-wizard`,
+`zmr-install-android-shim`, `zmr-install-ios-shim`, and `zmr-device-matrix`:
 
 ```bash
 npm install --save-dev zeno-mobile-runner
@@ -40,13 +78,16 @@ app-local `.zmr/` setup.
 
 ## Homebrew Or Existing Binary
 
-Teams that do not use JavaScript can install or build the `zmr` executable once,
-then point any language client, MCP config, or script at that binary:
+Homebrew remains a native install option once you have a generated formula from
+the release artifacts:
 
 ```bash
 brew install --build-from-source ./dist/homebrew/zmr.rb
 zmr version
 ```
+
+Any existing `zmr` binary can also be used by language clients, MCP configs, or
+scripts as long as it matches the protocol version expected by the app repo.
 
 ## Build From Source
 

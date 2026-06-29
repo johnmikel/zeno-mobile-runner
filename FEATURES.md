@@ -25,12 +25,13 @@ planning.
 
 ## App Integration
 
-- npm-first installation with `zeno-mobile-runner` as a dev dependency.
-- `npx zmr-wizard` scaffolds `.zmr/config.json`, Android and iOS smoke
-  scenarios, optional app package scripts, HTML/JUnit report scripts, and
-  `traces/` gitignore rules.
-- `zmr init --app` provides the same app-local bootstrap for source and archive
-  installs.
+- Curl-first installation of the native `zmr` binary for React Native, Expo,
+  Flutter, native Android, native iOS, and mixed mobile repositories.
+- `zmr init --app` scaffolds `.zmr/config.json`, Android and iOS smoke
+  scenarios, HTML/JUnit report scripts, and `traces/` gitignore rules without
+  requiring Node in the app repo.
+- npm remains a JavaScript-team convenience: `npx zmr-wizard` scaffolds the
+  same app-local state plus optional package scripts and helper bins.
 - `.zmr/config.json` is schema validated, auto-discovered from app checkouts,
   and overridden by explicit CLI flags.
 - Android and iOS shim installers generate app-local commands and source files

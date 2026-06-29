@@ -4,18 +4,25 @@ ZMR is intentionally a separate runner. The app does not vendor ZMR, but it
 should expose a small, stable test surface so agents and CI can drive the app
 deterministically.
 
-Most app teams should install ZMR as a dev dependency:
+Install the native `zmr` binary once, then create app-local `.zmr/` state from
+the app repo:
 
 ```bash
-npm install --save-dev zeno-mobile-runner
-npx zmr-wizard --app-id com.example.mobiletest --package-json
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+zmr init --app --app-id com.example.mobiletest
 ```
 
-That keeps scenarios and app scripts in the app repo while the runner remains
-versioned through npm.
-For Expo development builds, add `--expo-dev-client-scheme <scheme>` to scaffold
-Android and iOS open-link smoke scenarios that load Metro before selector
-assertions run.
+That keeps scenarios and traces in the app repo while the runner stays outside
+the app process. JavaScript teams can use
+`npm install --save-dev zeno-mobile-runner` plus
+`npx zmr-wizard --app-id com.example.mobiletest --package-json` when they want
+generated package scripts and npm helper bins.
+
+For Expo development builds, use
+`npx zmr-wizard --expo-dev-client-scheme <scheme> --package-json` when you want
+generated Android and iOS open-link smoke scenarios that load Metro before
+selector assertions run.
 
 ## React Native, Expo, And Flutter
 

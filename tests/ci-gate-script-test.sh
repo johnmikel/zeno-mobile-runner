@@ -12,7 +12,7 @@ output = sys.argv[1]
 
 required = [
     "zig fmt --check build.zig src",
-    "bash -n scripts/*.sh tests/*.sh",
+    "bash -n install.sh scripts/*.sh tests/*.sh",
     "python3 -m py_compile scripts/*.py",
     "zig build-exe src/main.zig -target aarch64-macos.15.0 -O Debug -femit-bin=zig-out/bin/zmr",
     "bash tests/benchmark-lab-test.sh",
@@ -39,6 +39,7 @@ required = [
     "bash tests/macos-signing-script-test.sh",
     "bash tests/macos-notarization-script-test.sh",
     "bash tests/homebrew-formula-test.sh",
+    "bash tests/install-script-test.sh",
     "bash tests/docs-readiness-test.sh",
     "bash tests/workflow-readiness-test.sh",
     "bash tests/demo-script-test.sh",

@@ -46,9 +46,9 @@ The package exposes these command surfaces:
 - packaged docs, schemas, examples, reference clients, and the reusable
   `skills/zmr-mobile-testing` agent skill.
 
-Most app teams should start with `zmr-wizard`, generated smoke scenarios, and
-redacted traces. Use pilot and readiness helpers when you need repeated local
-evidence for your own app and devices.
+JavaScript app teams should start with `zmr-wizard`, generated smoke scenarios,
+and redacted traces. Use pilot and readiness helpers when you need repeated
+local evidence for your own app and devices.
 
 ## App Setup
 
@@ -197,8 +197,8 @@ explicit runner binary instead of relying on `PATH` or `ZMR_BIN`. Add
 `--evidence-out traces/zmr-pilots/evidence.jsonl` so production-readiness rows
 can be evaluated with `zmr-release-readiness`.
 
-The standalone CLI has the same non-interactive app-local bootstrap for
-source or release-archive installs:
+The standalone CLI has the same non-interactive app-local bootstrap for source
+or native-binary installs:
 
 ```bash
 zmr init --app --json --dir . --app-id com.example.mobiletest

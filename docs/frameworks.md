@@ -16,13 +16,17 @@ Use app-owned selectors for controls that agents need to find repeatedly:
   data-driven.
 - Deep links for jumping directly to logged-in, onboarding, or error states.
 
-Keep generated ZMR files under `.zmr/` and run the wizard from the app repo:
+Keep generated ZMR files under `.zmr/` and initialize ZMR from the app repo:
 
 ```bash
-npx zmr-wizard --app-id com.example.mobiletest --package-json
+zmr init --app --app-id com.example.mobiletest
 ```
 
-To inspect a generated public fixture with a longer workflow:
+JavaScript teams that want generated package scripts can use
+`npx zmr-wizard --app-id com.example.mobiletest --package-json` instead.
+
+To inspect a generated public fixture with a longer workflow, use the npm
+helper from a JavaScript toolchain:
 
 ```bash
 npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo
@@ -35,8 +39,10 @@ values, accessibility labels, and Android/iOS ZMR workflow scenarios under
 ## Expo
 
 Expo development builds work like React Native apps once they are installed on
-an emulator, simulator, or device. For dev-client flows, give ZMR the scheme
-that opens the development build:
+an emulator, simulator, or device. `zmr init --app` creates baseline Android
+and iOS smoke scenarios. For dev-client flows that need generated open-link
+scenarios, use the JavaScript wizard and give ZMR the scheme that opens the
+development build:
 
 ```bash
 npx zmr-wizard \
@@ -45,9 +51,9 @@ npx zmr-wizard \
   --package-json
 ```
 
-The wizard adds Android and iOS dev-client scenarios that open Metro before
-selector assertions run. For CI, prefer a known Metro command, stable deep link,
-and a prebuilt development client.
+The wizard adds Android and iOS dev-client scenarios that open Metro
+before selector assertions run. For CI, prefer a known Metro command, stable
+deep link, and a prebuilt development client.
 
 ## Flutter
 

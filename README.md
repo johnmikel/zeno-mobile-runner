@@ -42,7 +42,7 @@ driven on an iOS simulator and an Android emulator.</em></p>
 
 ```mermaid
 flowchart LR
-    A["AI coding agent<br/>Claude Code · Cursor · custom harness"]
+    A["AI coding agent<br/>Codex · Cursor · custom MCP harness"]
     subgraph zmr["ZMR - one small Zig binary"]
         MCP["MCP server<br/><code>zmr mcp</code>"]
         RPC["JSON-RPC stdio/TCP<br/><code>zmr serve</code>"]
@@ -73,27 +73,29 @@ the same runner model. See [docs/frameworks.md](docs/frameworks.md).
 
 ## Five-Minute Start
 
-Run this from the mobile app repository. It installs ZMR, creates app-local
-configuration, and verifies the setup before a device run:
+Run this from the mobile app repository. It installs the native `zmr` binary,
+creates app-local configuration, and verifies the setup before a device run:
 
 ```bash
-npm install --save-dev zeno-mobile-runner   # bun add --dev zeno-mobile-runner
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+zmr init --app --app-id com.example.mobiletest
+zmr doctor --strict --json --config .zmr/config.json
+```
+
+JavaScript teams can keep ZMR versioned inside the app repo and generate npm
+scripts instead:
+
+```bash
+npm install --save-dev zeno-mobile-runner
 npx zmr-wizard --app-id com.example.mobiletest --package-json
-npx zmr doctor --strict --json --config .zmr/config.json
 ```
 
-Hook it up to your coding agent (Claude Code shown; any MCP client works):
+Hook it up to any MCP-capable coding agent by pointing the client at the local
+binary:
 
 ```bash
-claude mcp add zmr -- npx zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
-```
-
-Claude Code users can instead install the plugin, which bundles the MCP server
-and a mobile-testing skill:
-
-```text
-/plugin marketplace add johnmikel/zeno-mobile-runner
-/plugin install zmr@zmr-marketplace
+zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
 Or in an `.mcp.json` / MCP client config:
@@ -102,8 +104,8 @@ Or in an `.mcp.json` / MCP client config:
 {
   "mcpServers": {
     "zmr": {
-      "command": "npx",
-      "args": ["zmr", "mcp", "--config", ".zmr/config.json", "--trace-dir", "traces/zmr-agent"]
+      "command": "zmr",
+      "args": ["mcp", "--config", ".zmr/config.json", "--trace-dir", "traces/zmr-agent"]
     }
   }
 }
@@ -235,7 +237,7 @@ ecosystems. All are thin wrappers around `zmr serve --transport stdio`. See
 
 **For test authors**
 
-- [docs/install.md](docs/install.md): source, npm, Homebrew, and app setup
+- [docs/install.md](docs/install.md): curl, npm, Homebrew, and app setup
 - [docs/frameworks.md](docs/frameworks.md): React Native, Expo, Flutter, and native app guidance
 - [docs/scenario-authoring.md](docs/scenario-authoring.md): selectors, waits, and scenario design
 - [docs/app-integration.md](docs/app-integration.md): app-side Android/iOS shims

@@ -124,10 +124,10 @@ require_grep 'docs/assets/device-android-demo.png' README.md
 require_grep 'docs/assets/cli-run-explain.png' README.md
 require_grep 'flowchart LR' README.md
 require_grep 'sequenceDiagram' README.md
+require_grep 'curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh' README.md
+require_grep 'zmr init --app --app-id com.example.mobiletest' README.md
 require_grep 'npm install --save-dev zeno-mobile-runner' README.md
-require_grep 'bun add --dev zeno-mobile-runner' README.md
 require_grep 'npx zmr-wizard --app-id com.example.mobiletest --package-json' README.md
-require_grep 'claude mcp add zmr' README.md
 require_grep 'mcpServers' README.md
 require_grep '## Why This Exists' README.md
 require_grep '## Agent Verification Loop' README.md
@@ -203,6 +203,8 @@ require_not_grep 'Before publishing' README.md
 require_not_grep 'verify-release-artifacts.sh' README.md
 require_not_grep 'market-claim' README.md
 require_not_grep 'competitive claim' README.md
+require_not_grep 'Claude Code' README.md
+require_not_grep 'claude mcp add' README.md
 require_not_grep "$OLD_PACKAGE_NAME" README.md
 require_not_grep "$OLD_PRODUCT_NAME" README.md
 
@@ -269,7 +271,7 @@ require_grep 'not inspect Flutter widget trees' docs/frameworks.md
 require_grep 'accessibilityLabel' docs/frameworks.md
 require_grep 'Semantics' docs/frameworks.md
 require_grep 'Expo Smoke Test' docs/expo-smoke.md
-require_grep 'npm install --save-dev zeno-mobile-runner' docs/expo-smoke.md
+require_grep 'curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh' docs/expo-smoke.md
 require_grep 'zmr report traces/zmr-ios --out traces/zmr-ios/report.html' docs/expo-smoke.md
 require_grep '--junit traces/zmr-ios/junit.xml' docs/expo-smoke.md
 require_grep 'Production Readiness' docs/production-readiness.md
@@ -406,10 +408,13 @@ require_grep '`reviewRequired:true`' skills/zmr-mobile-testing/SKILL.md
 require_grep '`guardrails`' skills/zmr-mobile-testing/SKILL.md
 
 require_grep 'zmr init --app' docs/install.md
+require_grep 'install.sh | sh' docs/install.md
+require_grep 'checksum-verification: required' docs/install.md
 require_grep 'zmr-wizard' docs/install.md
 require_grep 'zmr-device-matrix' docs/install.md
 require_grep 'zmr-install-ios-shim' docs/install.md
 require_grep 'docs/npm.md' docs/install.md
+require_grep 'curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh' docs/client-installation.md
 require_grep 'npm install --save-dev zeno-mobile-runner' docs/client-installation.md
 require_not_grep "$OLD_PACKAGE_NAME" docs/client-installation.md
 require_not_grep 'Today, install the GitHub release tarball' docs/client-installation.md

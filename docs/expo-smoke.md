@@ -1,8 +1,9 @@
 # Expo Smoke Test
 
-This is the quickest public smoke path for an Expo app. It proves npm install,
-wizard scaffold, iOS app launch, screenshot capture, trace collection, HTML
-reporting, JUnit XML, and redacted export.
+This is the quickest public smoke path for an Expo app. It proves the
+framework-neutral ZMR binary install, app-local scaffold, iOS app launch,
+screenshot capture, trace collection, HTML reporting, JUnit XML, and redacted
+export.
 
 Run the flow below on a local iOS simulator before treating a specific app build
 as validated.
@@ -10,12 +11,11 @@ as validated.
 ```bash
 npx create-expo-app@latest /tmp/zmr-expo-smoke --template blank --yes
 cd /tmp/zmr-expo-smoke
-npm install --save-dev zeno-mobile-runner
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 
-npx zmr-wizard --yes --dir . \
-  --app-id com.example.zenoexposmoke \
-  --ios \
-  --package-json
+zmr init --app --dir . \
+  --app-id com.example.zenoexposmoke
 ```
 
 Boot a simulator, then build and launch the app:
@@ -28,14 +28,14 @@ npx expo run:ios --device <simulator-name>
 Run the generated ZMR scenario:
 
 ```bash
-npx zmr run .zmr/ios-smoke.json \
+zmr run .zmr/ios-smoke.json \
   --platform ios \
   --device booted \
   --trace-dir traces/zmr-ios \
   --json
 
-npx zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml
-npx zmr export traces/zmr-ios --out traces/zmr-ios-redacted.zmrtrace --redact
+zmr report traces/zmr-ios --out traces/zmr-ios/report.html --junit traces/zmr-ios/junit.xml
+zmr export traces/zmr-ios --out traces/zmr-ios-redacted.zmrtrace --redact
 ```
 
 Expected result shape:
@@ -61,12 +61,7 @@ the XCTest shim described in [app integration](app-integration.md).
 Android follows the same pattern with a connected emulator or device:
 
 ```bash
-npx zmr-wizard --yes --dir . \
-  --app-id com.example.zenoexposmoke \
-  --android \
-  --package-json
-
-npx zmr run .zmr/android-smoke.json \
+zmr run .zmr/android-smoke.json \
   --platform android \
   --device emulator-5554 \
   --trace-dir traces/zmr-android \

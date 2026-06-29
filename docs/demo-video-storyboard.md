@@ -17,7 +17,8 @@ Static title over the simulator's idle home screen.
 Show one line in the terminal:
 
 ```bash
-npm install --save-dev zeno-mobile-runner && npx zmr-wizard --app-id com.example.mobiletest --package-json
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+zmr init --app --app-id com.example.mobiletest
 ```
 
 ## Beat 2 — The loop, green (0:12–0:40)
@@ -73,11 +74,11 @@ by side. Optionally flash `report.html` and `junit.xml` for the CI crowd.
 Terminal types the MCP hookup:
 
 ```bash
-claude mcp add zmr -- npx zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
+zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
 > Zeno Mobile Runner. Mobile verification for AI coding agents.
-> npm install zeno-mobile-runner. MIT, runs on your machine.
+> One local binary. MIT, runs on your machine.
 
 ## Production notes
 

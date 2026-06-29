@@ -15,7 +15,7 @@ actions, waits, assertions, traces, diagnostics, and redacted evidence.
 2. If it is missing, scaffold it:
 
    ```bash
-   npx zmr-wizard --app-id com.example.mobiletest --package-json
+   zmr init --app --app-id com.example.mobiletest
    ```
 
 3. Run setup diagnostics before touching a device:

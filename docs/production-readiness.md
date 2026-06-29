@@ -19,7 +19,13 @@ Every public release should satisfy these checks before publishing artifacts:
 - `./scripts/verify-release-artifacts.sh --dist dist`
 - at least one trace or benchmark report rendered with `zmr report --junit`,
   or a pilot wrapper run that produced both `report.html` and `junit.xml`
-- a fresh npm install smoke:
+- a fresh curl installer smoke:
+
+  ```bash
+  ./install.sh --version 0.2.16 --dry-run
+  ```
+
+- a fresh npm convenience smoke:
 
   ```bash
   npm install --save-dev zeno-mobile-runner

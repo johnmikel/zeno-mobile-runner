@@ -6,6 +6,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Added
 
+- Added a curl-first `install.sh` for framework-neutral native binary installs,
+  including OS/arch release archive selection, mandatory `SHA256SUMS`
+  verification, dry-run output, and installer coverage in CI/release gates.
 - Added a support matrix covering Android, iPhone, iPad, tvOS, watchOS, cloud
   device farms, and the evidence required before making stronger product
   claims.
@@ -16,6 +19,9 @@ All notable changes to Zeno Mobile Runner are tracked here.
   troubleshooting, benchmarking, client, shim, schema, and contribution docs
   around DX-friendly setup paths, evidence-first product claims, and
   agent-first mobile verification.
+- Repositioned public onboarding around `curl | sh` plus `zmr init --app`,
+  with npm documented as the JavaScript-team convenience path instead of the
+  default install story.
 - MCP tool schemas now expose strict selector shapes, including `stableId`, so
   agents can discover supported selector fields directly from tool metadata.
 

@@ -6,21 +6,22 @@ your agent or harness needs idiomatic host-side calls.
 1. The `zmr` binary controls devices, runs scenarios, serves JSON-RPC, and writes traces.
 2. Language clients are optional wrappers around `zmr serve --transport stdio`.
 
-For fastest adoption, install the binary once with npm or Homebrew. Then use a
-language client only when tests or agents are written in that language.
+For fastest adoption, install the native binary once with the curl installer.
+Then use a language client only when tests or agents are written in that
+language.
 
 ## Binary First
 
-Install from npm inside the app repo:
+Install the release binary and scaffold app-local ZMR state:
 
 ```bash
-npm install --save-dev zeno-mobile-runner
-npx zmr-wizard --app-id com.example.mobiletest --package-json
-npx zmr version
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+zmr init --app --app-id com.example.mobiletest
+zmr version
 ```
 
-Homebrew is the best install path for non-JavaScript teams because it gives any
-language the same `zmr` executable:
+Homebrew is a secondary native install path when you use a generated formula:
 
 ```bash
 brew install --build-from-source ./dist/homebrew/zmr.rb
@@ -28,6 +29,13 @@ brew install --build-from-source ./dist/homebrew/zmr.rb
 # Intended tap install after the tap is published:
 brew tap johnmikel/zmr
 brew install zmr
+```
+
+JavaScript teams can instead pin ZMR in the app repo and use npm helper bins:
+
+```bash
+npm install --save-dev zeno-mobile-runner
+npx zmr-wizard --app-id com.example.mobiletest --package-json
 ```
 
 ## TypeScript

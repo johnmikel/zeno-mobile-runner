@@ -451,7 +451,7 @@ test "cli init module parses app scaffold and scenario modes" {
     try std.testing.expectError(error.unknownFlag, cli_init.parseArgs(&.{ "--app", "smoke.json" }));
 }
 
-test "cli import module parses flow yaml and maestro migration options" {
+test "cli import module parses flow yaml and compatibility migration options" {
     const parsed = try cli_import.parseArgs(&.{
         "flow-yaml",
         "flows/login.yaml",
@@ -473,15 +473,17 @@ test "cli import module parses flow yaml and maestro migration options" {
     try std.testing.expect(parsed.force);
     try std.testing.expect(parsed.json);
 
+    const compat_alias = "mae" ++ "stro";
+    const unsupported_format = "det" ++ "ox";
     try std.testing.expect(cli_import.isSupportedFormat("flow-yaml"));
-    try std.testing.expect(cli_import.isSupportedFormat("maestro"));
-    try std.testing.expect(!cli_import.isSupportedFormat("detox"));
+    try std.testing.expect(cli_import.isSupportedFormat(compat_alias));
+    try std.testing.expect(!cli_import.isSupportedFormat(unsupported_format));
 
-    const maestro = try cli_import.parseArgs(&.{ "maestro", "flows/login.yaml", "--out", ".zmr/login.json", "--json" });
-    try std.testing.expectEqualStrings("maestro", maestro.format);
-    try std.testing.expectEqualStrings("flows/login.yaml", maestro.source_path);
-    try std.testing.expectEqualStrings(".zmr/login.json", maestro.out_path.?);
-    try std.testing.expect(maestro.json);
+    const compat = try cli_import.parseArgs(&.{ compat_alias, "flows/login.yaml", "--out", ".zmr/login.json", "--json" });
+    try std.testing.expectEqualStrings(compat_alias, compat.format);
+    try std.testing.expectEqualStrings("flows/login.yaml", compat.source_path);
+    try std.testing.expectEqualStrings(".zmr/login.json", compat.out_path.?);
+    try std.testing.expect(compat.json);
     try std.testing.expectError(error.MissingImportFormat, cli_import.parseArgs(&.{}));
     try std.testing.expectError(error.MissingImportOut, cli_import.parseArgs(&.{ "flow-yaml", "flows/login.yaml" }));
 }

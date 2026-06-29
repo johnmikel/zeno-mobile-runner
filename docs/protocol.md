@@ -301,14 +301,13 @@ Single-scenario mode reports the created scenario and next validation command:
 
 ## Import Output Contract
 
-`zmr import maestro <flow.yaml> --out .zmr/imported.json --json` converts a
-supported subset of Maestro/mobile-flow YAML into native ZMR scenario JSON.
-`flow-yaml` remains accepted as a generic format name; use `maestro` for
-migration work so compatibility reports and follow-up docs can stay explicit.
+`zmr import flow-yaml <flow.yaml> --out .zmr/imported.json --json` converts a
+supported subset of mobile-flow YAML into native ZMR scenario JSON. Keep the
+generated JSON as the reviewed, deterministic scenario that agents and CI run.
 The response is covered by `schemas/import-output.schema.json`:
 
 ```json
-{"ok":true,"format":"maestro","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
+{"ok":true,"format":"flow-yaml","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
 ```
 
 The importer is intentionally a migration helper, not a runtime dependency.

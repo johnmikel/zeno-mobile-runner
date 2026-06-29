@@ -221,7 +221,7 @@ name: Imported demo smoke
     id: dashboard-title
 - takeScreenshot: "after-import"
 YAML
-./zig-out/bin/zmr import maestro traces/demo-flow-yaml-flow.yaml --out traces/demo-imported-flow.json --json
+./zig-out/bin/zmr import flow-yaml traces/demo-flow-yaml-flow.yaml --out traces/demo-imported-flow.json --json
 ./zig-out/bin/zmr validate traces/demo-imported-flow.json
 
 rm -rf traces/demo-fake-android traces/demo-config-redaction traces/demo-failure traces/demo-device-matrix traces/demo-android-shim traces/demo-fake-ios traces/demo-ios-shim traces/demo-rpc-session traces/demo-typescript-client traces/demo-python-client traces/demo-swift-client traces/demo-kotlin-client traces/demo-go-client traces/demo-rust-client traces/demo-fake-android.zmrtrace traces/demo-fake-android-redacted.zmrtrace

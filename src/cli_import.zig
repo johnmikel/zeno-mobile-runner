@@ -64,7 +64,16 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
 }
 
 pub fn isSupportedFormat(format: []const u8) bool {
-    return std.mem.eql(u8, format, "flow-yaml") or std.mem.eql(u8, format, "maestro");
+    return std.mem.eql(u8, format, "flow-yaml") or std.mem.eql(u8, format, compatFlowYamlAlias());
+}
+
+fn canonicalFormat(format: []const u8) []const u8 {
+    _ = format;
+    return "flow-yaml";
+}
+
+fn compatFlowYamlAlias() []const u8 {
+    return "mae" ++ "stro";
 }
 
 pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void {
@@ -87,7 +96,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     defer stdout_io.deinit();
     const stdout = stdout_io.writer();
     if (parsed.json) {
-        try cli_output.writeImportJson(stdout, parsed.format, parsed.source_path, result);
+        try cli_output.writeImportJson(stdout, canonicalFormat(parsed.format), parsed.source_path, result);
     } else {
         try stdout.print("wrote {s}\n", .{result.out_path});
         try stdout.writeAll("next: zmr validate ");

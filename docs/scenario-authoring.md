@@ -78,7 +78,7 @@ Use the importer as a one-time migration helper when evaluating ZMR against an
 existing mobile-flow YAML suite:
 
 ```bash
-zmr import maestro flows/login.yaml --out .zmr/login-smoke.json --json
+zmr import flow-yaml flows/login.yaml --out .zmr/login-smoke.json --json
 zmr validate .zmr/login-smoke.json
 ```
 

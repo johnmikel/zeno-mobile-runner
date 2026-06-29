@@ -132,6 +132,7 @@ evidence_output="$("$ROOT/scripts/pilot-gate.sh" \
   --ios-app-path "$TMPDIR/Sample.ipa" \
   --ios-app-id com.example.ios \
   --ios-shim "$TMPDIR/ios-shim" \
+  --zmr-bin "$TMPDIR/zmr" \
   --trace-root "$TMPDIR/evidence-pilot" \
   --evidence-out "$EVIDENCE_OUT" \
   --dry-run 2>&1)"
@@ -160,7 +161,7 @@ assert rows[0]["androidAppId"] == "com.example.android"
 assert rows[0]["androidAppRoot"].endswith("/android-app")
 assert rows[0]["androidDeviceId"] == "emulator-5554"
 assert rows[0]["traceRoot"].endswith("/evidence-pilot/android")
-assert rows[1]["command"].endswith("assert-ios-physical-ready.sh --device physical-device-1")
+assert rows[1]["command"].endswith(f"assert-ios-physical-ready.sh --device physical-device-1 --zmr {os.path.realpath(os.path.join(os.path.dirname(evidence_out), 'zmr'))}")
 assert rows[1]["iosDeviceId"] == "physical-device-1"
 assert rows[2]["runs"] == 20
 assert rows[2]["minPassRate"] == 100
@@ -228,6 +229,7 @@ PY
 APP_CWD="$TMPDIR/app-cwd"
 mkdir -p "$APP_CWD/bin" "$APP_CWD/.zmr" "$APP_CWD/build"
 touch "$APP_CWD/bin/zmr"
+chmod +x "$APP_CWD/bin/zmr"
 
 app_cwd_output="$(cd "$APP_CWD" && PATH="$APP_CWD/bin:$PATH" "$ROOT/scripts/pilot-gate.sh" \
   --android \

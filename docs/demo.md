@@ -50,7 +50,7 @@ The script builds `zig-out/bin/zmr`, then runs:
 - `zmr init --app --json --dir traces/demo-init-app --app-id com.example.demoapp`
   followed by validation and strict config-driven doctor checks from that
   generated app-local workspace
-- `zmr import maestro traces/demo-flow-yaml-flow.yaml --out traces/demo-imported-flow.json --json`
+- `zmr import flow-yaml traces/demo-flow-yaml-flow.yaml --out traces/demo-imported-flow.json --json`
   followed by validation of the generated native ZMR scenario
 - `zmr run examples/demo-fake.json --trace-dir traces/demo-fake-android --json`
 - `scripts/device-matrix.sh --matrix traces/demo-device-matrix.json --trace-root traces/demo-device-matrix`

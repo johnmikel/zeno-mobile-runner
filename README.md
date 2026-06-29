@@ -42,7 +42,7 @@ driven on an iOS simulator and an Android emulator.</em></p>
 
 ```mermaid
 flowchart LR
-    A["AI coding agent<br/>Codex · Cursor · custom MCP harness"]
+    A["AI coding agent<br/>AI IDE · Cursor · custom MCP harness"]
     subgraph zmr["ZMR - one small Zig binary"]
         MCP["MCP server<br/><code>zmr mcp</code>"]
         RPC["JSON-RPC stdio/TCP<br/><code>zmr serve</code>"]

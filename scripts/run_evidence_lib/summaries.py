@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -230,6 +225,7 @@ def _fallback_summary(
     return fallback
 
 
+@_rooted_attempt_mutation
 def _finalize_attempt(
     root: Path,
     status: str,
@@ -254,13 +250,13 @@ def _finalize_attempt(
             return recovered_result
         if status not in _TERMINAL_STATUSES:
             raise ValueError("terminal status must be passed, failed, or cancelled")
-        if not index_path.is_file():
+        if not _evidence_is_file(index_path):
             raise ValueError("attempt index is missing")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
             with _exclusive_lock(root / ".lifecycle.lock"):
                 with _exclusive_lock(root / ".events.lock"):
                     summary_path = root / "run-summary.json"
-                    if summary_path.exists():
+                    if _evidence_exists(summary_path):
                         raise FileExistsError("terminal run summary already exists")
                     context = _read_json(root / "run-context.json")
                     context = _sanitize_value(

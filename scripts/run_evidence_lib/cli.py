@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -47,7 +42,10 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = _ArgumentParser(description="Create and validate ZMR run evidence.")
+    parser = _ArgumentParser(
+        description="Create and validate ZMR run evidence.",
+        epilog=EVIDENCE_MUTATION_REQUIREMENT + ".",
+    )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
     init_parser = subparsers.add_parser("init")

@@ -66,16 +66,16 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-original_replace = module.os.replace
-
-def pause_before_rename(source, destination):
+def pause_before_rename(operation, phase, destination):
     destination = Path(destination)
-    if destination.parent.name == ".transactions" and destination.suffix == ".json":
-        print(Path(source).name, flush=True)
+    if (operation == "atomic_write" and phase == "before_replace"
+            and destination.parent.name == ".transactions"
+            and destination.suffix == ".json"):
+        candidates = list(destination.parent.glob(f".{destination.name}.*.tmp"))
+        print(candidates[0].name, flush=True)
         time.sleep(60)
-    original_replace(source, destination)
 
-module.os.replace = pause_before_rename
+module.safe_io._rooted_io_checkpoint = pause_before_rename
 module._initialize_attempt(
     Path(sys.argv[2]), Path(sys.argv[3]), json.loads(sys.argv[4])
 )
@@ -120,16 +120,15 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-original_replace = module.os.replace
-
-def pause_before_target_replace(source, destination):
+def pause_before_target_replace(operation, phase, destination):
     destination = Path(destination)
-    if destination.name == sys.argv[6]:
-        print(str(source), flush=True)
+    if (operation == "atomic_write" and phase == "before_replace"
+            and destination.name == sys.argv[6]):
+        candidates = list(destination.parent.glob(f".{destination.name}.*.tmp"))
+        print(str(candidates[0]), flush=True)
         time.sleep(60)
-    original_replace(source, destination)
 
-module.os.replace = pause_before_target_replace
+module.safe_io._rooted_io_checkpoint = pause_before_target_replace
 if sys.argv[2] == "init":
     module._initialize_attempt(
         Path(sys.argv[3]), Path(sys.argv[4]), json.loads(sys.argv[5])

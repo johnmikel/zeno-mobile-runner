@@ -74,30 +74,21 @@ def _contained_transaction_path(
     if relative == ".transactions" or relative.startswith(".transactions/"):
         raise ValueError(f"{label}: transaction internals cannot be targets")
     publication_root = Path(publication_root).absolute()
-    if publication_root.is_symlink() or not publication_root.is_dir():
-        raise ValueError("publication root must be a real directory")
     candidate = publication_root.joinpath(*relative.split("/"))
-    current = publication_root
-    for part in relative.split("/"):
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label}: path contains a symlink")
-    try:
-        candidate.resolve(strict=False).relative_to(publication_root.resolve())
-    except ValueError as exc:
-        raise ValueError(f"{label}: path escapes publication root") from exc
+    _active_rooted_io().revalidate_root()
+    _active_rooted_io()._relative(candidate)
     return candidate
 
 
 def _transaction_directory(publication_root: Path, *, create: bool) -> Path:
     transaction_root = Path(publication_root) / ".transactions"
-    if transaction_root.is_symlink():
+    if _evidence_is_symlink(transaction_root):
         raise ValueError("transaction directory must not be a symlink")
-    if transaction_root.exists():
-        if not transaction_root.is_dir():
+    if _evidence_exists(transaction_root):
+        if not _evidence_is_dir(transaction_root):
             raise ValueError("transaction directory must be a directory")
     elif create:
-        transaction_root.mkdir(mode=0o700)
+        _evidence_mkdir(transaction_root, mode=0o700)
         _fsync_directory(Path(publication_root))
     return transaction_root
 
@@ -170,7 +161,7 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
         )
         if relative != "attempts" and not relative.startswith("attempts/"):
             raise ValueError("transaction directories must be under attempts")
-        if directory.exists() and not directory.is_dir():
+        if _evidence_exists(directory) and not _evidence_is_dir(directory):
             raise ValueError("transaction required directory is not a directory")
     if len(required_directories) != len(set(required_directories)):
         raise ValueError("transaction requiredDirectories must be unique")
@@ -196,7 +187,7 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
         if relative in seen_paths:
             raise ValueError("transaction target paths must be unique")
         seen_paths.add(relative)
-        if candidate.exists() and not candidate.is_file():
+        if _evidence_exists(candidate) and not _evidence_is_file(candidate):
             raise ValueError("transaction target exists but is not a file")
         try:
             content = base64.b64decode(target.get("contentBase64"), validate=True)
@@ -235,41 +226,34 @@ def _pending_transaction_paths(
     publication_root: Path, *, cleanup_orphan_temporaries: bool = False
 ) -> list[Path]:
     transaction_root = _transaction_directory(publication_root, create=False)
-    if not transaction_root.exists():
+    if not _evidence_exists(transaction_root):
         return []
     paths = []
     orphan_temporaries = []
-    transaction_resolved = transaction_root.resolve(strict=True)
-    for entry in sorted(transaction_root.iterdir(), key=lambda item: item.name):
-        if entry.is_symlink():
+    for entry in sorted(_evidence_iterdir(transaction_root), key=lambda item: item.name):
+        if _evidence_is_symlink(entry):
             raise ValueError("pending transaction journal must not be a symlink")
         temporary_match = _TRANSACTION_TEMP_RE.fullmatch(entry.name)
         if temporary_match is not None:
-            metadata = entry.stat(follow_symlinks=False)
+            metadata = _evidence_stat(entry)
             if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError("orphan transaction temporary must be a regular file")
             if not _safe_run_segment(temporary_match.group("runId")):
                 raise ValueError("orphan transaction temporary has an unsafe runId")
-            try:
-                entry.resolve(strict=True).relative_to(transaction_resolved)
-            except ValueError as exc:
-                raise ValueError(
-                    "orphan transaction temporary escapes the transaction directory"
-                ) from exc
             if os.name == "posix" and stat.S_IMODE(metadata.st_mode) != 0o600:
                 raise ValueError("orphan transaction temporary has an unsafe mode")
             if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
                 raise ValueError("orphan transaction temporary has an unsafe owner")
             orphan_temporaries.append((entry, metadata))
             continue
-        if not entry.is_file() or entry.suffix != ".json":
+        if not _evidence_is_file(entry) or entry.suffix != ".json":
             raise ValueError("transaction directory contains an unsafe entry")
         paths.append(entry)
     if orphan_temporaries:
         if not cleanup_orphan_temporaries:
             raise ValueError("orphan transaction temporary requires recovery")
         for entry, original_metadata in orphan_temporaries:
-            current_metadata = entry.stat(follow_symlinks=False)
+            current_metadata = _evidence_stat(entry)
             if (
                 not stat.S_ISREG(current_metadata.st_mode)
                 or current_metadata.st_dev != original_metadata.st_dev
@@ -277,7 +261,7 @@ def _pending_transaction_paths(
             ):
                 raise ValueError("orphan transaction temporary changed before cleanup")
         for entry, _metadata in orphan_temporaries:
-            entry.unlink()
+            _evidence_unlink(entry)
         _fsync_directory(transaction_root)
     return paths
 
@@ -311,31 +295,30 @@ def _ensure_transaction_directories(publication_root: Path, relatives: list[str]
         directory = _contained_transaction_path(
             publication_root, relative, "transaction required directory"
         )
-        if directory.exists():
-            if not directory.is_dir():
+        if _evidence_exists(directory):
+            if not _evidence_is_dir(directory):
                 raise ValueError("transaction required directory is not a directory")
             continue
-        if not directory.parent.is_dir() or directory.parent.is_symlink():
+        if not _evidence_is_dir(directory.parent) or _evidence_is_symlink(directory.parent):
             raise ValueError("transaction required directory parent is unsafe")
-        directory.mkdir(mode=0o700)
+        _evidence_mkdir(directory, mode=0o700)
         _fsync_directory(directory.parent)
 
 
 def _validated_target_temporaries(path: Path) -> list[tuple[Path, os.stat_result]]:
     path = Path(path)
     parent = path.parent
-    if not parent.exists():
+    if not _evidence_exists(parent):
         return []
-    if parent.is_symlink() or not parent.is_dir():
+    if _evidence_is_symlink(parent) or not _evidence_is_dir(parent):
         raise ValueError("transaction target parent is unsafe")
-    parent_resolved = parent.resolve(strict=True)
     exact_pattern = re.compile(
         rf"^[.]{re.escape(path.name)}[.]"
         rf"{_ATOMIC_TEMP_TOKEN_PATTERN}[.]tmp$"
     )
     candidate_prefixes = (f".{path.name}.", f"{path.name}.")
     temporaries = []
-    for entry in sorted(parent.iterdir(), key=lambda item: item.name):
+    for entry in sorted(_evidence_iterdir(parent), key=lambda item: item.name):
         if entry.name == f"{path.name}.lock":
             continue
         exact = exact_pattern.fullmatch(entry.name) is not None
@@ -346,17 +329,11 @@ def _validated_target_temporaries(path: Path) -> list[tuple[Path, os.stat_result
             continue
         if not exact:
             raise ValueError("transaction target has a malformed atomic temporary")
-        if entry.is_symlink():
+        if _evidence_is_symlink(entry):
             raise ValueError("transaction target temporary must not be a symlink")
-        metadata = entry.stat(follow_symlinks=False)
+        metadata = _evidence_stat(entry)
         if not stat.S_ISREG(metadata.st_mode):
             raise ValueError("transaction target temporary must be a regular file")
-        try:
-            entry.resolve(strict=True).relative_to(parent_resolved)
-        except ValueError as exc:
-            raise ValueError(
-                "transaction target temporary escapes its target directory"
-            ) from exc
         if os.name == "posix" and stat.S_IMODE(metadata.st_mode) != 0o600:
             raise ValueError("transaction target temporary has an unsafe mode")
         if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
@@ -371,9 +348,9 @@ def _remove_target_temporaries(
     if not temporaries:
         return
     for entry, original_metadata in temporaries:
-        if entry.is_symlink():
+        if _evidence_is_symlink(entry):
             raise ValueError("transaction target temporary changed before cleanup")
-        current_metadata = entry.stat(follow_symlinks=False)
+        current_metadata = _evidence_stat(entry)
         if (
             not stat.S_ISREG(current_metadata.st_mode)
             or current_metadata.st_dev != original_metadata.st_dev
@@ -389,7 +366,7 @@ def _remove_target_temporaries(
         ):
             raise ValueError("transaction target temporary changed before cleanup")
     for entry, _metadata in temporaries:
-        entry.unlink()
+        _evidence_unlink(entry)
     _fsync_directory(Path(path).parent)
 
 
@@ -407,9 +384,16 @@ def _apply_transaction(
     _ensure_transaction_directories(
         publication_root, transaction["requiredDirectories"]
     )
+    target_parent_identities = {}
+    for _target, path, _temporaries in prepared_targets:
+        parent_metadata = _evidence_stat(path.parent)
+        target_parent_identities[path.parent] = (
+            parent_metadata.st_dev,
+            parent_metadata.st_ino,
+        )
     for index, (target, path, temporaries) in enumerate(prepared_targets):
         _remove_target_temporaries(path, temporaries)
-        existing = path.read_bytes() if path.is_file() else None
+        existing = _evidence_read_bytes(path) if _evidence_is_file(path) else None
         if existing is None or hashlib.sha256(existing).digest() != hashlib.sha256(
             target["content"]
         ).digest():
@@ -417,9 +401,9 @@ def _apply_transaction(
         _remove_target_temporaries(
             path, _validated_target_temporaries(path)
         )
-        if not path.is_file() or path.is_symlink():
+        if not _evidence_is_file(path) or _evidence_is_symlink(path):
             raise ValueError("transaction target was not written safely")
-        if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != target["sha256"]:
+        if "sha256:" + hashlib.sha256(_evidence_read_bytes(path)).hexdigest() != target["sha256"]:
             raise ValueError("transaction target failed hash verification")
         _transaction_checkpoint("target", index)
 
@@ -427,9 +411,21 @@ def _apply_transaction(
         path = _contained_transaction_path(
             publication_root, target["path"], "transaction final target"
         )
-        if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != target["sha256"]:
+        if "sha256:" + hashlib.sha256(_evidence_read_bytes(path)).hexdigest() != target["sha256"]:
             raise ValueError("transaction final hash verification failed")
-    journal_path.unlink()
+    _safe_io_owner._rooted_io_checkpoint(
+        "journal", "before_unlink", journal_path
+    )
+    for parent, expected_identity in target_parent_identities.items():
+        current = _evidence_stat(parent)
+        if (
+            not stat.S_ISDIR(current.st_mode)
+            or (current.st_dev, current.st_ino) != expected_identity
+        ):
+            raise RootedIOError(
+                f"{ROOTED_IO_CONTAINMENT_ERROR}: transaction target parent changed before commit"
+            )
+    _evidence_unlink(journal_path)
     _fsync_directory(journal_path.parent)
 
 
@@ -444,6 +440,7 @@ def _recover_pending_transactions_unlocked(publication_root: Path) -> list[dict]
     return recovered
 
 
+@_rooted_publication_mutation
 def _recover_pending_transactions(publication_root: Path) -> list[dict]:
     publication_root = Path(publication_root)
     with _exclusive_lock(publication_root / ".transactions.lock"):
@@ -485,7 +482,7 @@ def _commit_transaction_unlocked(publication_root: Path, transaction: dict) -> N
     journal_path = transaction_root / (
         f"{transaction['operation']}-{run_id}-{fingerprint}.json"
     )
-    if journal_path.exists():
+    if _evidence_exists(journal_path):
         raise ValueError("transaction journal already exists")
     _atomic_write_bytes(journal_path, journal_bytes)
     _transaction_checkpoint("prepared", -1)

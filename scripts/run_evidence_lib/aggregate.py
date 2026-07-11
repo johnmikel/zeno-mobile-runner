@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .safe_io import *  # noqa: F401,F403

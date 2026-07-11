@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 
 def _nested(value: Any, *parts: str) -> Any:
@@ -533,14 +528,6 @@ def _validate_attempt_root(index_path: Path, attempt_root: Path, run_id: str) ->
     expected = _expected_attempt_root(index_path, run_id).absolute()
     if attempt_root != expected:
         raise ValueError("attempt root must be attempts/<runId> under the index root")
-    index_root_resolved = index_path.parent.resolve()
-    root_resolved = attempt_root.resolve()
-    try:
-        root_resolved.relative_to(index_root_resolved)
-    except ValueError as exc:
-        raise ValueError("attempt root escapes the index root") from exc
-    if root_resolved != expected.resolve():
-        raise ValueError("attempt root does not resolve to the expected location")
 
 
 def _validate_index(index: Any) -> None:

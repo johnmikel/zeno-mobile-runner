@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -51,20 +46,20 @@ def _resolve_bundle_reference(
     current = root_absolute
     for part in relative.split("/"):
         current = current / part
-        if current.is_symlink():
+        if _evidence_is_symlink(current):
             errors.append(f"{label}: referenced path contains a symlink")
             return None
     try:
-        candidate.resolve(strict=False).relative_to(root_absolute.resolve())
-    except ValueError:
+        _active_rooted_io()._relative(candidate)
+    except RootedIOError:
         errors.append(f"{label}: referenced path escapes the attempt root")
         return None
-    if not candidate.exists():
+    if not _evidence_exists(candidate):
         errors.append(f"{label}: referenced path does not exist")
         return None
-    if expected == "file" and not candidate.is_file():
+    if expected == "file" and not _evidence_is_file(candidate):
         errors.append(f"{label}: referenced path must be a file")
-    elif expected == "directory" and not candidate.is_dir():
+    elif expected == "directory" and not _evidence_is_dir(candidate):
         errors.append(f"{label}: referenced path must be a directory")
     return candidate
 
@@ -143,7 +138,7 @@ def _validate_command_metadata(
             root, record.get("path"), stream_label + ".path", errors, expected="file"
         )
         if referenced is not None and _is_integer(stored):
-            if referenced.stat().st_size != stored:
+            if _evidence_stat(referenced).st_size != stored:
                 errors.append(
                     f"{stream_label}.storedBytes: does not match referenced log size"
                 )
@@ -216,20 +211,20 @@ def _json_strings(value: Any) -> list[str]:
 
 
 def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -> None:
-    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+    for path in sorted(_evidence_rglob(root), key=lambda item: item.as_posix()):
         relative = path.relative_to(root).as_posix()
         if _ATOMIC_WRITE_TEMP_RE.fullmatch(path.name):
             errors.append(
                 f"{relative}: publishable bundle contains an atomic-write temporary"
             )
             continue
-        if path.is_symlink():
+        if _evidence_is_symlink(path):
             errors.append(f"{relative}: publishable bundle contains a symlink")
             continue
-        if not path.is_file():
+        if not _evidence_is_file(path):
             continue
         try:
-            raw = path.read_bytes()
+            raw = _evidence_read_bytes(path)
         except OSError as exc:
             errors.append(f"{relative}: cannot scan publishable file: {exc.strerror}")
             continue
@@ -265,21 +260,22 @@ def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -
             errors.append(f"{relative}: contains a public safety deny pattern")
 
 
+@_rooted_attempt_read
 def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     """Validate a complete attempt bundle, including containment and redaction."""
 
     root = Path(root)
     errors: list[str] = _pending_transaction_errors_for_attempt(root)
-    if root.is_symlink():
+    if _evidence_is_symlink(root):
         errors.append("$: attempt root must not be a symlink")
         return _finish_errors(errors)
-    if not root.is_dir():
+    if not _evidence_is_dir(root):
         errors.append("$: attempt root must be a directory")
         return _finish_errors(errors)
 
     summary_path = root / "run-summary.json"
     summary = None
-    if not summary_path.is_file() or summary_path.is_symlink():
+    if not _evidence_is_file(summary_path) or _evidence_is_symlink(summary_path):
         errors.append("run-summary.json: terminal summary is missing or unsafe")
     else:
         try:
@@ -293,12 +289,12 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
 
     events = []
     events_path = root / "bootstrap-events.jsonl"
-    if not events_path.is_file() or events_path.is_symlink():
+    if not _evidence_is_file(events_path) or _evidence_is_symlink(events_path):
         errors.append("bootstrap-events.jsonl: event log is missing or unsafe")
     else:
         try:
             for line_number, line in enumerate(
-                events_path.read_text(encoding="utf-8").splitlines(), 1
+                _evidence_read_text(events_path).splitlines(), 1
             ):
                 if not line.strip():
                     continue
@@ -392,10 +388,10 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     commands_root = root / "commands"
     metadata_paths = []
     metadata_by_reference = {}
-    if commands_root.is_dir() and not commands_root.is_symlink():
-        metadata_paths = sorted(commands_root.glob("*.json"))
+    if _evidence_is_dir(commands_root) and not _evidence_is_symlink(commands_root):
+        metadata_paths = sorted(_evidence_glob(commands_root, "*.json"))
     for metadata_path in metadata_paths:
-        if metadata_path.is_symlink():
+        if _evidence_is_symlink(metadata_path):
             errors.append(
                 f"{metadata_path.relative_to(root).as_posix()}: command record is a symlink"
             )

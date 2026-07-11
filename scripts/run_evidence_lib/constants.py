@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 PHASES = (
     "invocation",
     "evidence.init",
@@ -44,6 +39,12 @@ PHASES = (
     "evidence.finalize",
     "cleanup",
     "complete",
+)
+
+MINIMUM_PYTHON = (3, 10)
+EVIDENCE_MUTATION_CAPABILITY = "posix-safe-dirfd"
+EVIDENCE_MUTATION_REQUIREMENT = (
+    "evidence mutation requires POSIX safe-dirfd primitives and Python >= 3.10"
 )
 
 COMPARABILITY_FIELDS = (
@@ -170,6 +171,9 @@ _COMMAND_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 __all__ = (
     "PHASES",
+    "MINIMUM_PYTHON",
+    "EVIDENCE_MUTATION_CAPABILITY",
+    "EVIDENCE_MUTATION_REQUIREMENT",
     "COMPARABILITY_FIELDS",
     "_ERROR_GROUPS",
     "ERROR_CLASSIFICATION",

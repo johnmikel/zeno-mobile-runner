@@ -21,11 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -33,7 +28,7 @@ from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 
 def _load_index(index_path: Path) -> dict:
-    if not Path(index_path).exists():
+    if not _evidence_exists(Path(index_path)):
         return {"schemaVersion": "1.0", "executions": []}
     index = _read_json(index_path)
     _validate_index(index)
@@ -107,12 +102,13 @@ def _register_attempt_unlocked(
     return index
 
 
+@_rooted_index_mutation
 def register_attempt(index_path: Path, attempt_root: Path, context: dict) -> dict:
     """Register one globally unique, monotonically numbered attempt atomically."""
 
     index_path = Path(index_path).absolute()
     attempt_root = Path(attempt_root).absolute()
-    if not index_path.parent.is_dir():
+    if not _evidence_is_dir(index_path.parent):
         raise ValueError("attempt index parent does not exist")
     publication_root = index_path.parent
     attempt_relative = _attempt_root_relative(publication_root, attempt_root)
@@ -229,6 +225,7 @@ def _context_with_registered_tuple(context: dict, comparable: dict) -> dict:
     return restored
 
 
+@_rooted_attempt_mutation
 def update_context(root: Path, patch: dict) -> dict:
     """Patch allowlisted context fields while preserving execution identity."""
 
@@ -246,7 +243,7 @@ def update_context(root: Path, patch: dict) -> dict:
             secrets=_collect_secret_values(),
         )
         _validate_context_patch(patch)
-        if not context_path.is_file() or not index_path.is_file():
+        if not _evidence_is_file(context_path) or not _evidence_is_file(index_path):
             raise ValueError("attempt context or index is missing")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
             index = _load_index(index_path)
@@ -270,7 +267,7 @@ def update_context(root: Path, patch: dict) -> dict:
                 contexts = {}
                 for run_id, sibling_root in sibling_roots.items():
                     sibling_context_path = sibling_root / "run-context.json"
-                    if not sibling_context_path.is_file():
+                    if not _evidence_is_file(sibling_context_path):
                         raise ValueError("registered sibling attempt context is missing")
                     contexts[run_id] = _read_json(sibling_context_path)
 
@@ -294,7 +291,7 @@ def update_context(root: Path, patch: dict) -> dict:
                 )
                 identity_changed = registered_tuple != resolved_tuple
                 if identity_changed and any(
-                    (sibling_root / "run-summary.json").exists()
+                    _evidence_exists(sibling_root / "run-summary.json")
                     for sibling_root in sibling_roots.values()
                 ):
                     raise ValueError("finalized sibling attempt identity is immutable")
@@ -344,10 +341,10 @@ def update_context(root: Path, patch: dict) -> dict:
 def _read_bootstrap_events(root: Path) -> list[dict]:
     path = root / "bootstrap-events.jsonl"
     events = []
-    if path.exists():
+    if _evidence_exists(path):
         try:
             for line_number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), 1
+                _evidence_read_text(path).splitlines(), 1
             ):
                 if not line.strip():
                     continue
@@ -409,11 +406,12 @@ def _append_event_during_lifecycle(
 ) -> dict:
     root = Path(root)
     with _exclusive_lock(root / ".events.lock"):
-        if (root / "run-summary.json").exists():
+        if _evidence_exists(root / "run-summary.json"):
             raise ValueError("cannot append events after finalization")
         return _append_event_unlocked(root, phase, status, **metadata)
 
 
+@_rooted_attempt_mutation
 def _append_event(root: Path, phase: str, status: str, **metadata: Any) -> dict:
     root = Path(root)
     _recover_pending_transactions(_publication_root_for_attempt(root))
@@ -421,11 +419,12 @@ def _append_event(root: Path, phase: str, status: str, **metadata: Any) -> dict:
         return _append_event_during_lifecycle(root, phase, status, **metadata)
 
 
+@_rooted_index_mutation
 def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
     index_path = Path(index_path).absolute()
     root = Path(root).absolute()
     publication_root = index_path.parent
-    if not publication_root.is_dir():
+    if not _evidence_is_dir(publication_root):
         raise ValueError("attempt index parent does not exist")
     attempt_relative = _attempt_root_relative(publication_root, root)
     with _exclusive_lock(publication_root / ".transactions.lock"):
@@ -441,10 +440,10 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
         )
         _validate_context_identity(context)
         _validate_attempt_root(index_path, root, context["runId"])
-        if root.exists():
+        if _evidence_exists(root):
             raise FileExistsError("attempt root already exists")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-            if root.exists():
+            if _evidence_exists(root):
                 raise FileExistsError("attempt root already exists")
             stored = json.loads(json.dumps(context))
             stored["startedAt"] = _utc_now()

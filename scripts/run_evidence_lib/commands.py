@@ -24,11 +24,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
-
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -364,10 +359,10 @@ def _execute_command_during_lifecycle(
         isinstance(item, str) and item for item in argv
     ):
         raise ValueError("command argv must contain at least one non-empty argument")
-    if (root / "run-summary.json").exists():
+    if _evidence_exists(root / "run-summary.json"):
         raise ValueError("cannot run a command after finalization")
     commands_root = root / "commands"
-    if not commands_root.is_dir() or commands_root.is_symlink():
+    if not _evidence_is_dir(commands_root) or _evidence_is_symlink(commands_root):
         raise ValueError("attempt commands directory is missing or unsafe")
 
     roots = _sanitization_roots(root)
@@ -529,6 +524,7 @@ def _run_command_during_lifecycle(
         )
 
 
+@_rooted_attempt_mutation
 def _run_command(
     root: Path,
     phase: str,
@@ -576,10 +572,10 @@ def _record_external_during_lifecycle(
         raise ValueError("cancelled external outcome requires run.cancelled")
     if outcome == "failure" and failure_code == "run.cancelled":
         raise ValueError("failed external outcome cannot use run.cancelled")
-    if (root / "run-summary.json").exists():
+    if _evidence_exists(root / "run-summary.json"):
         raise ValueError("cannot record an external command after finalization")
     commands_root = root / "commands"
-    if not commands_root.is_dir() or commands_root.is_symlink():
+    if not _evidence_is_dir(commands_root) or _evidence_is_symlink(commands_root):
         raise ValueError("attempt commands directory is missing or unsafe")
 
     started = _append_event_during_lifecycle(root, phase, "started")
@@ -638,6 +634,7 @@ def _record_external_during_lifecycle(
     return {"success": 0, "failure": 1, "cancelled": 130}[outcome]
 
 
+@_rooted_attempt_mutation
 def _record_external(
     root: Path,
     phase: str,

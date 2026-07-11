@@ -9,6 +9,7 @@ from tests.run_evidence_cases import (
     contracts,
     journal,
     lifecycle,
+    rooted_io,
     sanitization,
 )
 
@@ -17,6 +18,7 @@ CASE_MODULES = (
     contracts,
     lifecycle,
     journal,
+    rooted_io,
     sanitization,
     commands,
     bundle,

@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OLD_PACKAGE_NAME="zig""-mobile-runner"
 OLD_PRODUCT_NAME="Zig"" Mobile Runner"
+PACKAGE_VERSION="$(
+  node -e '
+    const fs = require("fs");
+    const packageData = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (typeof packageData.version !== "string" || packageData.version.length === 0) {
+      throw new Error("package.json version must be a non-empty string");
+    }
+    process.stdout.write(packageData.version);
+  ' "$ROOT/package.json"
+)"
 
 require_file() {
   test -f "$ROOT/$1"
@@ -26,6 +36,15 @@ require_grep() {
   fi
 }
 
+require_fixed_grep() {
+  local needle="$1"
+  local file="$2"
+  if ! grep -Fq -- "$needle" "$ROOT/$file"; then
+    echo "missing '$needle' in $file" >&2
+    exit 1
+  fi
+}
+
 require_not_grep() {
   local needle="$1"
   local file="$2"
@@ -36,6 +55,7 @@ require_not_grep() {
 }
 
 require_file README.md
+require_file docs/assets/cli-run-explain.png
 require_file FEATURES.md
 require_file SECURITY.md
 require_file CONTRIBUTING.md
@@ -146,6 +166,7 @@ require_grep 'Apple TV / Apple Watch' README.md
 require_grep 'devicectl' README.md
 require_grep '## Project status' README.md
 require_grep '0.2.x developer preview' README.md
+require_fixed_grep "runner version \`$PACKAGE_VERSION\`" README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md

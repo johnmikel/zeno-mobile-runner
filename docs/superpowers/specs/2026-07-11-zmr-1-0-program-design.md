@@ -258,9 +258,10 @@ tests, and certify the Tier 1 platform matrix.
 ### M3 — Migration-grade authoring surface
 
 Add the high-value actions, selectors, subflows, variables, environment
-profiles, scoped retries, and import compatibility reports required by real
-competing-runner migration pilots. Features are prioritized by pilot evidence,
-not raw parity count.
+profiles, scoped retries, and import compatibility reports required by migration
+pilots covering both a declarative-flow runner family and an
+instrumentation-oriented JavaScript runner family. Features are prioritized by
+pilot evidence, not raw parity count.
 
 ### M4 — Parallel execution and integrations
 
@@ -330,8 +331,10 @@ report, and review before the next milestone depends on it.
 
 ### Product gates
 
-- Current competing-runner comparisons on native and React Native fixtures.
-- A fair current competing-runner comparison on a React Native fixture.
+- A current-version comparison against a declarative-flow mobile runner on
+  native and React Native fixtures.
+- A fair current comparison against an instrumentation-oriented JavaScript
+  runner on a React Native fixture.
 - Cold-command, warm-session, suite-throughput, memory, and reliability results
   are published with raw sanitized rows and fixture definitions.
 - At least three real application pilots covering two framework classes and both

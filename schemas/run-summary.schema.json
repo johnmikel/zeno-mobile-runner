@@ -208,7 +208,69 @@
           "summary": { "type": "string", "minLength": 1 },
           "hint": { "type": "string", "minLength": 1 },
           "commandStatus": { "type": ["integer", "null"] }
-        }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "classification": { "const": "runner_failure" },
+              "errorCode": {
+                "enum": [
+                  "runner.unclassified",
+                  "runner.child_timeout",
+                  "runner.cleanup_failed",
+                  "runner.driver_protocol",
+                  "runner.ios_shim.build_failed",
+                  "runner.ios_shim.readiness_timeout",
+                  "runner.trace_failed",
+                  "runner.report_failed",
+                  "runner.evidence_invalid"
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "classification": { "const": "configuration_failure" },
+              "errorCode": {
+                "enum": [
+                  "config.invalid",
+                  "config.app_artifact_missing",
+                  "config.device_selection",
+                  "config.signing",
+                  "config.unsupported_capability",
+                  "config.required_tool_missing"
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "classification": { "const": "infrastructure_failure" },
+              "errorCode": {
+                "enum": [
+                  "infra.hosted_runner",
+                  "infra.device_unavailable",
+                  "infra.emulator_provision",
+                  "infra.simulator_provision",
+                  "infra.disk",
+                  "infra.network"
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "classification": { "const": "app_failure" },
+              "errorCode": {
+                "enum": [
+                  "app.assertion_failed",
+                  "app.crashed",
+                  "app.launch_failed"
+                ]
+              }
+            }
+          }
+        ]
       }
     },
     {

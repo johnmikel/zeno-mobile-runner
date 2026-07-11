@@ -1706,6 +1706,8 @@ def _run_command_during_lifecycle(
         raise ValueError("command phase must be a declared phase")
     if not isinstance(failure_code, str) or not failure_code:
         raise ValueError("failure code must be non-empty")
+    if failure_code not in ERROR_CLASSIFICATION:
+        raise ValueError("failure code must be registered")
     if not isinstance(argv, list) or not argv or not all(
         isinstance(item, str) and item for item in argv
     ):
@@ -1863,6 +1865,12 @@ def _record_external_during_lifecycle(
         raise ValueError("external outcome must be success, failure, or cancelled")
     if not isinstance(failure_code, str) or not failure_code:
         raise ValueError("failure code must be non-empty")
+    if failure_code not in ERROR_CLASSIFICATION:
+        raise ValueError("failure code must be registered")
+    if outcome == "cancelled" and failure_code != "run.cancelled":
+        raise ValueError("cancelled external outcome requires run.cancelled")
+    if outcome == "failure" and failure_code == "run.cancelled":
+        raise ValueError("failed external outcome cannot use run.cancelled")
     if (root / "run-summary.json").exists():
         raise ValueError("cannot record an external command after finalization")
     commands_root = root / "commands"
@@ -2113,7 +2121,9 @@ def _json_strings(value: Any) -> list[str]:
     if isinstance(value, list):
         return [text for item in value for text in _json_strings(item)]
     if isinstance(value, dict):
-        return [text for item in value.values() for text in _json_strings(item)]
+        return list(value.keys()) + [
+            text for item in value.values() for text in _json_strings(item)
+        ]
     return []
 
 
@@ -2147,7 +2157,7 @@ def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -
         for secret in sorted(
             {item for item in secrets if isinstance(item, str) and item}
         ):
-            if secret.encode("utf-8") in raw:
+            if secret.encode("utf-8") in raw or secret in semantic_text:
                 errors.append(f"{relative}: contains a current known secret value")
                 break
         if _CREDENTIAL_URL_RE.search(semantic_text):

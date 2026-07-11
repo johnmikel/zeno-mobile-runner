@@ -1066,6 +1066,25 @@ class CommandTestCase(StorageTestCase):
 
 
 class CommandCaptureTests(CommandTestCase):
+    def test_unknown_failure_code_is_rejected_before_command_side_effects(self):
+        events_before = (self.root / "bootstrap-events.jsonl").read_bytes()
+        commands_before = sorted(path.name for path in (self.root / "commands").iterdir())
+        with self.assertRaises(ValueError):
+            run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "unknown-code",
+                "unknown.failure",
+                [sys.executable, "-c", "pass"],
+            )
+        self.assertEqual(
+            (self.root / "bootstrap-events.jsonl").read_bytes(), events_before
+        )
+        self.assertEqual(
+            sorted(path.name for path in (self.root / "commands").iterdir()),
+            commands_before,
+        )
+
     def test_sanitized_byte_expansion_never_exceeds_hard_log_limit(self):
         limit = 10 * 1024 * 1024
         bounded, truncated = run_evidence._bounded_log(b"x" * (limit + 1), limit)
@@ -1337,6 +1356,49 @@ class CommandCaptureTests(CommandTestCase):
 
 
 class ExternalCaptureTests(CommandTestCase):
+    def test_external_rejects_unknown_or_outcome_mismatched_codes_before_writes(self):
+        cases = (
+            ("failure", "unknown.failure"),
+            ("failure", "run.cancelled"),
+            ("cancelled", "app.assertion_failed"),
+        )
+        for index, (outcome, failure_code) in enumerate(cases, 1):
+            context = valid_context(
+                runId=f"invalid-external-{index}",
+                executionId=f"invalid-execution-{index}",
+            )
+            root = self.attempt_root(context["runId"])
+            run_evidence._initialize_attempt(self.index_path, root, context)
+            events_before = (root / "bootstrap-events.jsonl").read_bytes()
+            commands_before = sorted(path.name for path in (root / "commands").iterdir())
+            with self.subTest(outcome=outcome, failure_code=failure_code):
+                with self.assertRaises(ValueError):
+                    run_evidence._record_external(
+                        root,
+                        "app.build",
+                        "invalid-external",
+                        outcome,
+                        failure_code,
+                    )
+                self.assertEqual(
+                    (root / "bootstrap-events.jsonl").read_bytes(), events_before
+                )
+                self.assertEqual(
+                    sorted(path.name for path in (root / "commands").iterdir()),
+                    commands_before,
+                )
+
+        self.assertEqual(
+            run_evidence._record_external(
+                self.root,
+                "app.build",
+                "successful-fallback",
+                "success",
+                "app.assertion_failed",
+            ),
+            0,
+        )
+
     def test_external_records_honest_synthetic_metadata_and_bounded_logs(self):
         result = self.cli(
             "external",
@@ -1601,6 +1663,36 @@ class BundleValidationTests(CommandTestCase):
         self.assertIn("published-artifact: contains a raw absolute path", joined)
         self.assertIn("published-artifact: contains a credential URL", joined)
         self.assertIn("published-artifact: contains a public safety deny pattern", joined)
+
+    def test_scans_recursive_json_object_keys_for_every_semantic_category(self):
+        secret = "clé-secret-key"
+        self.make_bundle()
+        artifact = self.root / "key-artifact.json"
+        deny_key = "cod" + "ex"
+        artifact.write_text(
+            json.dumps(
+                {
+                    "nested": {
+                        secret: "safe",
+                        "/private/tmp/key-path": "safe",
+                        "https://user:password@example.test/key": "safe",
+                        deny_key: "safe",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        summary_path = self.root / "run-summary.json"
+        summary = self.read_json(summary_path)
+        summary["artifacts"]["report"] = "key-artifact.json"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[secret])
+        joined = "\n".join(errors)
+        self.assertIn("key-artifact.json: contains a current known secret value", joined)
+        self.assertIn("key-artifact.json: contains a raw absolute path", joined)
+        self.assertIn("key-artifact.json: contains a credential URL", joined)
+        self.assertIn("key-artifact.json: contains a public safety deny pattern", joined)
 
 
 class CliAndAggregateTests(StorageTestCase):

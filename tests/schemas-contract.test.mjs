@@ -155,6 +155,81 @@ test("run summary accepts each terminal status contract", () => {
   expectValid(validateRunSummary, cancelled, "cancelled summary");
 });
 
+test("failed summary classification owns an exact stable error-code enum", () => {
+  const ownedCodes = {
+    runner_failure: [
+      "runner.unclassified",
+      "runner.child_timeout",
+      "runner.cleanup_failed",
+      "runner.driver_protocol",
+      "runner.ios_shim.build_failed",
+      "runner.ios_shim.readiness_timeout",
+      "runner.trace_failed",
+      "runner.report_failed",
+      "runner.evidence_invalid",
+    ],
+    configuration_failure: [
+      "config.invalid",
+      "config.app_artifact_missing",
+      "config.device_selection",
+      "config.signing",
+      "config.unsupported_capability",
+      "config.required_tool_missing",
+    ],
+    infrastructure_failure: [
+      "infra.hosted_runner",
+      "infra.device_unavailable",
+      "infra.emulator_provision",
+      "infra.simulator_provision",
+      "infra.disk",
+      "infra.network",
+    ],
+    app_failure: [
+      "app.assertion_failed",
+      "app.crashed",
+      "app.launch_failed",
+    ],
+  };
+
+  for (const [classification, codes] of Object.entries(ownedCodes)) {
+    for (const errorCode of codes) {
+      const summary = validRunSummary();
+      Object.assign(summary, {
+        status: "failed",
+        classification,
+        phase: "scenario.execute",
+        errorCode,
+        summary: "Classified failure",
+        hint: "Inspect evidence",
+        commandStatus: null,
+      });
+      expectValid(validateRunSummary, summary, classification + "/" + errorCode);
+    }
+  }
+
+  const unknown = validRunSummary();
+  Object.assign(unknown, {
+    status: "failed",
+    classification: "runner_failure",
+    phase: "scenario.execute",
+    errorCode: "unknown.failure",
+    summary: "Unknown failure",
+    hint: "Inspect evidence",
+  });
+  expectInvalid(validateRunSummary, unknown, "unknown failed error code");
+
+  const mismatched = validRunSummary();
+  Object.assign(mismatched, {
+    status: "failed",
+    classification: "infrastructure_failure",
+    phase: "scenario.execute",
+    errorCode: "app.assertion_failed",
+    summary: "Mismatched failure",
+    hint: "Inspect evidence",
+  });
+  expectInvalid(validateRunSummary, mismatched, "mismatched failure owner");
+});
+
 test("run summary rejects terminal status contract mismatches", () => {
   const passedWithFailure = validRunSummary();
   Object.assign(passedWithFailure, {

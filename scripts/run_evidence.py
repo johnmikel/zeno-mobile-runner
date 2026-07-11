@@ -901,10 +901,14 @@ _TRANSACTION_KEYS = {
     "targets",
 }
 _TRANSACTION_TARGET_KEYS = {"path", "contentBase64", "sha256"}
+_ATOMIC_TEMP_TOKEN_PATTERN = r"[a-z0-9_]{8}"
+_ATOMIC_WRITE_TEMP_RE = re.compile(
+    rf"^[.].+[.]{_ATOMIC_TEMP_TOKEN_PATTERN}[.]tmp$"
+)
 _TRANSACTION_TEMP_RE = re.compile(
     r"^[.](?P<operation>init|context|finalize)-"
     r"(?P<runId>.+)-(?P<fingerprint>[0-9a-f]{16})[.]json[.]"
-    r"(?P<token>[a-z0-9_]{8})[.]tmp$"
+    rf"(?P<token>{_ATOMIC_TEMP_TOKEN_PATTERN})[.]tmp$"
 )
 
 
@@ -1310,21 +1314,102 @@ def _ensure_transaction_directories(publication_root: Path, relatives: list[str]
         _fsync_directory(directory.parent)
 
 
+def _validated_target_temporaries(path: Path) -> list[tuple[Path, os.stat_result]]:
+    path = Path(path)
+    parent = path.parent
+    if not parent.exists():
+        return []
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError("transaction target parent is unsafe")
+    parent_resolved = parent.resolve(strict=True)
+    exact_pattern = re.compile(
+        rf"^[.]{re.escape(path.name)}[.]"
+        rf"{_ATOMIC_TEMP_TOKEN_PATTERN}[.]tmp$"
+    )
+    candidate_prefixes = (f".{path.name}.", f"{path.name}.")
+    temporaries = []
+    for entry in sorted(parent.iterdir(), key=lambda item: item.name):
+        if entry.name == f"{path.name}.lock":
+            continue
+        exact = exact_pattern.fullmatch(entry.name) is not None
+        near_match = any(
+            entry.name.startswith(prefix) for prefix in candidate_prefixes
+        )
+        if not exact and not near_match:
+            continue
+        if not exact:
+            raise ValueError("transaction target has a malformed atomic temporary")
+        if entry.is_symlink():
+            raise ValueError("transaction target temporary must not be a symlink")
+        metadata = entry.stat(follow_symlinks=False)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("transaction target temporary must be a regular file")
+        try:
+            entry.resolve(strict=True).relative_to(parent_resolved)
+        except ValueError as exc:
+            raise ValueError(
+                "transaction target temporary escapes its target directory"
+            ) from exc
+        if os.name == "posix" and stat.S_IMODE(metadata.st_mode) != 0o600:
+            raise ValueError("transaction target temporary has an unsafe mode")
+        if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
+            raise ValueError("transaction target temporary has an unsafe owner")
+        temporaries.append((entry, metadata))
+    return temporaries
+
+
+def _remove_target_temporaries(
+    path: Path, temporaries: list[tuple[Path, os.stat_result]]
+) -> None:
+    if not temporaries:
+        return
+    for entry, original_metadata in temporaries:
+        if entry.is_symlink():
+            raise ValueError("transaction target temporary changed before cleanup")
+        current_metadata = entry.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISREG(current_metadata.st_mode)
+            or current_metadata.st_dev != original_metadata.st_dev
+            or current_metadata.st_ino != original_metadata.st_ino
+            or (
+                os.name == "posix"
+                and stat.S_IMODE(current_metadata.st_mode) != 0o600
+            )
+            or (
+                hasattr(os, "geteuid")
+                and current_metadata.st_uid != os.geteuid()
+            )
+        ):
+            raise ValueError("transaction target temporary changed before cleanup")
+    for entry, _metadata in temporaries:
+        entry.unlink()
+    _fsync_directory(Path(path).parent)
+
+
 def _apply_transaction(
     publication_root: Path, journal_path: Path, transaction: dict
 ) -> None:
-    _ensure_transaction_directories(
-        publication_root, transaction["requiredDirectories"]
-    )
+    prepared_targets = []
     for index, target in enumerate(transaction["targets"]):
         path = _contained_transaction_path(
             publication_root, target["path"], f"targets[{index}].path"
         )
+        prepared_targets.append(
+            (target, path, _validated_target_temporaries(path))
+        )
+    _ensure_transaction_directories(
+        publication_root, transaction["requiredDirectories"]
+    )
+    for index, (target, path, temporaries) in enumerate(prepared_targets):
+        _remove_target_temporaries(path, temporaries)
         existing = path.read_bytes() if path.is_file() else None
         if existing is None or hashlib.sha256(existing).digest() != hashlib.sha256(
             target["content"]
         ).digest():
             _atomic_write_bytes(path, target["content"])
+        _remove_target_temporaries(
+            path, _validated_target_temporaries(path)
+        )
         if not path.is_file() or path.is_symlink():
             raise ValueError("transaction target was not written safely")
         if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != target["sha256"]:
@@ -2868,6 +2953,11 @@ def _json_strings(value: Any) -> list[str]:
 def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -> None:
     for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
         relative = path.relative_to(root).as_posix()
+        if _ATOMIC_WRITE_TEMP_RE.fullmatch(path.name):
+            errors.append(
+                f"{relative}: publishable bundle contains an atomic-write temporary"
+            )
+            continue
         if path.is_symlink():
             errors.append(f"{relative}: publishable bundle contains a symlink")
             continue

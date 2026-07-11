@@ -1039,6 +1039,65 @@ module._initialize_attempt(
         process.wait(timeout=5)
         return root.parent.parent / ".transactions" / temporary_name
 
+    def crash_lifecycle_before_target_replace(
+        self,
+        action,
+        root,
+        target_name,
+        *,
+        index_path=None,
+        context=None,
+    ):
+        code = """
+import importlib.util
+import json
+import sys
+import time
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original_replace = module.os.replace
+
+def pause_before_target_replace(source, destination):
+    destination = Path(destination)
+    if destination.name == sys.argv[6]:
+        print(str(source), flush=True)
+        time.sleep(60)
+    original_replace(source, destination)
+
+module.os.replace = pause_before_target_replace
+if sys.argv[2] == "init":
+    module._initialize_attempt(
+        Path(sys.argv[3]), Path(sys.argv[4]), json.loads(sys.argv[5])
+    )
+else:
+    module._finalize_attempt(Path(sys.argv[4]), "passed")
+"""
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                code,
+                str(MODULE_PATH),
+                action,
+                str(index_path or self.index_path),
+                str(root),
+                json.dumps(context or {}),
+                target_name,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop_process, process)
+        temporary_name = process.stdout.readline().strip()
+        self.assertTrue(temporary_name)
+        os.kill(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
+        return Path(temporary_name)
+
     def transaction_files(self, publication_root=None):
         publication_root = self.publication_root if publication_root is None else publication_root
         transaction_root = publication_root / ".transactions"
@@ -1515,6 +1574,110 @@ except TimeoutError:
                 run_evidence._initialize_attempt(index_path, root, context)
             self.assertTrue(entry.exists() or entry.is_symlink())
             self.assertFalse(root.exists())
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "SIGKILL"),
+        "requires POSIX process-death semantics",
+    )
+    def test_sigkill_before_context_replace_cleans_target_temp_on_recovery(self):
+        context = valid_context(
+            runId="context-target-death",
+            executionId="context-target-death-execution",
+            artifacts={"trace": None, "report": None},
+        )
+        root = self.attempt_root(context["runId"])
+        temporary_path = self.crash_lifecycle_before_target_replace(
+            "init",
+            root,
+            "run-context.json",
+            index_path=self.index_path,
+            context=context,
+        )
+        self.assertTrue(temporary_path.is_file())
+        self.assertEqual(len(self.transaction_files()), 1)
+
+        stored = run_evidence._initialize_attempt(self.index_path, root, context)
+        self.assertEqual(stored["runId"], context["runId"])
+        self.assertFalse(temporary_path.exists())
+        self.assertEqual(self.transaction_files(), [])
+        run_evidence._finalize_attempt(root, "passed")
+        self.assertEqual(run_evidence.validate_bundle(root, secrets=[]), [])
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "SIGKILL"),
+        "requires POSIX process-death semantics",
+    )
+    def test_sigkill_before_summary_replace_cleans_target_temp_on_recovery(self):
+        context = valid_context(
+            runId="summary-target-death",
+            executionId="summary-target-death-execution",
+            artifacts={"trace": None, "report": None},
+        )
+        root = self.attempt_root(context["runId"])
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        temporary_path = self.crash_lifecycle_before_target_replace(
+            "finalize", root, "run-summary.json"
+        )
+        self.assertTrue(temporary_path.is_file())
+        self.assertEqual(len(self.transaction_files()), 1)
+
+        summary = run_evidence._finalize_attempt(root, "passed")
+        self.assertFalse(temporary_path.exists())
+        self.assertEqual(len(self.terminal_events(root, summary)), 1)
+        self.assertEqual(run_evidence.validate_bundle(root, secrets=[]), [])
+
+    def test_hostile_target_temps_block_recovery_without_deletion(self):
+        for case_number, kind in enumerate(
+            ("mode", "directory", "symlink", "near-match", "missing-dot"), 1
+        ):
+            publication, index_path = self.new_publication()
+            root, context, journal_path = self.prepare_crashed_init(
+                publication, index_path, f"target-hostile-{case_number}"
+            )
+            root.mkdir(parents=True)
+            if kind == "near-match":
+                name = ".run-context.json.abcdefg.tmp"
+            elif kind == "missing-dot":
+                name = "run-context.json.abcdefgh.tmp"
+            else:
+                name = ".run-context.json.abcdefgh.tmp"
+            entry = root / name
+            if kind == "directory":
+                entry.mkdir(mode=0o700)
+            elif kind == "symlink":
+                outside = publication.parent / f"target-outside-{case_number}"
+                outside.write_bytes(b"outside")
+                entry.symlink_to(outside)
+            else:
+                entry.write_bytes(b"hostile target temporary")
+                entry.chmod(0o644 if kind == "mode" else 0o600)
+
+            with self.subTest(kind=kind):
+                with self.assertRaises(ValueError):
+                    run_evidence._initialize_attempt(index_path, root, context)
+                self.assertTrue(entry.exists() or entry.is_symlink())
+                self.assertTrue(journal_path.exists())
+                self.assertFalse((root / "run-context.json").exists())
+
+    def test_bundle_rejects_leftover_atomic_target_temp_without_deleting_it(self):
+        context = valid_context(
+            runId="bundle-target-temp",
+            executionId="bundle-target-temp-execution",
+            artifacts={"trace": None, "report": None},
+        )
+        root = self.attempt_root(context["runId"])
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        run_evidence._finalize_attempt(root, "passed")
+        self.assertEqual(run_evidence.validate_bundle(root, secrets=[]), [])
+
+        temporary_path = root / "commands" / ".leftover.log.abcdefgh.tmp"
+        temporary_path.write_bytes(b"leftover but otherwise publishable")
+        temporary_path.chmod(0o600)
+        errors = run_evidence.validate_bundle(root, secrets=[])
+        self.assertTrue(
+            any("atomic-write temporary" in error for error in errors), errors
+        )
+        self.assertTrue(temporary_path.exists())
 
 
 class SanitizationTests(unittest.TestCase):

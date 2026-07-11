@@ -45,6 +45,8 @@ required = [
     "bash tests/workflow-readiness-test.sh",
     "bash tests/demo-script-test.sh",
     "bash tests/mcp-server-test.sh",
+    "npm ci --ignore-scripts",
+    "node --test tests/schemas-contract.test.mjs",
     "node --test tests/npm-package.test.mjs",
     "bash tests/go-client-test.sh",
     "bash tests/rust-client-test.sh",
@@ -76,6 +78,15 @@ required = [
 
 for command in required:
     assert command in output, command
+
+schema_gate_commands = [
+    "npm ci --ignore-scripts",
+    "node --test tests/schemas-contract.test.mjs",
+    "node --test tests/npm-package.test.mjs",
+    "bash tests/schemas-json-test.sh",
+]
+schema_gate_positions = [output.index(command) for command in schema_gate_commands]
+assert schema_gate_positions == sorted(schema_gate_positions), schema_gate_positions
 
 for heavy_release_command in [
     "./scripts/build-release.sh",

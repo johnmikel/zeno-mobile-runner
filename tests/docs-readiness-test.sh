@@ -117,21 +117,20 @@ for internal_doc in \
 done
 
 require_grep '^# Zeno Mobile Runner$' README.md
-require_grep 'Mobile UI automation built for AI coding agents' README.md
+require_grep 'Agent-native mobile UI automation' README.md
 require_grep 'docs/assets/viewer-hero.png' README.md
 require_grep 'docs/assets/device-ios-demo.png' README.md
 require_grep 'docs/assets/device-android-demo.png' README.md
-require_grep 'docs/assets/cli-run-explain.png' README.md
 require_grep 'flowchart LR' README.md
-require_grep 'sequenceDiagram' README.md
 require_grep 'curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh' README.md
 require_grep 'zmr init --app --app-id com.example.mobiletest' README.md
 require_grep 'npm install --save-dev zeno-mobile-runner' README.md
 require_grep 'npx zmr-wizard --app-id com.example.mobiletest --package-json' README.md
 require_grep 'mcpServers' README.md
-require_grep '## Why This Exists' README.md
-require_grep '## Agent Verification Loop' README.md
-require_grep '## Deterministic Scenarios For CI' README.md
+require_grep '## Why this exists' README.md
+require_grep '### As an MCP server for a coding agent' README.md
+require_grep '### Deterministic scenarios for CI' README.md
+require_grep 'trace-to-test loop' README.md
 require_grep 'clearState' README.md
 require_grep 'assertHealthy' README.md
 require_grep 'zmr validate --json .zmr/login-smoke.json' README.md
@@ -140,24 +139,19 @@ require_grep 'zmr report traces/login-smoke --out traces/login-smoke/report.html
 require_grep 'zmr export traces/login-smoke --out login-smoke-redacted.zmrtrace --redact' README.md
 require_grep 'nextCommands' README.md
 require_grep 'viewer/index.html?bundle=' README.md
-require_grep 'ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS' README.md
-require_grep 'ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS' README.md
-require_grep 'ZMR_IOS_SHIM_TIMEOUT_MS' README.md
 require_grep 'iPhone physical device' README.md
 require_grep 'iPad simulator' README.md
 require_grep 'Apple TV / Apple Watch' README.md
 require_grep 'devicectl' README.md
-require_grep 'Current release: `0.2.17` developer preview' README.md
+require_grep '## Project status' README.md
+require_grep '0.2.x developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
-require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
-require_grep 'docs/support-matrix.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
 require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
 require_grep 'docs/benchmarking.md' README.md
-require_grep 'skills/zmr-mobile-testing/SKILL.md' README.md
 require_grep 'semantic_snapshot' README.md
 require_grep 'install_app' README.md
 require_grep 'launch_app' README.md
@@ -179,6 +173,7 @@ require_grep 'trace_export' README.md
 require_grep 'scenario_validate' README.md
 
 # Detail moved out of the README must stay in its canonical docs.
+require_grep 'sequenceDiagram' docs/ai-agents.md
 require_grep 'zmr explore --from-trace' docs/agent-discovery.md
 require_grep 'replay' docs/agent-discovery.md
 require_grep 'crawl' docs/agent-discovery.md
@@ -191,6 +186,9 @@ require_grep 'zmr-create-react-native-expo-demo-app' docs/frameworks.md
 require_grep 'Expo development builds' docs/frameworks.md
 require_grep 'TypeScript and Python are the most common starting points' docs/clients.md
 require_grep 'Go, Rust, Swift, and Kotlin are reference integrations' docs/clients.md
+require_grep 'ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS' docs/troubleshooting.md
+require_grep 'ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS' docs/troubleshooting.md
+require_grep 'ZMR_IOS_SHIM_TIMEOUT_MS' docs/troubleshooting.md
 
 require_not_grep 'registry package is pending publish' README.md
 require_not_grep 'Available after the npm registry package is published' README.md

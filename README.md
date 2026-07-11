@@ -256,8 +256,8 @@ What backs that maturity claim:
   (macOS code-signing/notarization scripts exist in `scripts/` but are not yet
   wired into the release workflow; npm publish does not currently set
   `--provenance`.)
-- **Distribution.** Also shipped as a Claude Code plugin (`.claude-plugin/`) and
-  registered as an MCP server (`glama.json`).
+- **Distribution.** Also shipped with an agent-plugin manifest
+  (`.claude-plugin/`) and registered as an MCP server (`glama.json`).
 
 Some Apple-platform and benchmark claims are honestly marked *evidence-needed* in
 the support matrix; redaction is intentionally conservative. See

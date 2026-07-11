@@ -147,8 +147,11 @@ require_grep '### Deterministic scenarios for CI' README.md
 require_grep 'trace-to-test loop' README.md
 require_grep '## Project status' README.md
 require_grep 'docs/production-readiness.md' README.md
-require_not_grep 'Claude Code' README.md
+require_not_grep '<denied vendor-specific assistant name>' README.md
 ```
+
+The executable readiness test uses the guard's concrete denied name; this
+public plan keeps the example vendor-neutral.
 
 Remove assertions for headings or timeout details intentionally moved to their
 canonical documents. Do not remove the corresponding canonical-document checks.
@@ -1279,8 +1282,8 @@ Expected: clean worktree, intentional task commits, no whitespace errors.
 - [ ] **Step 3: Use the branch-finishing workflow**
 
 Invoke @superpowers:finishing-a-development-branch. The expected choice is push
-`codex/production-1-0` and open a draft PR, but do not infer merge approval from
-this plan.
+the current production branch and open a draft PR, but do not infer merge
+approval from this plan.
 
 - [ ] **Step 4: Verify the hosted branch quality gate and evidence contract**
 

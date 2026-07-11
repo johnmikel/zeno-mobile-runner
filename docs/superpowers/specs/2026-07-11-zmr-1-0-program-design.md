@@ -10,7 +10,7 @@
 
 Zeno Mobile Runner 1.0 will be positioned and built as the agent-native mobile
 verification runtime, not as a generic "native app test runner" and not as a
-feature-for-feature clone of Maestro or Detox.
+feature-for-feature clone of competing mobile runners.
 
 The 1.0 program combines:
 
@@ -114,7 +114,7 @@ unqualified production-support claim for that target.
 - tvOS and watchOS.
 - Flutter widget-tree or Dart-state inspection.
 - A built-in LLM or an unbounded autonomous crawler.
-- Exhaustive parity with every Maestro, Detox, Appium, XCTest, or Espresso API.
+- Exhaustive parity with every competing runner or platform automation API.
 
 ## Quality Attributes
 
@@ -259,8 +259,8 @@ tests, and certify the Tier 1 platform matrix.
 
 Add the high-value actions, selectors, subflows, variables, environment
 profiles, scoped retries, and import compatibility reports required by real
-Maestro/Detox migration pilots. Features are prioritized by pilot evidence, not
-raw parity count.
+competing-runner migration pilots. Features are prioritized by pilot evidence,
+not raw parity count.
 
 ### M4 — Parallel execution and integrations
 
@@ -330,8 +330,8 @@ report, and review before the next milestone depends on it.
 
 ### Product gates
 
-- Current-version Maestro comparisons on native and React Native fixtures.
-- A fair current Detox comparison on a React Native fixture.
+- Current competing-runner comparisons on native and React Native fixtures.
+- A fair current competing-runner comparison on a React Native fixture.
 - Cold-command, warm-session, suite-throughput, memory, and reliability results
   are published with raw sanitized rows and fixture definitions.
 - At least three real application pilots covering two framework classes and both
@@ -385,9 +385,10 @@ workflow; deferred commands remain discoverable limitations.
 
 ### Optional instrumentation complexity
 
-Risk: framework-aware synchronization recreates Detox's compatibility burden.
-Mitigation: keep black-box operation as the default and ship synchronization as
-capability-negotiated adapters with strict version matrices.
+Risk: framework-aware synchronization recreates a competing runner's
+compatibility burden. Mitigation: keep black-box operation as the default and
+ship synchronization as capability-negotiated adapters with strict version
+matrices.
 
 ### Hosted-cloud distraction
 

@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import errno
 import hashlib
 import json
 import math
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,6 +21,11 @@ from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 PHASES = (
@@ -804,34 +811,85 @@ def _read_json(path: Path) -> Any:
 
 @contextmanager
 def _exclusive_lock(path: Path, timeout: float = 5.0):
-    """Acquire an O_EXCL lock for at most five seconds.
+    """Acquire a process-owned advisory lock for at most five seconds.
 
-    Callers that need both publication and attempt locks always acquire the index
-    lock first, then the attempt-local lock.
+    Lifecycle callers acquire the publication transaction lock first, then the
+    index lock, then any attempt-local locks.
     """
 
     lock_path = Path(path)
     deadline = time.monotonic() + min(max(timeout, 0.0), 5.0)
-    descriptor = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(
-                lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-            )
-        except FileExistsError:
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"timed out acquiring lock {lock_path.name}")
-            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOINHERIT"):
+        flags |= os.O_NOINHERIT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock_path, flags, 0o600)
+    locked = False
     try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"lock path {lock_path.name} must be a regular file")
+        if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
+            raise ValueError(f"lock path {lock_path.name} has an unsafe owner")
+        path_metadata = os.stat(lock_path, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(path_metadata.st_mode)
+            or path_metadata.st_dev != metadata.st_dev
+            or path_metadata.st_ino != metadata.st_ino
+        ):
+            raise ValueError(f"lock path {lock_path.name} changed during acquisition")
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        else:
+            os.chmod(lock_path, 0o600)
+        if os.name == "nt" and metadata.st_size < 1:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+
+        while not locked:
+            try:
+                if os.name == "nt":
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+            except (BlockingIOError, OSError) as exc:
+                if os.name != "nt" and getattr(exc, "errno", None) not in (
+                    errno.EACCES,
+                    errno.EAGAIN,
+                    errno.EWOULDBLOCK,
+                ):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"timed out acquiring lock {lock_path.name}"
+                    ) from exc
+                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+
+        acquired_path_metadata = os.stat(lock_path, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(acquired_path_metadata.st_mode)
+            or acquired_path_metadata.st_dev != metadata.st_dev
+            or acquired_path_metadata.st_ino != metadata.st_ino
+        ):
+            raise ValueError(f"lock path {lock_path.name} changed while waiting")
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
         os.write(descriptor, str(os.getpid()).encode("ascii"))
         os.fsync(descriptor)
         yield
     finally:
+        if locked:
+            if os.name == "nt":
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 _TRANSACTION_OPERATIONS = ("init", "context", "finalize")
@@ -843,6 +901,11 @@ _TRANSACTION_KEYS = {
     "targets",
 }
 _TRANSACTION_TARGET_KEYS = {"path", "contentBase64", "sha256"}
+_TRANSACTION_TEMP_RE = re.compile(
+    r"^[.](?P<operation>init|context|finalize)-"
+    r"(?P<runId>.+)-(?P<fingerprint>[0-9a-f]{16})[.]json[.]"
+    r"(?P<token>[a-z0-9_]{8})[.]tmp$"
+)
 
 
 def _transaction_checkpoint(stage: str, position: int) -> None:
@@ -1157,25 +1220,67 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
     }
 
 
-def _pending_transaction_paths(publication_root: Path) -> list[Path]:
+def _pending_transaction_paths(
+    publication_root: Path, *, cleanup_orphan_temporaries: bool = False
+) -> list[Path]:
     transaction_root = _transaction_directory(publication_root, create=False)
     if not transaction_root.exists():
         return []
     paths = []
+    orphan_temporaries = []
+    transaction_resolved = transaction_root.resolve(strict=True)
     for entry in sorted(transaction_root.iterdir(), key=lambda item: item.name):
         if entry.is_symlink():
             raise ValueError("pending transaction journal must not be a symlink")
+        temporary_match = _TRANSACTION_TEMP_RE.fullmatch(entry.name)
+        if temporary_match is not None:
+            metadata = entry.stat(follow_symlinks=False)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("orphan transaction temporary must be a regular file")
+            if not _safe_run_segment(temporary_match.group("runId")):
+                raise ValueError("orphan transaction temporary has an unsafe runId")
+            try:
+                entry.resolve(strict=True).relative_to(transaction_resolved)
+            except ValueError as exc:
+                raise ValueError(
+                    "orphan transaction temporary escapes the transaction directory"
+                ) from exc
+            if os.name == "posix" and stat.S_IMODE(metadata.st_mode) != 0o600:
+                raise ValueError("orphan transaction temporary has an unsafe mode")
+            if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
+                raise ValueError("orphan transaction temporary has an unsafe owner")
+            orphan_temporaries.append((entry, metadata))
+            continue
         if not entry.is_file() or entry.suffix != ".json":
             raise ValueError("transaction directory contains an unsafe entry")
         paths.append(entry)
+    if orphan_temporaries:
+        if not cleanup_orphan_temporaries:
+            raise ValueError("orphan transaction temporary requires recovery")
+        for entry, original_metadata in orphan_temporaries:
+            current_metadata = entry.stat(follow_symlinks=False)
+            if (
+                not stat.S_ISREG(current_metadata.st_mode)
+                or current_metadata.st_dev != original_metadata.st_dev
+                or current_metadata.st_ino != original_metadata.st_ino
+            ):
+                raise ValueError("orphan transaction temporary changed before cleanup")
+        for entry, _metadata in orphan_temporaries:
+            entry.unlink()
+        _fsync_directory(transaction_root)
     return paths
 
 
-def _load_pending_transactions(publication_root: Path) -> list[tuple[Path, dict]]:
+def _load_pending_transactions(
+    publication_root: Path, *, cleanup_orphan_temporaries: bool = False
+) -> list[tuple[Path, dict]]:
     loaded = []
     seen_targets = set()
     seen_operations = set()
-    for journal_path in _pending_transaction_paths(publication_root):
+    for journal_path in _pending_transaction_paths(
+        publication_root,
+        cleanup_orphan_temporaries=cleanup_orphan_temporaries,
+    ):
         journal = _read_json(journal_path)
         validated = _validate_transaction_journal(publication_root, journal)
         operation_key = (validated["operation"], validated["attemptRoot"])
@@ -1237,7 +1342,9 @@ def _apply_transaction(
 
 
 def _recover_pending_transactions_unlocked(publication_root: Path) -> list[dict]:
-    pending = _load_pending_transactions(publication_root)
+    pending = _load_pending_transactions(
+        publication_root, cleanup_orphan_temporaries=True
+    )
     recovered = []
     for journal_path, transaction in pending:
         _apply_transaction(publication_root, journal_path, transaction)

@@ -958,6 +958,87 @@ class LifecycleTests(StorageTestCase):
 
 
 class TransactionRecoveryTests(StorageTestCase):
+    def stop_process(self, process):
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+    def spawn_lock_holder(self, lock_path):
+        code = """
+import importlib.util
+import sys
+import time
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with module._exclusive_lock(Path(sys.argv[2])):
+    print("locked", flush=True)
+    time.sleep(60)
+"""
+        process = subprocess.Popen(
+            [sys.executable, "-c", code, str(MODULE_PATH), str(lock_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop_process, process)
+        self.assertEqual(process.stdout.readline().strip(), "locked")
+        return process
+
+    def crash_initialization_before_journal_rename(
+        self, index_path, root, context
+    ):
+        code = """
+import importlib.util
+import json
+import sys
+import time
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original_replace = module.os.replace
+
+def pause_before_rename(source, destination):
+    destination = Path(destination)
+    if destination.parent.name == ".transactions" and destination.suffix == ".json":
+        print(Path(source).name, flush=True)
+        time.sleep(60)
+    original_replace(source, destination)
+
+module.os.replace = pause_before_rename
+module._initialize_attempt(
+    Path(sys.argv[2]), Path(sys.argv[3]), json.loads(sys.argv[4])
+)
+"""
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                code,
+                str(MODULE_PATH),
+                str(index_path),
+                str(root),
+                json.dumps(context),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop_process, process)
+        temporary_name = process.stdout.readline().strip()
+        self.assertTrue(temporary_name)
+        os.kill(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
+        return root.parent.parent / ".transactions" / temporary_name
+
     def transaction_files(self, publication_root=None):
         publication_root = self.publication_root if publication_root is None else publication_root
         transaction_root = publication_root / ".transactions"
@@ -1281,6 +1362,159 @@ class TransactionRecoveryTests(StorageTestCase):
         recovered = run_evidence._initialize_attempt(index_path, root, context)
         self.assertEqual(recovered["runId"], context["runId"])
         self.assertEqual(self.transaction_files(publication), [])
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "SIGKILL"),
+        "requires POSIX process-death semantics",
+    )
+    def test_live_holder_times_out_without_splitting_the_lock_inode(self):
+        lock_path = self.publication_root / ".transactions.lock"
+        holder = self.spawn_lock_holder(lock_path)
+        locked_inode = lock_path.stat().st_ino
+        contender_code = """
+import importlib.util
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    with module._exclusive_lock(Path(sys.argv[2]), timeout=0.2):
+        pass
+except TimeoutError:
+    raise SystemExit(23)
+"""
+        contender = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                contender_code,
+                str(MODULE_PATH),
+                str(lock_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        self.assertEqual(contender.returncode, 23, contender.stderr)
+        self.assertIsNone(holder.poll())
+        self.assertEqual(lock_path.stat().st_ino, locked_inode)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "SIGKILL"),
+        "requires POSIX process-death semantics",
+    )
+    def test_sigkill_releases_lock_and_next_process_recovers_pending_journal(self):
+        root, context, _journal_path = self.prepare_crashed_init(
+            self.publication_root, self.index_path, "process-death"
+        )
+        lock_path = self.publication_root / ".transactions.lock"
+        holder = self.spawn_lock_holder(lock_path)
+        locked_inode = lock_path.stat().st_ino
+        os.kill(holder.pid, signal.SIGKILL)
+        holder.wait(timeout=5)
+        self.assertEqual(lock_path.stat().st_ino, locked_inode)
+
+        recovered = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "init",
+                "--root",
+                str(root),
+                "--context-json",
+                json.dumps(context),
+                "--index",
+                str(self.index_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertEqual(self.read_json(root / "run-context.json")["runId"], root.name)
+        self.assertEqual(self.transaction_files(), [])
+        self.assertEqual(lock_path.stat().st_ino, locked_inode)
+        self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "SIGKILL"),
+        "requires POSIX process-death semantics",
+    )
+    def test_pre_rename_journal_temp_is_read_only_for_validation_then_cleaned(self):
+        context = valid_context(
+            runId="orphan-crash", executionId="orphan-crash-execution"
+        )
+        root = self.attempt_root(context["runId"])
+        temporary_path = self.crash_initialization_before_journal_rename(
+            self.index_path, root, context
+        )
+        self.assertTrue(temporary_path.is_file())
+        self.assertEqual(temporary_path.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(root.exists())
+
+        errors = run_evidence.validate_bundle(root, secrets=[])
+        self.assertTrue(any("transaction" in error for error in errors), errors)
+        self.assertTrue(temporary_path.exists())
+
+        stored = run_evidence._initialize_attempt(self.index_path, root, context)
+        self.assertEqual(stored["runId"], context["runId"])
+        self.assertFalse(temporary_path.exists())
+        self.assertEqual(self.transaction_files(), [])
+
+    def test_hostile_orphan_temp_near_matches_still_block_recovery(self):
+        hostile_names = (
+            "init-hostile-0123456789abcdef.json.abcdefgh.tmp",
+            ".init-hostile-0123456789abcdef.json.abcdefg.tmp",
+            ".init-hostile-0123456789abcdef.json.abcdefgh.tmp.extra",
+        )
+        for case_number, hostile_name in enumerate(hostile_names, 1):
+            publication, index_path = self.new_publication()
+            transaction_root = publication / ".transactions"
+            transaction_root.mkdir(mode=0o700)
+            hostile_path = transaction_root / hostile_name
+            hostile_path.write_bytes(b"hostile")
+            hostile_path.chmod(0o600)
+            context = valid_context(
+                runId=f"hostile-{case_number}",
+                executionId=f"hostile-execution-{case_number}",
+            )
+            root = publication / "attempts" / context["runId"]
+            with self.subTest(name=hostile_name), self.assertRaises(ValueError):
+                run_evidence._initialize_attempt(index_path, root, context)
+            self.assertTrue(hostile_path.exists())
+            self.assertFalse(root.exists())
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX file modes")
+    def test_unsafe_exact_orphan_temp_entries_still_block_recovery(self):
+        for case_number, kind in enumerate(("directory", "symlink", "mode"), 1):
+            publication, index_path = self.new_publication()
+            transaction_root = publication / ".transactions"
+            transaction_root.mkdir(mode=0o700)
+            entry = transaction_root / (
+                f".init-unsafe-{case_number}-0123456789abcdef.json.abcdefgh.tmp"
+            )
+            if kind == "directory":
+                entry.mkdir(mode=0o700)
+            elif kind == "symlink":
+                outside = publication.parent / f"outside-{case_number}"
+                outside.write_bytes(b"outside")
+                entry.symlink_to(outside)
+            else:
+                entry.write_bytes(b"unsafe mode")
+                entry.chmod(0o644)
+            context = valid_context(
+                runId=f"unsafe-{case_number}",
+                executionId=f"unsafe-execution-{case_number}",
+            )
+            root = publication / "attempts" / context["runId"]
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                run_evidence._initialize_attempt(index_path, root, context)
+            self.assertTrue(entry.exists() or entry.is_symlink())
+            self.assertFalse(root.exists())
 
 
 class SanitizationTests(unittest.TestCase):

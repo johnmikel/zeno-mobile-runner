@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/bootstrap-event.schema.json",
+  "title": "ZMR Bootstrap Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "seq", "timestamp", "phase", "status"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "phase": {
+      "enum": [
+        "invocation",
+        "evidence.init",
+        "device.acquire",
+        "device.preflight",
+        "device.boot",
+        "app.build",
+        "app.install",
+        "shim.build",
+        "shim.start",
+        "shim.prewarm",
+        "scenario.validate",
+        "scenario.execute",
+        "trace.finalize",
+        "report.generate",
+        "evidence.finalize",
+        "cleanup",
+        "complete"
+      ]
+    },
+    "status": {
+      "enum": ["started", "passed", "failed", "skipped", "cancelled"]
+    },
+    "errorCode": { "type": ["string", "null"] },
+    "summary": { "type": ["string", "null"] },
+    "command": { "type": ["string", "null"] },
+    "commandStatus": { "type": ["integer", "null"] },
+    "artifact": { "type": ["string", "null"] }
+  }
+}

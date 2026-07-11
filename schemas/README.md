@@ -26,6 +26,8 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `explore-output.schema.json`: machine-readable `zmr explore --json` review-first trace exploration output with goal and guardrail metadata
 - `draft-output.schema.json`: machine-readable `zmr draft --json` trace-backed scenario draft output with replay coverage metadata
 - `release-manifest.schema.json`: machine-readable `RELEASE_MANIFEST.json` emitted with release archives
+- `run-summary.schema.json`: machine-readable terminal attempt evidence summary, including classification, comparability, environment, and artifact metadata
+- `bootstrap-event.schema.json`: one ordered phase-transition row from `bootstrap-events.jsonl`
 - `release-readiness-output.schema.json`: machine-readable `zmr-release-readiness --json` release evidence gate output
 - `schemas-output.schema.json`: machine-readable `zmr schemas --json` index of public schema names, paths, ids, and descriptions
 

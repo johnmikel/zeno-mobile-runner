@@ -8,13 +8,27 @@ test "registry exposes stable public schema metadata" {
     try std.testing.expectEqualStrings("json-rpc", schemas[0].name);
     try std.testing.expectEqualStrings("schemas/json-rpc.schema.json", schemas[0].path);
     var saw_release_readiness = false;
+    var saw_run_summary = false;
+    var saw_bootstrap_event = false;
     for (schemas) |schema| {
+        if (std.mem.eql(u8, schema.name, "run-summary")) {
+            saw_run_summary = true;
+            try std.testing.expectEqualStrings("schemas/run-summary.schema.json", schema.path);
+            try std.testing.expectEqualStrings("https://zmr.dev/schemas/run-summary.schema.json", schema.id);
+        }
+        if (std.mem.eql(u8, schema.name, "bootstrap-event")) {
+            saw_bootstrap_event = true;
+            try std.testing.expectEqualStrings("schemas/bootstrap-event.schema.json", schema.path);
+            try std.testing.expectEqualStrings("https://zmr.dev/schemas/bootstrap-event.schema.json", schema.id);
+        }
         if (std.mem.eql(u8, schema.name, "release-readiness-output")) {
             saw_release_readiness = true;
             try std.testing.expectEqualStrings("schemas/release-readiness-output.schema.json", schema.path);
             try std.testing.expectEqualStrings("https://zmr.dev/schemas/release-readiness-output.schema.json", schema.id);
         }
     }
+    try std.testing.expect(saw_run_summary);
+    try std.testing.expect(saw_bootstrap_event);
     try std.testing.expect(saw_release_readiness);
     var found_inspect_output = false;
     var found_discover_output = false;

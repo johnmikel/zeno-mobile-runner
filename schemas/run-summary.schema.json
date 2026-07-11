@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/run-summary.schema.json",
+  "title": "ZMR Run Summary",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "runId",
+    "executionId",
+    "fixtureId",
+    "fixtureVersion",
+    "candidateRevision",
+    "scenarioDigest",
+    "appBuildDigest",
+    "comparabilityKey",
+    "certificationEligible",
+    "ineligibilityReasons",
+    "status",
+    "classification",
+    "phase",
+    "startedAt",
+    "finishedAt",
+    "durationMs",
+    "attempt",
+    "firstAttempt",
+    "platform",
+    "deviceClass",
+    "runtimeVersion",
+    "timingMode",
+    "runnerVersion",
+    "protocolVersion",
+    "commandStatus",
+    "host",
+    "device",
+    "toolchain",
+    "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "executionId": { "type": "string", "minLength": 1 },
+    "fixtureId": { "type": "string", "minLength": 1 },
+    "fixtureVersion": { "type": "string", "minLength": 1 },
+    "candidateRevision": { "$ref": "#/$defs/nullableString" },
+    "scenarioDigest": { "$ref": "#/$defs/nullableString" },
+    "appBuildDigest": { "$ref": "#/$defs/nullableString" },
+    "comparabilityKey": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "certificationEligible": { "type": "boolean" },
+    "ineligibilityReasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^\\$\\.[A-Za-z0-9_.-]+$"
+      }
+    },
+    "status": { "enum": ["passed", "failed", "cancelled"] },
+    "classification": {
+      "enum": [
+        "passed",
+        "runner_failure",
+        "app_failure",
+        "infrastructure_failure",
+        "configuration_failure",
+        "cancelled"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "invocation",
+        "evidence.init",
+        "device.acquire",
+        "device.preflight",
+        "device.boot",
+        "app.build",
+        "app.install",
+        "shim.build",
+        "shim.start",
+        "shim.prewarm",
+        "scenario.validate",
+        "scenario.execute",
+        "trace.finalize",
+        "report.generate",
+        "evidence.finalize",
+        "cleanup",
+        "complete"
+      ]
+    },
+    "errorCode": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "hint": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "firstAttempt": { "type": "boolean" },
+    "platform": { "enum": ["android", "ios"] },
+    "deviceClass": { "$ref": "#/$defs/nullableString" },
+    "runtimeVersion": { "$ref": "#/$defs/nullableString" },
+    "timingMode": { "enum": ["cold-command", "warm-session"] },
+    "runnerVersion": { "type": "string", "minLength": 1 },
+    "protocolVersion": { "type": "string", "minLength": 1 },
+    "commandStatus": { "type": ["integer", "null"] },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "class", "ci"],
+      "properties": {
+        "os": { "$ref": "#/$defs/nullableString" },
+        "arch": { "$ref": "#/$defs/nullableString" },
+        "class": { "$ref": "#/$defs/nullableString" },
+        "ci": { "type": ["boolean", "null"] }
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "resolved"],
+      "properties": {
+        "requested": { "$ref": "#/$defs/nullableString" },
+        "resolved": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/nullableString" }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bootstrapEvents", "commands"],
+      "properties": {
+        "bootstrapEvents": { "$ref": "#/$defs/relativePath" },
+        "commands": { "$ref": "#/$defs/relativePath" },
+        "trace": { "$ref": "#/$defs/nullableRelativePath" },
+        "report": { "$ref": "#/$defs/nullableRelativePath" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "attempt": { "const": 1 }
+        },
+        "required": ["attempt"]
+      },
+      "then": {
+        "properties": {
+          "firstAttempt": { "const": true }
+        }
+      },
+      "else": {
+        "properties": {
+          "firstAttempt": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "passed" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "classification": { "const": "passed" },
+          "phase": { "const": "complete" },
+          "errorCode": false,
+          "summary": false,
+          "hint": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "failed" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["errorCode", "summary", "hint"],
+        "properties": {
+          "classification": {
+            "enum": [
+              "runner_failure",
+              "app_failure",
+              "infrastructure_failure",
+              "configuration_failure"
+            ]
+          },
+          "errorCode": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "hint": { "type": "string", "minLength": 1 },
+          "commandStatus": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "cancelled" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["errorCode", "summary", "hint"],
+        "properties": {
+          "classification": { "const": "cancelled" },
+          "errorCode": { "const": "run.cancelled" },
+          "summary": { "type": "string", "minLength": 1 },
+          "hint": { "type": "string", "minLength": 1 },
+          "commandStatus": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "candidateRevision",
+          "fixtureId",
+          "fixtureVersion",
+          "scenarioDigest",
+          "appBuildDigest",
+          "platform",
+          "deviceClass",
+          "runtimeVersion",
+          "host",
+          "runnerVersion",
+          "protocolVersion",
+          "timingMode",
+          "toolchain"
+        ],
+        "properties": {
+          "candidateRevision": { "type": "string", "minLength": 1 },
+          "fixtureId": { "type": "string", "minLength": 1 },
+          "fixtureVersion": { "type": "string", "minLength": 1 },
+          "scenarioDigest": { "type": "string", "minLength": 1 },
+          "appBuildDigest": { "type": "string", "minLength": 1 },
+          "platform": { "enum": ["android", "ios"] },
+          "deviceClass": { "type": "string", "minLength": 1 },
+          "runtimeVersion": { "type": "string", "minLength": 1 },
+          "host": {
+            "type": "object",
+            "required": ["os", "arch", "class"],
+            "properties": {
+              "os": { "type": "string", "minLength": 1 },
+              "arch": { "type": "string", "minLength": 1 },
+              "class": { "type": "string", "minLength": 1 }
+            }
+          },
+          "runnerVersion": { "type": "string", "minLength": 1 },
+          "protocolVersion": { "type": "string", "minLength": 1 },
+          "timingMode": { "enum": ["cold-command", "warm-session"] },
+          "toolchain": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "comparabilityKey": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "certificationEligible": { "const": true },
+          "ineligibilityReasons": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "comparabilityKey": { "type": "null" },
+          "certificationEligible": { "const": false },
+          "ineligibilityReasons": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nullableString": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "^(?:/|[A-Za-z]:[\\\\/]|\\\\)"
+      }
+    },
+    "nullableRelativePath": {
+      "anyOf": [
+        { "$ref": "#/$defs/relativePath" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

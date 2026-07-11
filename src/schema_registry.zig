@@ -31,6 +31,8 @@ const public_schemas = [_]PublicSchema{
     .{ .name = "explore-output", .path = "schemas/explore-output.schema.json", .id = "https://zmr.dev/schemas/explore-output.schema.json", .description = "Machine-readable zmr explore --json review-first trace exploration output" },
     .{ .name = "draft-output", .path = "schemas/draft-output.schema.json", .id = "https://zmr.dev/schemas/draft-output.schema.json", .description = "Machine-readable zmr draft --json scenario draft output" },
     .{ .name = "release-manifest", .path = "schemas/release-manifest.schema.json", .id = "https://zmr.dev/schemas/release-manifest.schema.json", .description = "Machine-readable RELEASE_MANIFEST.json emitted with release archives" },
+    .{ .name = "run-summary", .path = "schemas/run-summary.schema.json", .id = "https://zmr.dev/schemas/run-summary.schema.json", .description = "Machine-readable terminal attempt evidence summary for one run" },
+    .{ .name = "bootstrap-event", .path = "schemas/bootstrap-event.schema.json", .id = "https://zmr.dev/schemas/bootstrap-event.schema.json", .description = "One ordered JSONL phase transition row from bootstrap-events.jsonl" },
     .{ .name = "release-readiness-output", .path = "schemas/release-readiness-output.schema.json", .id = "https://zmr.dev/schemas/release-readiness-output.schema.json", .description = "Machine-readable zmr-release-readiness --json release evidence gate output" },
     .{ .name = "schemas-output", .path = "schemas/schemas-output.schema.json", .id = "https://zmr.dev/schemas/schemas-output.schema.json", .description = "Machine-readable zmr schemas --json public schema index" },
 };

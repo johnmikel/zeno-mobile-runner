@@ -197,6 +197,8 @@ trace for humans and agents alike. Open any exported bundle in the static
 [trace viewer](viewer/index.html), or serve it and deep-link with
 `viewer/index.html?bundle=<url>`.
 
+![Terminal session showing a failed run, zmr explain diagnosing the failure with visible texts, and the fixed run passing](docs/assets/cli-run-explain.png)
+
 For repeat-run reliability gates (pass-rate, failure-count, p95 duration),
 device matrices, and baseline comparison, see
 [docs/benchmarking.md](docs/benchmarking.md). Benchmark fixtures shipped in the
@@ -268,12 +270,18 @@ the support matrix; redaction is intentionally conservative. See
 ## Documentation
 
 - [docs/install.md](docs/install.md) — install paths and first setup checks
+- [docs/support-matrix.md](docs/support-matrix.md) — platform coverage and
+  evidence levels
 - [docs/ai-agents.md](docs/ai-agents.md) — JSON-RPC and MCP agent workflows
 - [docs/agent-discovery.md](docs/agent-discovery.md) — `explore` / `discover` /
   `draft` and the trace-to-test loop
+- [skills/zmr-mobile-testing/SKILL.md](skills/zmr-mobile-testing/SKILL.md) —
+  reusable agent-led mobile testing workflow
 - [docs/scenario-authoring.md](docs/scenario-authoring.md) — selectors, waits,
   and scenario design
 - [docs/frameworks.md](docs/frameworks.md) — React Native, Expo, Flutter, native
+- [docs/expo-smoke.md](docs/expo-smoke.md) — reproducible Expo and iOS smoke
+  flow
 - [docs/protocol.md](docs/protocol.md) — JSON-RPC methods and schemas
 - [docs/trace-privacy.md](docs/trace-privacy.md) — safe trace export
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common setup and runtime

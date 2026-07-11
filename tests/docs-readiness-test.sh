@@ -121,6 +121,7 @@ require_grep 'Agent-native mobile UI automation' README.md
 require_grep 'docs/assets/viewer-hero.png' README.md
 require_grep 'docs/assets/device-ios-demo.png' README.md
 require_grep 'docs/assets/device-android-demo.png' README.md
+require_grep 'docs/assets/cli-run-explain.png' README.md
 require_grep 'flowchart LR' README.md
 require_grep 'curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh' README.md
 require_grep 'zmr init --app --app-id com.example.mobiletest' README.md
@@ -146,12 +147,15 @@ require_grep 'devicectl' README.md
 require_grep '## Project status' README.md
 require_grep '0.2.x developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
+require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
+require_grep 'docs/support-matrix.md' README.md
 require_grep 'docs/agent-discovery.md' README.md
 require_grep 'docs/scenario-authoring.md' README.md
 require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
 require_grep 'docs/benchmarking.md' README.md
+require_grep 'skills/zmr-mobile-testing/SKILL.md' README.md
 require_grep 'semantic_snapshot' README.md
 require_grep 'install_app' README.md
 require_grep 'launch_app' README.md

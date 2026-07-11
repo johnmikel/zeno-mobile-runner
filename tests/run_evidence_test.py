@@ -384,6 +384,71 @@ class ValidationTests(unittest.TestCase):
             run_evidence.validate_summary(boolean_version), "$.schemaVersion"
         )
 
+    def test_datetime_validation_matches_committed_ajv_formats_semantics(self):
+        accepted = (
+            "2026-07-11t10:00:00z",
+            "2026-07-11 10:00:00+01",
+            "2026-07-11T10:00:00+0130",
+            "2026-07-11T10:00:00.123+01:30",
+            "2016-12-31T23:59:60Z",
+            "2017-01-01T00:59:60+01:00",
+        )
+        rejected = (
+            "2026-07-11T24:00:00Z",
+            "2026-02-29T10:00:00Z",
+            "2024-02-30T10:00:00Z",
+            "2026-07-11T10:00:00",
+            "2026-07-11T10:00:00+24:00",
+            "2026-07-11T10:00:00+01:60",
+            "2026-07-11T10:00:60Z",
+            "2026-07-11T10:00:61Z",
+            "2026-07-11  10:00:00Z",
+        )
+        for timestamp in accepted:
+            with self.subTest(timestamp=timestamp, expected=True):
+                summary = valid_summary()
+                summary["startedAt"] = timestamp
+                summary["finishedAt"] = timestamp
+                self.assertEqual(run_evidence.validate_summary(summary), [])
+                self.assertEqual(
+                    run_evidence.validate_event(valid_event(timestamp=timestamp)), []
+                )
+        for timestamp in rejected:
+            with self.subTest(timestamp=timestamp, expected=False):
+                summary = valid_summary()
+                summary["startedAt"] = timestamp
+                self.assertPathError(
+                    run_evidence.validate_summary(summary), "$.startedAt"
+                )
+                self.assertPathError(
+                    run_evidence.validate_event(valid_event(timestamp=timestamp)),
+                    "$.timestamp",
+                )
+
+    def test_json_integral_floats_match_schema_integer_semantics(self):
+        summary = valid_summary()
+        summary.update(
+            schemaVersion=1.0,
+            durationMs=1.0,
+            attempt=1.0,
+            commandStatus=0.0,
+        )
+        self.assertEqual(run_evidence.validate_summary(summary), [])
+        event = valid_event(schemaVersion=1.0, seq=1.0, commandStatus=0.0)
+        self.assertEqual(run_evidence.validate_event(event), [])
+
+        invalid_numbers = (1.5, float("inf"), float("-inf"), float("nan"), True)
+        for value in invalid_numbers:
+            with self.subTest(value=value):
+                summary = valid_summary()
+                summary["durationMs"] = value
+                self.assertPathError(
+                    run_evidence.validate_summary(summary), "$.durationMs"
+                )
+                self.assertPathError(
+                    run_evidence.validate_event(valid_event(seq=value)), "$.seq"
+                )
+
     def test_first_attempt_is_exact(self):
         first = valid_summary()
         first["firstAttempt"] = False
@@ -416,6 +481,18 @@ class ValidationTests(unittest.TestCase):
         cancelled = valid_summary("cancelled")
         cancelled["errorCode"] = "runner.unclassified"
         self.assertPathError(run_evidence.validate_summary(cancelled), "$.errorCode")
+
+    def test_failed_error_code_must_be_known_and_match_classification(self):
+        unknown = valid_summary("failed")
+        unknown["errorCode"] = "unknown.failure"
+        self.assertPathError(run_evidence.validate_summary(unknown), "$.errorCode")
+
+        mismatch = valid_summary("failed")
+        mismatch["errorCode"] = "app.assertion_failed"
+        mismatch["classification"] = "infrastructure_failure"
+        errors = run_evidence.validate_summary(mismatch)
+        self.assertPathError(errors, "$.classification")
+        self.assertPathError(errors, "$.errorCode")
 
     def test_nested_objects_and_normalized_paths_are_validated(self):
         summary = valid_summary()
@@ -721,8 +798,7 @@ class LifecycleTests(StorageTestCase):
             with self.assertRaises(OSError):
                 run_evidence._initialize_attempt(self.index_path, root, valid_context())
         self.assertFalse(root.exists())
-        if self.index_path.exists():
-            self.assertEqual(self.read_json(self.index_path)["executions"], [])
+        self.assertFalse(self.index_path.exists())
 
     def test_context_can_resolve_null_identity_once_and_updates_index(self):
         context = valid_context(runtimeVersion=None)
@@ -915,6 +991,8 @@ class SanitizationTests(unittest.TestCase):
         self.assertIn("<absolute-path>", sanitized)
         self.assertNotRegex(sanitized, r"https://[^/@\s]+:[^/@\s]+@")
         self.assertNotIn("opaque-token", sanitized)
+        self.assertNotIn("<redacted>@", sanitized)
+        self.assertIn("https://example.test/resource", sanitized)
 
     def test_root_replacement_observes_boundaries_and_long_secret_first(self):
         sanitized = run_evidence.sanitize_text(
@@ -993,6 +1071,58 @@ class CommandCaptureTests(CommandTestCase):
         bounded, truncated = run_evidence._bounded_log(b"x" * (limit + 1), limit)
         self.assertTrue(truncated)
         self.assertEqual(len(bounded), limit)
+
+        compact, compact_truncated = run_evidence._bounded_log(
+            b"<redacted>", limit + 1
+        )
+        self.assertFalse(compact_truncated)
+        self.assertEqual(compact, b"<redacted>")
+
+    def test_truncation_preserves_utf8_boundaries(self):
+        half = 5 * 1024 * 1024
+        content = b"a" * (half - 1) + "😀".encode() + b"middle" + b"z" * half
+        bounded, truncated = run_evidence._bounded_log(content, len(content))
+        self.assertTrue(truncated)
+        self.assertLessEqual(len(bounded), 10 * 1024 * 1024)
+        bounded.decode("utf-8")
+
+    def test_invalid_utf8_expansion_records_sanitized_size_and_validates_bundle(self):
+        raw_size = (10 * 1024 * 1024) // 3 + 1
+        script = "import os,sys;os.write(1,b'\\xff'*int(sys.argv[1]))"
+        result = self.cli(
+            "command",
+            "--root",
+            self.root,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "invalid-utf8",
+            "--failure-code",
+            "runner.driver_protocol",
+            "--capture-stdout",
+            "--",
+            sys.executable,
+            "-c",
+            script,
+            str(raw_size),
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        self.assertEqual(len(result.stdout), raw_size)
+        metadata = self.command_metadata()[0]
+        stdout = metadata["stdout"]
+        self.assertEqual(stdout["originalBytes"], raw_size)
+        self.assertEqual(stdout["sanitizedBytes"], raw_size * 3)
+        self.assertTrue(stdout["truncated"])
+        stored = self.root / stdout["path"]
+        self.assertLessEqual(stored.stat().st_size, 10 * 1024 * 1024)
+        stored.read_bytes().decode("utf-8")
+
+        report = self.root / "reports" / "run.html"
+        report.parent.mkdir()
+        report.write_text("<html>safe</html>", encoding="utf-8")
+        run_evidence._finalize_attempt(self.root, "passed", command_status=0)
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 
     def test_success_captures_and_replays_stdout_stderr_separately(self):
         script = "import sys;sys.stdout.write('stdout-only');sys.stderr.write('stderr-only')"
@@ -1260,6 +1390,36 @@ class BundleValidationTests(CommandTestCase):
             self.root, "passed", command_status=command_status
         )
 
+    def make_failed_bundle(self):
+        report = self.root / "reports" / "run.html"
+        report.parent.mkdir()
+        report.write_text("<html>sanitized report</html>", encoding="utf-8")
+        result = self.cli(
+            "command",
+            "--root",
+            self.root,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "failed-command",
+            "--failure-code",
+            "app.assertion_failed",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys;sys.exit(7)",
+        )
+        self.assertEqual(result.returncode, 7)
+        return run_evidence._finalize_attempt(
+            self.root,
+            "failed",
+            phase="scenario.execute",
+            error_code="app.assertion_failed",
+            summary_text="Assertion failed",
+            hint="Inspect report",
+            command_status=7,
+        )
+
     def test_valid_bundle_checks_summary_events_and_command_records(self):
         self.make_bundle()
         self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
@@ -1272,6 +1432,52 @@ class BundleValidationTests(CommandTestCase):
         )
         errors = run_evidence.validate_bundle(self.root, secrets=[])
         self.assertTrue(any("deny pattern" in error for error in errors), errors)
+
+    def test_canonical_url_redaction_passes_bundle_credential_scan(self):
+        self.make_bundle()
+        sanitized = run_evidence.sanitize_text(
+            "https://user:password@example.test/x https://opaque@example.test/y",
+            roots={"workspace": "", "run_root": "", "home": ""},
+            secrets=[],
+        )
+        (self.root / "reports" / "run.html").write_text(
+            sanitized, encoding="utf-8"
+        )
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
+
+    def test_command_event_requires_exact_metadata_reference(self):
+        self.make_bundle()
+        events_path = self.root / "bootstrap-events.jsonl"
+        events = self.read_events(self.root)
+        command_terminal = next(
+            event
+            for event in events
+            if event.get("command") and event["status"] == "passed"
+        )
+        command_terminal["command"] = "arbitrary command text"
+        events_path.write_text(
+            "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8"
+        )
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+        self.assertTrue(any("metadata reference" in error for error in errors), errors)
+
+    def test_failed_command_event_and_metadata_semantics_are_linked(self):
+        self.make_failed_bundle()
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
+        metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
+        metadata = self.read_json(metadata_path)
+        metadata.update(
+            phase="app.build",
+            failureCode="runner.unclassified",
+            exitStatus=9,
+        )
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+        joined = "\n".join(errors)
+        self.assertIn("phase", joined)
+        self.assertIn("failureCode", joined)
+        self.assertIn("exitStatus", joined)
+        self.assertIn("commandStatus", joined)
 
     def test_detects_event_sequence_and_terminal_tampering(self):
         self.make_bundle()
@@ -1370,6 +1576,31 @@ class BundleValidationTests(CommandTestCase):
         self.assertIn("absolute path", joined)
         self.assertIn("credential URL", joined)
         self.assertIn("deny pattern", joined)
+
+    def test_scans_binary_and_extensionless_referenced_artifacts(self):
+        secret = "binary-bundle-secret"
+        self.make_bundle()
+        binary = self.root / "trace.bin"
+        extensionless = self.root / "published-artifact"
+        binary.write_bytes(b"\x00\xff" + secret.encode() + b"\x00")
+        denied = "cod" + "ex"
+        extensionless.write_bytes(
+            (
+                "path=/private/tmp/raw credential=https://user:pass@example.test/x "
+                + denied
+            ).encode()
+        )
+        summary_path = self.root / "run-summary.json"
+        summary = self.read_json(summary_path)
+        summary["artifacts"]["trace"] = "trace.bin"
+        summary["artifacts"]["report"] = "published-artifact"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        errors = run_evidence.validate_bundle(self.root, secrets=[secret])
+        joined = "\n".join(errors)
+        self.assertIn("trace.bin: contains a current known secret value", joined)
+        self.assertIn("published-artifact: contains a raw absolute path", joined)
+        self.assertIn("published-artifact: contains a credential URL", joined)
+        self.assertIn("published-artifact: contains a public safety deny pattern", joined)
 
 
 class CliAndAggregateTests(StorageTestCase):

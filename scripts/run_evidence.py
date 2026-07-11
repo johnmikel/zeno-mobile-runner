@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -126,8 +127,10 @@ _REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _REASON_RE = re.compile(r"^\$\.[A-Za-z0-9_.-]+$")
-_RFC3339_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+_AJV_DATE_RE = re.compile(r"^(\d\d\d\d)-(\d\d)-(\d\d)$")
+_AJV_TIME_RE = re.compile(
+    r"^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)$",
+    re.IGNORECASE,
 )
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _CREDENTIAL_URL_RE = re.compile(
@@ -205,7 +208,7 @@ def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> s
     ):
         text = text.replace(secret, "<redacted>")
     text = _CREDENTIAL_URL_RE.sub(
-        lambda match: match.group("scheme") + "<redacted>@", text
+        lambda match: match.group("scheme"), text
     )
     for key, replacement in (
         ("workspace", "${WORKSPACE}"),
@@ -400,17 +403,47 @@ def _finish_errors(errors: list[str]) -> list[str]:
 
 
 def _is_integer(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, float):
+        return math.isfinite(value) and value.is_integer()
+    return True
 
 
 def _valid_datetime(value: Any) -> bool:
-    if not isinstance(value, str) or not _RFC3339_RE.fullmatch(value):
+    if not isinstance(value, str):
         return False
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+    parts = re.split(r"t|\s", value, flags=re.IGNORECASE)
+    if len(parts) != 2:
         return False
-    return parsed.tzinfo is not None
+    date_match = _AJV_DATE_RE.fullmatch(parts[0])
+    time_match = _AJV_TIME_RE.fullmatch(parts[1])
+    if date_match is None or time_match is None:
+        return False
+
+    year, month, day = (int(part) for part in date_match.groups())
+    leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    days = (0, 31, 29 if leap_year else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    if month < 1 or month > 12 or day < 1 or day > days[month]:
+        return False
+
+    hour = int(time_match.group(1))
+    minute = int(time_match.group(2))
+    second = float(time_match.group(3))
+    timezone_sign = -1 if time_match.group(5) == "-" else 1
+    timezone_hour = int(time_match.group(6) or 0)
+    timezone_minute = int(time_match.group(7) or 0)
+    if timezone_hour > 23 or timezone_minute > 59:
+        return False
+    if hour <= 23 and minute <= 59 and second < 60:
+        return True
+    utc_minute = minute - timezone_minute * timezone_sign
+    utc_hour = hour - timezone_hour * timezone_sign - (1 if utc_minute < 0 else 0)
+    return (
+        utc_hour in (23, -1)
+        and utc_minute in (59, -1)
+        and second < 61
+    )
 
 
 def _valid_relative_path(value: Any) -> bool:
@@ -677,6 +710,17 @@ def validate_summary(summary: dict) -> list[str]:
             _error(errors, "$.classification", "must be a failure classification")
         for field in ("errorCode", "summary", "hint"):
             _require_nonempty_string(summary.get(field), "$." + field, errors)
+        error_code = summary.get("errorCode")
+        expected_classification = ERROR_CLASSIFICATION.get(error_code)
+        if expected_classification not in _FAILURE_CLASSIFICATIONS:
+            _error(errors, "$.errorCode", "must be a known failure error code")
+        elif classification != expected_classification:
+            _error(errors, "$.errorCode", "does not own the declared classification")
+            _error(
+                errors,
+                "$.classification",
+                "does not match the declared error code",
+            )
     elif status == "cancelled":
         if classification != "cancelled":
             _error(errors, "$.classification", "must equal cancelled")
@@ -1213,13 +1257,21 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
         stored["startedAt"] = _utc_now()
         _atomic_write_json(root / "run-context.json", stored)
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
+            index_existed = index_path.exists()
             previous_index = _load_index(index_path)
             try:
                 _register_attempt_unlocked(index_path, root, stored)
                 _append_event(root, "evidence.init", "started")
                 _append_event(root, "evidence.init", "passed")
             except Exception:
-                _atomic_write_json(index_path, previous_index)
+                if index_existed:
+                    _atomic_write_json(index_path, previous_index)
+                else:
+                    try:
+                        index_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    _fsync_directory(index_path.parent)
                 raise
         return stored
     except Exception:
@@ -1595,16 +1647,34 @@ def _validate_command_name(name: str) -> None:
 
 
 def _bounded_log(content: bytes, original_size: int) -> tuple[bytes, bool]:
-    truncated = original_size > _LOG_LIMIT or len(content) > _LOG_LIMIT
+    del original_size
+    truncated = len(content) > _LOG_LIMIT
     if len(content) <= _LOG_LIMIT:
         return content, truncated
-    return content[:_LOG_HALF] + content[-_LOG_HALF:], True
+    head = content[:_LOG_HALF]
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        head = head[: exc.start]
+    tail_start = len(content) - _LOG_HALF
+    while tail_start < len(content) and content[tail_start] & 0xC0 == 0x80:
+        tail_start += 1
+    tail = content[tail_start:]
+    tail.decode("utf-8")
+    return head + tail, True
 
 
-def _stream_record(path: str, original_size: int, content: bytes, truncated: bool) -> dict:
+def _stream_record(
+    path: str,
+    original_size: int,
+    sanitized_size: int,
+    content: bytes,
+    truncated: bool,
+) -> dict:
     return {
         "path": path,
         "originalBytes": original_size,
+        "sanitizedBytes": sanitized_size,
         "storedBytes": len(content),
         "truncated": truncated,
     }
@@ -1649,12 +1719,7 @@ def _run_command_during_lifecycle(
     roots = _sanitization_roots(root)
     secrets = _collect_secret_values()
     sanitized_argv = _sanitize_argv(argv, roots=roots, secrets=secrets)
-    started = _append_event_during_lifecycle(
-        root,
-        phase,
-        "started",
-        command=" ".join(sanitized_argv),
-    )
+    started = _append_event_during_lifecycle(root, phase, "started")
     stem = f"{started['seq']:06d}-{name}"
     stdout_relative = f"commands/{stem}.stdout.log"
     stderr_relative = f"commands/{stem}.stderr.log"
@@ -1704,10 +1769,18 @@ def _run_command_during_lifecycle(
         "exitStatus": exit_status,
         "signal": signal_number,
         "stdout": _stream_record(
-            stdout_relative, len(raw_stdout), stored_stdout, stdout_truncated
+            stdout_relative,
+            len(raw_stdout),
+            len(sanitized_stdout),
+            stored_stdout,
+            stdout_truncated,
         ),
         "stderr": _stream_record(
-            stderr_relative, len(raw_stderr), stored_stderr, stderr_truncated
+            stderr_relative,
+            len(raw_stderr),
+            len(sanitized_stderr),
+            stored_stderr,
+            stderr_truncated,
         ),
     }
     metadata = _sanitize_value(metadata, roots=roots, secrets=secrets)
@@ -1796,7 +1869,7 @@ def _record_external_during_lifecycle(
     if not commands_root.is_dir() or commands_root.is_symlink():
         raise ValueError("attempt commands directory is missing or unsafe")
 
-    started = _append_event_during_lifecycle(root, phase, "started", command=name)
+    started = _append_event_during_lifecycle(root, phase, "started")
     stem = f"{started['seq']:06d}-{name}"
     stdout_relative = f"commands/{stem}.stdout.log"
     stderr_relative = f"commands/{stem}.stderr.log"
@@ -1821,10 +1894,18 @@ def _record_external_during_lifecycle(
         "exitStatus": None,
         "signal": None,
         "stdout": _stream_record(
-            stdout_relative, len(stdout_content), stdout_content, False
+            stdout_relative,
+            len(stdout_content),
+            len(stdout_content),
+            stdout_content,
+            False,
         ),
         "stderr": _stream_record(
-            stderr_relative, len(stderr_content), stderr_content, False
+            stderr_relative,
+            len(stderr_content),
+            len(stderr_content),
+            stderr_content,
+            False,
         ),
         "limitation": "Synthetic metadata only; hosted log content was not captured.",
     }
@@ -1899,7 +1980,7 @@ def _validate_command_metadata(
     if not isinstance(metadata, dict):
         errors.append(f"{label}: command record must be an object")
         return
-    if metadata.get("schemaVersion") != 1:
+    if not _is_integer(metadata.get("schemaVersion")) or metadata["schemaVersion"] != 1:
         errors.append(f"{label}.schemaVersion: must equal 1")
     if metadata.get("source") not in ("subprocess", "github-action"):
         errors.append(f"{label}.source: unknown command record source")
@@ -1907,6 +1988,8 @@ def _validate_command_metadata(
         "failureCode"
     ):
         errors.append(f"{label}.failureCode: must be a non-empty string")
+    elif metadata["failureCode"] not in ERROR_CLASSIFICATION:
+        errors.append(f"{label}.failureCode: must be a known error code")
     if metadata.get("phase") not in PHASES:
         errors.append(f"{label}.phase: must be a declared phase")
     try:
@@ -1949,10 +2032,13 @@ def _validate_command_metadata(
             errors.append(f"{stream_label}: stream metadata must be an object")
             continue
         original = record.get("originalBytes")
+        sanitized = record.get("sanitizedBytes")
         stored = record.get("storedBytes")
         truncated = record.get("truncated")
         if not _is_integer(original) or original < 0:
             errors.append(f"{stream_label}.originalBytes: must be non-negative")
+        if not _is_integer(sanitized) or sanitized < 0:
+            errors.append(f"{stream_label}.sanitizedBytes: must be non-negative")
         if not _is_integer(stored) or stored < 0:
             errors.append(f"{stream_label}.storedBytes: must be non-negative")
         if not isinstance(truncated, bool):
@@ -1965,19 +2051,28 @@ def _validate_command_metadata(
                 errors.append(
                     f"{stream_label}.storedBytes: does not match referenced log size"
                 )
-        if metadata.get("source") == "subprocess" and _is_integer(original):
-            if isinstance(truncated, bool) and truncated != (original > _LOG_LIMIT):
+        if _is_integer(sanitized):
+            if isinstance(truncated, bool) and truncated != (sanitized > _LOG_LIMIT):
                 errors.append(
-                    f"{stream_label}.truncated: inconsistent with original byte count"
+                    f"{stream_label}.truncated: inconsistent with sanitized byte count"
                 )
             if _is_integer(stored) and stored > _LOG_LIMIT:
                 errors.append(f"{stream_label}.storedBytes: exceeds the log limit")
+            if (
+                _is_integer(stored)
+                and isinstance(truncated, bool)
+                and not truncated
+                and stored != sanitized
+            ):
+                errors.append(
+                    f"{stream_label}.storedBytes: must equal untruncated sanitized bytes"
+                )
 
 
 _PUBLIC_DENY_SUBSTRINGS = (
     "bri" + "ck",
-    "uk.co." + "rently",
-    "rently" + "test",
+    "uk.co." + "ren" + "tly",
+    "ren" + "tly" + "test",
     "zig" + "-mobile-runner",
     "zig" + " mobile runner",
     "zig" + "_mobile_runner",
@@ -2012,19 +2107,17 @@ def _contains_public_deny_pattern(text: str) -> bool:
     )
 
 
+def _json_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [text for item in value for text in _json_strings(item)]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _json_strings(item)]
+    return []
+
+
 def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -> None:
-    text_suffixes = {
-        ".json",
-        ".jsonl",
-        ".log",
-        ".txt",
-        ".md",
-        ".html",
-        ".htm",
-        ".xml",
-        ".csv",
-        ".tsv",
-    }
     for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
         relative = path.relative_to(root).as_posix()
         if path.is_symlink():
@@ -2032,28 +2125,40 @@ def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -
             continue
         if not path.is_file():
             continue
-        if path.suffix.lower() not in text_suffixes and path.name != "run-context.json":
-            continue
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            raw = path.read_bytes()
         except OSError as exc:
             errors.append(f"{relative}: cannot scan publishable file: {exc.strerror}")
             continue
+        text = raw.decode("utf-8", errors="replace")
+        semantic_text = text
+        try:
+            if path.suffix.lower() == ".json":
+                semantic_text = "\n".join(_json_strings(json.loads(text)))
+            elif path.suffix.lower() == ".jsonl":
+                semantic_text = "\n".join(
+                    item
+                    for line in text.splitlines()
+                    if line.strip()
+                    for item in _json_strings(json.loads(line))
+                )
+        except json.JSONDecodeError:
+            semantic_text = text
         for secret in sorted(
             {item for item in secrets if isinstance(item, str) and item}
         ):
-            if secret in text:
+            if secret.encode("utf-8") in raw:
                 errors.append(f"{relative}: contains a current known secret value")
                 break
-        if _CREDENTIAL_URL_RE.search(text):
+        if _CREDENTIAL_URL_RE.search(semantic_text):
             errors.append(f"{relative}: contains a credential URL")
         if (
-            _FILE_URL_RE.search(text)
-            or _WINDOWS_ABSOLUTE_RE.search(text)
-            or _POSIX_ABSOLUTE_RE.search(text)
+            _FILE_URL_RE.search(semantic_text)
+            or _WINDOWS_ABSOLUTE_RE.search(semantic_text)
+            or _POSIX_ABSOLUTE_RE.search(semantic_text)
         ):
             errors.append(f"{relative}: contains a raw absolute path")
-        if _contains_public_deny_pattern(text):
+        if _contains_public_deny_pattern(semantic_text):
             errors.append(f"{relative}: contains a public safety deny pattern")
 
 
@@ -2158,22 +2263,30 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                 errors,
             )
         command_ref = event.get("command") if isinstance(event, dict) else None
-        if (
-            isinstance(command_ref, str)
-            and command_ref.startswith("commands/")
-            and command_ref.endswith(".json")
-        ):
-            _resolve_bundle_reference(
-                root,
-                command_ref,
-                f"bootstrap-events.jsonl:{line_number}.command",
-                errors,
-                expected="file",
-            )
+        if command_ref is not None:
+            if not (
+                isinstance(command_ref, str)
+                and _valid_relative_path(command_ref)
+                and command_ref.startswith("commands/")
+                and command_ref.count("/") == 1
+                and command_ref.endswith(".json")
+            ):
+                errors.append(
+                    f"bootstrap-events.jsonl:{line_number}.command: "
+                    "must be a command metadata reference"
+                )
+            else:
+                _resolve_bundle_reference(
+                    root,
+                    command_ref,
+                    f"bootstrap-events.jsonl:{line_number}.command",
+                    errors,
+                    expected="file",
+                )
 
     commands_root = root / "commands"
     metadata_paths = []
-    metadata_records = []
+    metadata_by_reference = {}
     if commands_root.is_dir() and not commands_root.is_symlink():
         metadata_paths = sorted(commands_root.glob("*.json"))
     for metadata_path in metadata_paths:
@@ -2190,22 +2303,90 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             )
             continue
         if isinstance(metadata, dict):
-            metadata_records.append(metadata)
+            metadata_by_reference[metadata_path.relative_to(root).as_posix()] = metadata
         _validate_command_metadata(root, metadata_path, metadata, errors)
-    if (
-        isinstance(summary, dict)
-        and summary.get("commandStatus") is not None
-        and not metadata_paths
-    ):
-        errors.append("commands: terminal result is command-owned but no command record exists")
-    elif isinstance(summary, dict) and summary.get("commandStatus") is not None:
-        if not any(
-            record.get("source") == "subprocess"
-            and record.get("exitStatus") == summary.get("commandStatus")
-            for record in metadata_records
-        ):
+
+    linked_commands = []
+    link_counts = {reference: 0 for reference in metadata_by_reference}
+    for line_number, event in enumerate(events, 1):
+        if not isinstance(event, dict) or event.get("command") is None:
+            continue
+        reference = event.get("command")
+        label = f"bootstrap-events.jsonl:{line_number}.command"
+        metadata = metadata_by_reference.get(reference)
+        if metadata is None:
+            if isinstance(reference, str) and reference in link_counts:
+                link_counts[reference] += 1
+            errors.append(f"{label}: referenced command record is missing")
+            continue
+        link_counts[reference] += 1
+        if event.get("status") not in ("passed", "failed", "cancelled"):
+            errors.append(f"{label}: command metadata may only appear on a terminal event")
+            continue
+        if event.get("phase") != metadata.get("phase"):
+            errors.append(f"{label}: phase disagrees with command metadata")
+
+        expected_status = None
+        expected_command_status = None
+        if metadata.get("source") == "subprocess":
+            if metadata.get("signal") is not None:
+                expected_status = "cancelled"
+            elif _is_integer(metadata.get("exitStatus")):
+                expected_command_status = metadata.get("exitStatus")
+                expected_status = (
+                    "passed" if expected_command_status == 0 else "failed"
+                )
+        elif metadata.get("source") == "github-action":
+            expected_status = {
+                "success": "passed",
+                "failure": "failed",
+                "cancelled": "cancelled",
+            }.get(metadata.get("outcome"))
+
+        if event.get("status") != expected_status:
+            errors.append(f"{label}: event status disagrees with command metadata")
+        if event.get("commandStatus") != expected_command_status:
             errors.append(
-                "run-summary.json.commandStatus: does not match a subprocess command record"
+                f"{label}: commandStatus disagrees with metadata exitStatus/outcome"
+            )
+        if expected_status == "passed":
+            if event.get("errorCode") is not None:
+                errors.append(f"{label}: passed command event must omit errorCode")
+        elif event.get("errorCode") != metadata.get("failureCode"):
+            errors.append(f"{label}: failureCode disagrees with command metadata")
+        linked_commands.append((event, metadata))
+
+    for reference, count in sorted(link_counts.items()):
+        if count != 1:
+            errors.append(
+                f"{reference}: command metadata must have exactly one terminal event link"
+            )
+
+    if isinstance(summary, dict) and summary.get("commandStatus") is not None:
+        command_status = summary.get("commandStatus")
+        owners = [
+            (event, metadata)
+            for event, metadata in linked_commands
+            if metadata.get("source") == "subprocess"
+            and metadata.get("exitStatus") == command_status
+            and event.get("commandStatus") == command_status
+        ]
+        if summary.get("status") == "failed":
+            owners = [
+                (event, metadata)
+                for event, metadata in owners
+                if event.get("phase") == summary.get("phase")
+                and event.get("errorCode") == summary.get("errorCode")
+            ]
+        elif summary.get("status") == "passed":
+            owners = [
+                (event, metadata)
+                for event, metadata in owners
+                if event.get("status") == "passed"
+            ]
+        if not owners:
+            errors.append(
+                "run-summary.json.commandStatus: does not match an exact terminal command event"
             )
 
     _scan_publishable_files(root, secrets, errors)

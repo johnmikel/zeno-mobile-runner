@@ -41,9 +41,9 @@
     "executionId": { "type": "string", "minLength": 1 },
     "fixtureId": { "type": "string", "minLength": 1 },
     "fixtureVersion": { "type": "string", "minLength": 1 },
-    "candidateRevision": { "$ref": "#/$defs/nullableString" },
-    "scenarioDigest": { "$ref": "#/$defs/nullableString" },
-    "appBuildDigest": { "$ref": "#/$defs/nullableString" },
+    "candidateRevision": { "$ref": "#/$defs/nullableRevision" },
+    "scenarioDigest": { "$ref": "#/$defs/nullableDigest" },
+    "appBuildDigest": { "$ref": "#/$defs/nullableDigest" },
     "comparabilityKey": {
       "anyOf": [
         {
@@ -304,12 +304,17 @@
       "type": ["string", "null"],
       "minLength": 1
     },
+    "nullableRevision": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "nullableDigest": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "relativePath": {
       "type": "string",
-      "minLength": 1,
-      "not": {
-        "pattern": "^(?:/|[A-Za-z]:[\\\\/]|\\\\)"
-      }
+      "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
     },
     "nullableRelativePath": {
       "anyOf": [

@@ -37,6 +37,18 @@
     "summary": { "type": ["string", "null"] },
     "command": { "type": ["string", "null"] },
     "commandStatus": { "type": ["integer", "null"] },
-    "artifact": { "type": ["string", "null"] }
+    "artifact": { "$ref": "#/$defs/nullableRelativePath" }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
+    },
+    "nullableRelativePath": {
+      "anyOf": [
+        { "$ref": "#/$defs/relativePath" },
+        { "type": "null" }
+      ]
+    }
   }
 }

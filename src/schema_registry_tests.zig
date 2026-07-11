@@ -10,19 +10,25 @@ test "registry exposes stable public schema metadata" {
     var saw_release_readiness = false;
     var saw_run_summary = false;
     var saw_bootstrap_event = false;
-    for (schemas) |schema| {
+    var run_summary_index: ?usize = null;
+    var bootstrap_event_index: ?usize = null;
+    var release_readiness_index: ?usize = null;
+    for (schemas, 0..) |schema, index| {
         if (std.mem.eql(u8, schema.name, "run-summary")) {
             saw_run_summary = true;
+            run_summary_index = index;
             try std.testing.expectEqualStrings("schemas/run-summary.schema.json", schema.path);
             try std.testing.expectEqualStrings("https://zmr.dev/schemas/run-summary.schema.json", schema.id);
         }
         if (std.mem.eql(u8, schema.name, "bootstrap-event")) {
             saw_bootstrap_event = true;
+            bootstrap_event_index = index;
             try std.testing.expectEqualStrings("schemas/bootstrap-event.schema.json", schema.path);
             try std.testing.expectEqualStrings("https://zmr.dev/schemas/bootstrap-event.schema.json", schema.id);
         }
         if (std.mem.eql(u8, schema.name, "release-readiness-output")) {
             saw_release_readiness = true;
+            release_readiness_index = index;
             try std.testing.expectEqualStrings("schemas/release-readiness-output.schema.json", schema.path);
             try std.testing.expectEqualStrings("https://zmr.dev/schemas/release-readiness-output.schema.json", schema.id);
         }
@@ -30,6 +36,14 @@ test "registry exposes stable public schema metadata" {
     try std.testing.expect(saw_run_summary);
     try std.testing.expect(saw_bootstrap_event);
     try std.testing.expect(saw_release_readiness);
+    try std.testing.expectEqual(run_summary_index.? + 1, bootstrap_event_index.?);
+    try std.testing.expectEqual(bootstrap_event_index.? + 1, release_readiness_index.?);
+    for (schemas, 0..) |schema, index| {
+        for (schemas[index + 1 ..]) |other| {
+            try std.testing.expect(!std.mem.eql(u8, schema.name, other.name));
+            try std.testing.expect(!std.mem.eql(u8, schema.id, other.id));
+        }
+    }
     var found_inspect_output = false;
     var found_discover_output = false;
     var found_draft_output = false;

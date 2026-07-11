@@ -104,7 +104,7 @@
     "build:zmr": "node npm/build-zmr.mjs",
     "pack:npm": "bash scripts/build-npm-package.sh",
     "zmr:demo": "node npm/zmr.mjs validate examples/demo-fake.json",
-    "test": "npm run build:zmr && node --test tests/viewer-parser.test.mjs tests/npm-scaffold-helpers.test.mjs tests/npm-cli.test.mjs tests/npm-package.test.mjs tests/typescript-client.test.mjs && python3 -W error -m unittest tests/python_client_test.py && bash tests/go-client-test.sh && bash tests/rust-client-test.sh"
+    "test": "npm run build:zmr && node --test tests/schemas-contract.test.mjs tests/viewer-parser.test.mjs tests/npm-scaffold-helpers.test.mjs tests/npm-cli.test.mjs tests/npm-package.test.mjs tests/typescript-client.test.mjs && python3 -W error -m unittest tests/python_client_test.py && bash tests/go-client-test.sh && bash tests/rust-client-test.sh"
   },
   "keywords": [
     "mobile-testing",
@@ -123,5 +123,9 @@
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
   }
 }

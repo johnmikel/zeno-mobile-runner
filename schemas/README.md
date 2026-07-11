@@ -31,5 +31,12 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `release-readiness-output.schema.json`: machine-readable `zmr-release-readiness --json` release evidence gate output
 - `schemas-output.schema.json`: machine-readable `zmr schemas --json` index of public schema names, paths, ids, and descriptions
 
-The Zig test suite verifies these files parse as JSON. Full schema validation is
-intentionally left to client tooling for now.
+Artifact references use normalized `/`-separated paths relative to the evidence
+root. Runtime consumers must also resolve each reference against that root and
+verify that the resolved path remains contained beneath it before accessing the
+artifact.
+
+The Zig test suite verifies these files parse as JSON. The Node contract suite
+also compiles the evidence schemas strictly as draft 2020-12 and exercises their
+conditional, provenance, and artifact-path behavior. Runtime consumers remain
+responsible for validating emitted documents.

@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -214,6 +215,106 @@ class _PipeCapture:
         return self.raw_writer.error
 
 
+class _ChildSignalController:
+    """Own wrapper signals while a POSIX child process group is active."""
+
+    _FORWARDED_SIGNALS = (signal.SIGINT, signal.SIGTERM)
+
+    def __init__(self) -> None:
+        self.child: subprocess.Popen | None = None
+        self.received_signal: int | None = None
+        self._deadline: float | None = None
+        self._kill_sent = False
+        self._outcome_frozen = False
+        self._previous_handlers: dict[int, Any] = {}
+        self.forward_errors: list[OSError] = []
+        self._enabled = (
+            os.name == "posix"
+            and hasattr(os, "killpg")
+            and threading.current_thread() is threading.main_thread()
+        )
+
+    def __enter__(self) -> "_ChildSignalController":
+        if self._enabled:
+            for signal_number in self._FORWARDED_SIGNALS:
+                self._previous_handlers[signal_number] = signal.getsignal(
+                    signal_number
+                )
+                signal.signal(signal_number, self._handle_signal)
+        return self
+
+    def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
+        if self._enabled:
+            for signal_number, handler in self._previous_handlers.items():
+                signal.signal(signal_number, handler)
+
+    def attach(self, child: subprocess.Popen) -> None:
+        self.child = child
+        if self.received_signal is not None:
+            self._begin_forwarding(self.received_signal)
+
+    def _handle_signal(self, signal_number: int, _frame: Any) -> None:
+        if self._outcome_frozen:
+            return
+        if self.received_signal is None:
+            self.received_signal = signal_number
+        if self.child is not None:
+            self._begin_forwarding(signal_number)
+
+    def _begin_forwarding(self, signal_number: int) -> None:
+        if self._deadline is None:
+            self._deadline = time.monotonic() + _CHILD_SIGNAL_GRACE_SECONDS
+        self._send_to_group(signal_number)
+
+    def _send_to_group(self, signal_number: int) -> None:
+        if self.child is None:
+            return
+        try:
+            os.killpg(self.child.pid, signal_number)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            self.forward_errors.append(exc)
+
+    def _service_escalation(self) -> None:
+        if (
+            self.received_signal is not None
+            and self._deadline is not None
+            and not self._kill_sent
+            and time.monotonic() >= self._deadline
+        ):
+            self._kill_sent = True
+            self._send_to_group(signal.SIGKILL)
+
+    def wait_for_completion(self, readers: tuple[threading.Thread, ...]) -> int:
+        if self.child is None:
+            raise RuntimeError("signal controller has no child")
+        if not self._enabled:
+            child_status = self.child.wait()
+            for reader in readers:
+                reader.join()
+            return child_status
+
+        while True:
+            child_status = self.child.poll()
+            active_readers = [reader for reader in readers if reader.is_alive()]
+            if child_status is not None and not active_readers:
+                return child_status
+            self._service_escalation()
+            if active_readers:
+                per_reader_wait = _CHILD_WAIT_POLL_SECONDS / len(active_readers)
+                for reader in active_readers:
+                    reader.join(timeout=per_reader_wait)
+            else:
+                time.sleep(_CHILD_WAIT_POLL_SECONDS)
+
+    def freeze_outcome(self, child_status: int) -> int:
+        self._outcome_frozen = True
+        if self.received_signal is not None:
+            return -self.received_signal
+        return child_status
+
+
 def _stream_record(
     path: str,
     original_size: int,
@@ -239,13 +340,14 @@ def _replay_bytes(stream: Any, content: bytes) -> None:
     target.flush()
 
 
-def _run_command_during_lifecycle(
+def _execute_command_during_lifecycle(
     root: Path,
     phase: str,
     name: str,
     failure_code: str,
     argv: list[str],
     *,
+    signal_controller: _ChildSignalController,
     capture_stdout: bool = False,
     stdout_stream: Any = None,
     stderr_stream: Any = None,
@@ -288,6 +390,7 @@ def _run_command_during_lifecycle(
     )
     stderr_capture = _PipeCapture(roots=roots, secrets=secrets)
 
+    popen_options = {"start_new_session": True} if os.name == "posix" else {}
     try:
         child = subprocess.Popen(
             argv,
@@ -295,12 +398,16 @@ def _run_command_during_lifecycle(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
+            **popen_options,
         )
     except OSError as exc:
         stdout_capture.accept_complete(b"")
-        stderr_capture.accept_complete(str(exc).encode("utf-8", errors="replace"))
+        stderr_capture.accept_complete(
+            str(exc).encode("utf-8", errors="replace")
+        )
         return_code = 127
     else:
+        signal_controller.attach(child)
         stdout_reader = threading.Thread(
             target=stdout_capture.drain,
             args=(child.stdout,),
@@ -311,11 +418,10 @@ def _run_command_during_lifecycle(
             args=(child.stderr,),
             name=f"evidence-{name}-stderr",
         )
-        stdout_reader.start()
-        stderr_reader.start()
-        return_code = child.wait()
-        stdout_reader.join()
-        stderr_reader.join()
+        readers = (stdout_reader, stderr_reader)
+        for reader in readers:
+            reader.start()
+        return_code = signal_controller.wait_for_completion(readers)
         reader_errors = [
             capture.error
             for capture in (stdout_capture, stderr_capture)
@@ -323,6 +429,7 @@ def _run_command_during_lifecycle(
         ]
         if reader_errors:
             raise reader_errors[0]
+    return_code = signal_controller.freeze_outcome(return_code)
 
     stored_stdout, sanitized_stdout_size, stdout_truncated = (
         stdout_capture.collector.finish()
@@ -394,6 +501,32 @@ def _run_command_during_lifecycle(
     if stdout_capture.stream_error is not None:
         raise stdout_capture.stream_error
     return return_code
+
+
+def _run_command_during_lifecycle(
+    root: Path,
+    phase: str,
+    name: str,
+    failure_code: str,
+    argv: list[str],
+    *,
+    capture_stdout: bool = False,
+    stdout_stream: Any = None,
+    stderr_stream: Any = None,
+) -> int:
+    signal_controller = _ChildSignalController()
+    with signal_controller:
+        return _execute_command_during_lifecycle(
+            root,
+            phase,
+            name,
+            failure_code,
+            argv,
+            signal_controller=signal_controller,
+            capture_stdout=capture_stdout,
+            stdout_stream=stdout_stream,
+            stderr_stream=stderr_stream,
+        )
 
 
 def _run_command(

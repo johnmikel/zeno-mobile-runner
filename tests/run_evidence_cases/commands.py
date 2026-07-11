@@ -3,6 +3,7 @@
 import base64
 import io
 import threading
+import time
 
 from .support import *  # noqa: F401,F403
 
@@ -13,6 +14,388 @@ except ImportError:  # pragma: no cover - non-POSIX portability
 
 
 class CommandCaptureTests(CommandTestCase):
+    @staticmethod
+    def _process_is_running(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            pass
+        status = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        return bool(status) and not status.startswith("Z")
+
+    def _wait_for_processes_to_stop(self, pids, timeout):
+        deadline = time.monotonic() + timeout
+        survivors = list(pids)
+        while survivors and time.monotonic() < deadline:
+            survivors = [pid for pid in survivors if self._process_is_running(pid)]
+            if survivors:
+                time.sleep(0.05)
+        return [pid for pid in survivors if self._process_is_running(pid)]
+
+    def _kill_processes(self, pids):
+        pids = list(dict.fromkeys(pids))
+        for pid in reversed(pids):
+            if self._process_is_running(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        self._wait_for_processes_to_stop(pids, 2)
+
+    @staticmethod
+    def _descendant_pids(parent_pid):
+        rows = subprocess.run(
+            ["ps", "-axo", "pid=,ppid="],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.splitlines()
+        children = {}
+        for row in rows:
+            try:
+                pid_text, parent_text = row.split()
+            except ValueError:
+                continue
+            children.setdefault(int(parent_text), []).append(int(pid_text))
+        descendants = []
+        pending = list(children.get(parent_pid, ()))
+        while pending:
+            pid = pending.pop()
+            descendants.append(pid)
+            pending.extend(children.get(pid, ()))
+        return descendants
+
+    @staticmethod
+    def _kill_owned_process_groups(pids):
+        for pid in set(pids):
+            try:
+                process_group = os.getpgid(pid)
+            except ProcessLookupError:
+                continue
+            if process_group != pid or process_group == os.getpgrp():
+                continue
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def _assert_wrapper_signal_cleans_descendants(self, signal_number):
+        pid_file = self.publication_root / f"signal-{signal_number}-pids.json"
+        child_signal_file = self.publication_root / f"signal-{signal_number}-child.txt"
+        grandchild_signal_file = (
+            self.publication_root / f"signal-{signal_number}-grandchild.txt"
+        )
+        grandchild_ready_file = (
+            self.publication_root / f"signal-{signal_number}-grandchild-ready"
+        )
+        early_child_pid_file = (
+            self.publication_root / f"signal-{signal_number}-early-child-pid"
+        )
+        grandchild_script = (
+            "import os,signal,sys,time\n"
+            "def record(number,_frame):\n"
+            " with open(sys.argv[1],'a',encoding='ascii') as handle:\n"
+            "  handle.write(str(number)+'\\n')\n"
+            "signal.signal(signal.SIGINT,record)\n"
+            "signal.signal(signal.SIGTERM,record)\n"
+            "with open(sys.argv[2],'w',encoding='ascii') as handle:\n"
+            " handle.write('ready')\n"
+            "while True: time.sleep(1)\n"
+        )
+        child_script = (
+            "import json,os,signal,subprocess,sys,time\n"
+            "def record(number,_frame):\n"
+            " with open(sys.argv[3],'a',encoding='ascii') as handle:\n"
+            "  handle.write(str(number)+'\\n')\n"
+            "signal.signal(signal.SIGINT,record)\n"
+            "signal.signal(signal.SIGTERM,record)\n"
+            "with open(sys.argv[6],'w',encoding='ascii') as handle:\n"
+            " handle.write(str(os.getpid()))\n"
+            "grandchild=subprocess.Popen(\n"
+            " [sys.executable,'-c',sys.argv[2],sys.argv[4],sys.argv[5]],\n"
+            " stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+            "stderr=subprocess.DEVNULL)\n"
+            "while not os.path.exists(sys.argv[5]): time.sleep(.01)\n"
+            "os.write(1,b'child-ready\\n')\n"
+            "os.write(2,b'child-error-ready\\n')\n"
+            "temporary=sys.argv[1]+'.tmp'\n"
+            "with open(temporary,'w',encoding='utf-8') as handle:\n"
+            " json.dump({'child':os.getpid(),'grandchild':grandchild.pid},handle)\n"
+            "os.replace(temporary,sys.argv[1])\n"
+            "while True: time.sleep(1)\n"
+        )
+        wrapper = subprocess.Popen(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command",
+                "--root",
+                str(self.root),
+                "--phase",
+                "scenario.execute",
+                "--name",
+                f"wrapper-signal-{signal_number}",
+                "--failure-code",
+                "run.cancelled",
+                "--",
+                sys.executable,
+                "-c",
+                child_script,
+                str(pid_file),
+                grandchild_script,
+                str(child_signal_file),
+                str(grandchild_signal_file),
+                str(grandchild_ready_file),
+                str(early_child_pid_file),
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        pids = []
+        timed_out = False
+        stdout = b""
+        stderr = b""
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    payload = json.loads(pid_file.read_text(encoding="utf-8"))
+                except (FileNotFoundError, json.JSONDecodeError):
+                    if wrapper.poll() is not None:
+                        break
+                    time.sleep(0.05)
+                    continue
+                pids = [payload["child"], payload["grandchild"]]
+                break
+            self.assertEqual(len(pids), 2, "child PID handoff did not complete")
+            self.assertTrue(all(self._process_is_running(pid) for pid in pids))
+
+            os.kill(wrapper.pid, signal_number)
+            try:
+                stdout, stderr = wrapper.communicate(timeout=6)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                wrapper.kill()
+                stdout, stderr = wrapper.communicate(timeout=3)
+
+            survivors = self._wait_for_processes_to_stop(pids, 1)
+            events = self.read_events(self.root)
+            metadata = self.command_metadata()
+            observation = {
+                "timedOut": timed_out,
+                "returnCode": wrapper.returncode,
+                "survivingDescendants": survivors,
+                "eventStatuses": [event["status"] for event in events[-2:]],
+                "cancelledEventCount": sum(
+                    event["status"] == "cancelled" for event in events
+                ),
+                "metadataCount": len(metadata),
+                "metadataSignal": metadata[0]["signal"] if metadata else None,
+                "metadataExitStatus": (
+                    metadata[0]["exitStatus"] if metadata else "missing"
+                ),
+                "forwardedSignals": [
+                    int(path.read_text(encoding="ascii").splitlines()[0])
+                    if path.exists()
+                    else None
+                    for path in (child_signal_file, grandchild_signal_file)
+                ],
+                "stdoutCaptured": b"child-ready" in stdout,
+                "stderrCaptured": b"child-error-ready" in stderr,
+            }
+            self.assertEqual(
+                observation,
+                {
+                    "timedOut": False,
+                    "returnCode": 128 + signal_number,
+                    "survivingDescendants": [],
+                    "eventStatuses": ["started", "cancelled"],
+                    "cancelledEventCount": 1,
+                    "metadataCount": 1,
+                    "metadataSignal": signal_number,
+                    "metadataExitStatus": None,
+                    "forwardedSignals": [signal_number, signal_number],
+                    "stdoutCaptured": True,
+                    "stderrCaptured": True,
+                },
+            )
+        finally:
+            cleanup_pids = list(pids)
+            if wrapper.poll() is None:
+                cleanup_pids.extend(self._descendant_pids(wrapper.pid))
+            try:
+                early_child_pid = int(
+                    early_child_pid_file.read_text(encoding="ascii")
+                )
+            except (FileNotFoundError, ValueError):
+                early_child_pid = None
+            if early_child_pid is not None:
+                cleanup_pids.extend(self._descendant_pids(early_child_pid))
+                cleanup_pids.append(early_child_pid)
+                try:
+                    child_group = os.getpgid(early_child_pid)
+                except ProcessLookupError:
+                    child_group = None
+                if child_group == early_child_pid and child_group != os.getpgrp():
+                    try:
+                        os.killpg(child_group, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            self._kill_owned_process_groups(cleanup_pids)
+            if wrapper.poll() is None:
+                wrapper.kill()
+                wrapper.communicate(timeout=3)
+            self._kill_processes(set(cleanup_pids))
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_sigint_to_wrapper_cancels_and_reaps_child_process_group(self):
+        self._assert_wrapper_signal_cleans_descendants(signal.SIGINT)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_sigterm_to_wrapper_cancels_and_reaps_child_process_group(self):
+        self._assert_wrapper_signal_cleans_descendants(signal.SIGTERM)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_signal_during_descendant_pipe_drain_still_escalates(self):
+        pid_file = self.publication_root / "drain-signal-pids.json"
+        signal_file = self.publication_root / "drain-signal-grandchild.txt"
+        ready_file = self.publication_root / "drain-signal-grandchild-ready"
+        early_child_pid_file = self.publication_root / "drain-signal-child-pid"
+        grandchild_script = (
+            "import os,signal,sys,time\n"
+            "def record(number,_frame):\n"
+            " with open(sys.argv[1],'a',encoding='ascii') as handle:\n"
+            "  handle.write(str(number)+'\\n')\n"
+            "signal.signal(signal.SIGINT,record)\n"
+            "signal.signal(signal.SIGTERM,record)\n"
+            "with open(sys.argv[2],'w',encoding='ascii') as handle:\n"
+            " handle.write('ready')\n"
+            "os.write(1,b'grandchild-pipe-open\\n')\n"
+            "os.write(2,b'grandchild-error-pipe-open\\n')\n"
+            "while True: time.sleep(1)\n"
+        )
+        child_script = (
+            "import json,os,subprocess,sys,time\n"
+            "with open(sys.argv[5],'w',encoding='ascii') as handle:\n"
+            " handle.write(str(os.getpid()))\n"
+            "grandchild=subprocess.Popen("
+            "[sys.executable,'-c',sys.argv[2],sys.argv[3],sys.argv[4]])\n"
+            "while not os.path.exists(sys.argv[4]): time.sleep(.01)\n"
+            "temporary=sys.argv[1]+'.tmp'\n"
+            "with open(temporary,'w',encoding='utf-8') as handle:\n"
+            " json.dump({'child':os.getpid(),'grandchild':grandchild.pid},handle)\n"
+            "os.replace(temporary,sys.argv[1])\n"
+            "os.write(1,b'child-exiting\\n')\n"
+            "os.write(2,b'child-error-exiting\\n')\n"
+        )
+        wrapper = subprocess.Popen(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command",
+                "--root",
+                str(self.root),
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "descendant-drain-signal",
+                "--failure-code",
+                "run.cancelled",
+                "--",
+                sys.executable,
+                "-c",
+                child_script,
+                str(pid_file),
+                grandchild_script,
+                str(signal_file),
+                str(ready_file),
+                str(early_child_pid_file),
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        pids = []
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    payload = json.loads(pid_file.read_text(encoding="utf-8"))
+                except (FileNotFoundError, json.JSONDecodeError):
+                    time.sleep(0.05)
+                    continue
+                pids = [payload["child"], payload["grandchild"]]
+                break
+            self.assertEqual(len(pids), 2)
+            deadline = time.monotonic() + 3
+            while self._process_is_running(pids[0]) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(self._process_is_running(pids[0]))
+            self.assertTrue(self._process_is_running(pids[1]))
+            self.assertIsNone(wrapper.poll(), "wrapper did not wait for open pipes")
+
+            os.kill(wrapper.pid, signal.SIGTERM)
+            stdout, stderr = wrapper.communicate(timeout=6)
+            self.assertEqual(wrapper.returncode, 128 + signal.SIGTERM)
+            self.assertEqual(self._wait_for_processes_to_stop(pids, 1), [])
+            self.assertEqual(
+                int(signal_file.read_text(encoding="ascii").splitlines()[0]),
+                signal.SIGTERM,
+            )
+            metadata = self.command_metadata()
+            self.assertEqual(len(metadata), 1)
+            self.assertIsNone(metadata[0]["exitStatus"])
+            self.assertEqual(metadata[0]["signal"], signal.SIGTERM)
+            events = self.read_events(self.root)
+            self.assertEqual(
+                [event["status"] for event in events[-2:]],
+                ["started", "cancelled"],
+            )
+            self.assertEqual(
+                sum(event["status"] == "cancelled" for event in events), 1
+            )
+            self.assertIn(b"child-exiting", stdout)
+            self.assertIn(b"grandchild-pipe-open", stdout)
+            self.assertIn(b"child-error-exiting", stderr)
+            self.assertIn(b"grandchild-error-pipe-open", stderr)
+        finally:
+            cleanup_pids = list(pids)
+            if wrapper.poll() is None:
+                cleanup_pids.extend(self._descendant_pids(wrapper.pid))
+            try:
+                child_group = int(
+                    early_child_pid_file.read_text(encoding="ascii")
+                )
+            except (FileNotFoundError, ValueError):
+                child_group = None
+            if child_group is not None and child_group != os.getpgrp():
+                try:
+                    os.killpg(child_group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            self._kill_owned_process_groups(cleanup_pids)
+            if wrapper.poll() is None:
+                wrapper.kill()
+                wrapper.communicate(timeout=3)
+            self._kill_processes(cleanup_pids)
+
     def test_streaming_sanitizer_redacts_values_straddling_carry_flush(self):
         carry = run_evidence._SANITIZATION_CARRY
         roots = {"workspace": "", "run_root": "", "home": ""}

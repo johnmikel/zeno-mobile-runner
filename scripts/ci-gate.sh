@@ -67,7 +67,7 @@ HOST_ZIG_TARGET="$(detect_host_zig_target)"
 
 run "zig fmt --check build.zig src"
 run "bash -n install.sh scripts/*.sh tests/*.sh"
-run "python3 -m py_compile scripts/*.py"
+run "python3 -m compileall -q scripts/run_evidence_lib scripts/run_evidence.py"
 run "npm ci --ignore-scripts"
 run "node --test tests/schemas-contract.test.mjs"
 run "mkdir -p zig-out/bin"

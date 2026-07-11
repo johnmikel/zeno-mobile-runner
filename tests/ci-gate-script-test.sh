@@ -13,7 +13,7 @@ output = sys.argv[1]
 required = [
     "zig fmt --check build.zig src",
     "bash -n install.sh scripts/*.sh tests/*.sh",
-    "python3 -m py_compile scripts/*.py",
+    "python3 -m compileall -q scripts/run_evidence_lib scripts/run_evidence.py",
     "zig build-exe src/main.zig -target aarch64-macos.15.0 -O Debug -femit-bin=zig-out/bin/zmr",
     "bash tests/benchmark-lab-test.sh",
     "bash tests/benchmark-results-test.sh",

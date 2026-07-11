@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import codecs
 import errno
 import hashlib
 import json
@@ -15,6 +16,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
@@ -58,6 +60,158 @@ def _bounded_log(content: bytes, original_size: int) -> tuple[bytes, bool]:
     tail = content[tail_start:]
     tail.decode("utf-8")
     return head + tail, True
+
+
+class BoundedHeadTail:
+    """Retain at most the first and last halves of a sanitized byte stream."""
+
+    def __init__(self) -> None:
+        self._head = bytearray()
+        self._tail = bytearray()
+        self._total_bytes = 0
+
+    def feed(self, chunk: bytes) -> None:
+        if not isinstance(chunk, bytes):
+            raise TypeError("bounded collector accepts bytes")
+        self._total_bytes += len(chunk)
+        head_remaining = _LOG_HALF - len(self._head)
+        if head_remaining > 0:
+            self._head.extend(chunk[:head_remaining])
+            chunk = chunk[head_remaining:]
+        if chunk:
+            self._tail.extend(chunk)
+            overflow = len(self._tail) - _LOG_HALF
+            if overflow > 0:
+                del self._tail[:overflow]
+
+    def finish(self) -> tuple[bytes, int, bool]:
+        truncated = self._total_bytes > _LOG_LIMIT
+        if not truncated:
+            return bytes(self._head + self._tail), self._total_bytes, False
+
+        head = bytes(self._head)
+        try:
+            head.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            head = head[: exc.start]
+        tail_start = 0
+        while tail_start < len(self._tail) and self._tail[tail_start] & 0xC0 == 0x80:
+            tail_start += 1
+        tail = bytes(self._tail[tail_start:])
+        tail.decode("utf-8")
+        return head + tail, self._total_bytes, True
+
+
+class _CaptureStreamWriter:
+    """Write raw bytes immediately, preserving UTF-8 for text-only sinks."""
+
+    def __init__(self, stream: Any) -> None:
+        binary_stream = getattr(stream, "buffer", None)
+        self._stream = stream if binary_stream is None else binary_stream
+        self._binary: bool | None = True if binary_stream is not None else None
+        self._decoder: Any = None
+        self.error: BaseException | None = None
+
+    def write(self, chunk: bytes) -> None:
+        if self.error is not None or not chunk:
+            return
+        try:
+            if self._binary is not False:
+                try:
+                    self._stream.write(chunk)
+                    self._binary = True
+                except TypeError:
+                    if self._binary is True:
+                        raise
+                    self._binary = False
+                    self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+                    text = self._decoder.decode(chunk, final=False)
+                    if text:
+                        self._stream.write(text)
+            else:
+                text = self._decoder.decode(chunk, final=False)
+                if text:
+                    self._stream.write(text)
+            self._stream.flush()
+        except BaseException as exc:
+            self.error = exc
+
+    def finish(self) -> None:
+        if self.error is not None:
+            return
+        try:
+            if self._binary is False:
+                text = self._decoder.decode(b"", final=True)
+                if text:
+                    self._stream.write(text)
+            self._stream.flush()
+        except BaseException as exc:
+            self.error = exc
+
+
+class _PipeCapture:
+    """Drain, sanitize, and bound one child pipe without retaining raw output."""
+
+    def __init__(
+        self,
+        *,
+        roots: dict[str, str],
+        secrets: list[str],
+        raw_stream: Any = None,
+    ) -> None:
+        self.original_bytes = 0
+        self.collector = BoundedHeadTail()
+        self.sanitizer = StreamingSanitizer(roots=roots, secrets=secrets)
+        self.raw_writer = (
+            _CaptureStreamWriter(raw_stream) if raw_stream is not None else None
+        )
+        self.error: BaseException | None = None
+
+    def _accept(self, chunk: bytes) -> None:
+        self.original_bytes += len(chunk)
+        self.collector.feed(self.sanitizer.feed(chunk))
+        if self.raw_writer is not None:
+            self.raw_writer.write(chunk)
+
+    def drain(self, pipe: Any) -> None:
+        processing = True
+        read_chunk = getattr(pipe, "read1", pipe.read)
+        try:
+            while True:
+                chunk = read_chunk(_PIPE_READ_CHUNK_SIZE)
+                if not chunk:
+                    break
+                if processing:
+                    try:
+                        self._accept(chunk)
+                    except BaseException as exc:
+                        self.error = exc
+                        processing = False
+                else:
+                    self.original_bytes += len(chunk)
+            if processing:
+                try:
+                    self.collector.feed(self.sanitizer.finish())
+                except BaseException as exc:
+                    self.error = exc
+        except BaseException as exc:
+            self.error = self.error or exc
+        finally:
+            if self.raw_writer is not None:
+                self.raw_writer.finish()
+            pipe.close()
+
+    def accept_complete(self, content: bytes) -> None:
+        self._accept(content)
+        self.collector.feed(self.sanitizer.finish())
+        if self.raw_writer is not None:
+            self.raw_writer.finish()
+
+    @property
+    def stream_error(self) -> BaseException | None:
+        if self.raw_writer is None:
+            return None
+        return self.raw_writer.error
 
 
 def _stream_record(
@@ -123,6 +277,17 @@ def _run_command_during_lifecycle(
     stderr_relative = f"commands/{stem}.stderr.log"
     metadata_relative = f"commands/{stem}.json"
 
+    if stdout_stream is None:
+        stdout_stream = sys.stdout
+    if stderr_stream is None:
+        stderr_stream = sys.stderr
+    stdout_capture = _PipeCapture(
+        roots=roots,
+        secrets=secrets,
+        raw_stream=stdout_stream if capture_stdout else None,
+    )
+    stderr_capture = _PipeCapture(roots=roots, secrets=secrets)
+
     try:
         child = subprocess.Popen(
             argv,
@@ -131,26 +296,39 @@ def _run_command_during_lifecycle(
             stderr=subprocess.PIPE,
             shell=False,
         )
-        raw_stdout, raw_stderr = child.communicate()
-        return_code = child.returncode
     except OSError as exc:
-        raw_stdout = b""
-        raw_stderr = str(exc).encode("utf-8", errors="replace")
+        stdout_capture.accept_complete(b"")
+        stderr_capture.accept_complete(str(exc).encode("utf-8", errors="replace"))
         return_code = 127
+    else:
+        stdout_reader = threading.Thread(
+            target=stdout_capture.drain,
+            args=(child.stdout,),
+            name=f"evidence-{name}-stdout",
+        )
+        stderr_reader = threading.Thread(
+            target=stderr_capture.drain,
+            args=(child.stderr,),
+            name=f"evidence-{name}-stderr",
+        )
+        stdout_reader.start()
+        stderr_reader.start()
+        return_code = child.wait()
+        stdout_reader.join()
+        stderr_reader.join()
+        reader_errors = [
+            capture.error
+            for capture in (stdout_capture, stderr_capture)
+            if capture.error is not None
+        ]
+        if reader_errors:
+            raise reader_errors[0]
 
-    stdout_text = raw_stdout.decode("utf-8", errors="replace")
-    stderr_text = raw_stderr.decode("utf-8", errors="replace")
-    sanitized_stdout = sanitize_text(
-        stdout_text, roots=roots, secrets=secrets
-    ).encode("utf-8")
-    sanitized_stderr = sanitize_text(
-        stderr_text, roots=roots, secrets=secrets
-    ).encode("utf-8")
-    stored_stdout, stdout_truncated = _bounded_log(
-        sanitized_stdout, len(raw_stdout)
+    stored_stdout, sanitized_stdout_size, stdout_truncated = (
+        stdout_capture.collector.finish()
     )
-    stored_stderr, stderr_truncated = _bounded_log(
-        sanitized_stderr, len(raw_stderr)
+    stored_stderr, sanitized_stderr_size, stderr_truncated = (
+        stderr_capture.collector.finish()
     )
     _atomic_write_bytes(root / stdout_relative, stored_stdout)
     _atomic_write_bytes(root / stderr_relative, stored_stderr)
@@ -168,15 +346,15 @@ def _run_command_during_lifecycle(
         "signal": signal_number,
         "stdout": _stream_record(
             stdout_relative,
-            len(raw_stdout),
-            len(sanitized_stdout),
+            stdout_capture.original_bytes,
+            sanitized_stdout_size,
             stored_stdout,
             stdout_truncated,
         ),
         "stderr": _stream_record(
             stderr_relative,
-            len(raw_stderr),
-            len(sanitized_stderr),
+            stderr_capture.original_bytes,
+            sanitized_stderr_size,
             stored_stderr,
             stderr_truncated,
         ),
@@ -210,14 +388,11 @@ def _run_command_during_lifecycle(
         }
     _append_event_during_lifecycle(root, phase, event_status, **event_metadata)
 
-    if stdout_stream is None:
-        stdout_stream = sys.stdout
-    if stderr_stream is None:
-        stderr_stream = sys.stderr
-    _replay_bytes(
-        stdout_stream, raw_stdout if capture_stdout else sanitized_stdout
-    )
-    _replay_bytes(stderr_stream, sanitized_stderr)
+    if not capture_stdout:
+        _replay_bytes(stdout_stream, stored_stdout)
+    _replay_bytes(stderr_stream, stored_stderr)
+    if stdout_capture.stream_error is not None:
+        raise stdout_capture.stream_error
     return return_code
 
 
@@ -347,6 +522,7 @@ def _record_external(
 __all__ = (
     "_validate_command_name",
     "_bounded_log",
+    "BoundedHeadTail",
     "_stream_record",
     "_replay_bytes",
     "_run_command_during_lifecycle",

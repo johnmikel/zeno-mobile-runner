@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import codecs
 import errno
 import hashlib
 import json
@@ -91,6 +92,104 @@ def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> s
     return text
 
 
+class StreamingSanitizer:
+    """Incrementally decode and sanitize a byte stream with bounded carry.
+
+    The carry keeps split UTF-8 sequences and ordinary sensitive values together
+    across pipe reads.  Complete delimited tokens are preferred as flush points;
+    an undelimited stream is still bounded by flushing its safe prefix.
+    """
+
+    _DELIMITERS = " \t\r\n\x00\"'<>|,;"
+
+    def __init__(self, *, roots: dict[str, str], secrets: list[str]) -> None:
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self._roots = roots
+        self._secrets = secrets
+        configured_width = max(
+            (
+                len(value)
+                for value in (*roots.values(), *secrets)
+                if isinstance(value, str)
+            ),
+            default=0,
+        )
+        self._carry = max(_SANITIZATION_CARRY, configured_width + 1)
+        self._pending = ""
+        self._finished = False
+
+    def _flush_prefix(self) -> bytes:
+        if len(self._pending) <= self._carry * 2:
+            return b""
+        flush_limit = len(self._pending) - self._carry
+        split = max(
+            (
+                self._pending.rfind(delimiter, 0, flush_limit) + 1
+                for delimiter in self._DELIMITERS
+            ),
+            default=0,
+        )
+        if split == 0:
+            split = flush_limit
+        split = self._include_crossing_redactions(split)
+        prefix = self._pending[:split]
+        self._pending = self._pending[split:]
+        return sanitize_text(
+            prefix, roots=self._roots, secrets=self._secrets
+        ).encode("utf-8")
+
+    def _include_crossing_redactions(self, split: int) -> int:
+        """Move a flush point past any complete redaction that straddles it."""
+
+        while True:
+            expanded = split
+            for secret in self._secrets:
+                if not isinstance(secret, str) or not secret:
+                    continue
+                search_start = max(0, split - len(secret) + 1)
+                search_end = min(len(self._pending), split + len(secret) - 1)
+                position = self._pending.find(
+                    secret, search_start, search_end
+                )
+                while position != -1 and position < split:
+                    end = position + len(secret)
+                    if end > split:
+                        expanded = max(expanded, end)
+                    position = self._pending.find(
+                        secret, position + 1, search_end
+                    )
+            credential_start = max(0, split - self._carry)
+            credential_end = min(len(self._pending), split + self._carry)
+            if self._pending.find("://", credential_start, credential_end) != -1:
+                for match in _CREDENTIAL_URL_RE.finditer(
+                    self._pending, credential_start, credential_end
+                ):
+                    if match.start() < split < match.end():
+                        expanded = max(expanded, match.end())
+            if expanded == split:
+                return split
+            split = expanded
+
+    def feed(self, chunk: bytes) -> bytes:
+        if self._finished:
+            raise ValueError("cannot feed a finished sanitizer")
+        if not isinstance(chunk, bytes):
+            raise TypeError("streaming sanitizer accepts bytes")
+        self._pending += self._decoder.decode(chunk, final=False)
+        return self._flush_prefix()
+
+    def finish(self) -> bytes:
+        if self._finished:
+            return b""
+        self._finished = True
+        self._pending += self._decoder.decode(b"", final=True)
+        content = sanitize_text(
+            self._pending, roots=self._roots, secrets=self._secrets
+        ).encode("utf-8")
+        self._pending = ""
+        return content
+
+
 def _repository_root(start: Path | None = None) -> Path:
     current = (Path.cwd() if start is None else Path(start)).resolve()
     if current.is_file():
@@ -167,6 +266,7 @@ __all__ = (
     "_collect_secret_values",
     "_replace_root",
     "sanitize_text",
+    "StreamingSanitizer",
     "_repository_root",
     "_sanitization_roots",
     "_sanitize_value",

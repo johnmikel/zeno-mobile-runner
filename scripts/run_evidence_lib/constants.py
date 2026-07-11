@@ -162,6 +162,8 @@ _SENSITIVE_NAME_SEGMENTS = {
 }
 _LOG_LIMIT = 10 * 1024 * 1024
 _LOG_HALF = 5 * 1024 * 1024
+_PIPE_READ_CHUNK_SIZE = 64 * 1024
+_SANITIZATION_CARRY = 64 * 1024
 _COMMAND_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 __all__ = (
@@ -188,5 +190,7 @@ __all__ = (
     "_SENSITIVE_NAME_SEGMENTS",
     "_LOG_LIMIT",
     "_LOG_HALF",
+    "_PIPE_READ_CHUNK_SIZE",
+    "_SANITIZATION_CARRY",
     "_COMMAND_SLUG_RE",
 )

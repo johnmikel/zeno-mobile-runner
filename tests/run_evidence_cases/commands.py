@@ -1,9 +1,285 @@
 """Subprocess and external-command capture cases."""
 
+import base64
+import io
+import threading
+
 from .support import *  # noqa: F401,F403
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - non-POSIX portability
+    resource = None
 
 
 class CommandCaptureTests(CommandTestCase):
+    def test_streaming_sanitizer_redacts_values_straddling_carry_flush(self):
+        carry = run_evidence._SANITIZATION_CARRY
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        cases = (
+            (b"very-secret-value", ["very-secret-value"], False),
+            (b"https://person:password@example.test/resource", [], True),
+        )
+        for token, secrets, prefix_with_boundary in cases:
+            prefix_size = carry - len(token) // 2
+            prefix = b"x" * prefix_size
+            if prefix_with_boundary:
+                prefix = prefix[:-1] + b"!"
+            suffix_size = carry - ((len(token) + 1) // 2) + 1
+            raw = prefix + token + b"z" * suffix_size
+            self.assertGreater(len(raw), carry * 2)
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=secrets
+            )
+            actual = sanitizer.feed(raw) + sanitizer.finish()
+            expected = run_evidence.sanitize_text(
+                raw.decode("utf-8"), roots=roots, secrets=secrets
+            ).encode("utf-8")
+            with self.subTest(token=token):
+                self.assertEqual(actual, expected)
+                self.assertNotIn(token, actual)
+
+    def test_capture_stdout_text_sink_decodes_split_utf8_incrementally(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(
+            run_evidence.commands, "_PIPE_READ_CHUNK_SIZE", 1
+        ):
+            return_code = run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "text-capture",
+                "runner.driver_protocol",
+                [
+                    sys.executable,
+                    "-c",
+                    "import os,time;data='😀'.encode();"
+                    "[os.write(1,bytes([byte])) or time.sleep(.01) for byte in data]",
+                ],
+                capture_stdout=True,
+                stdout_stream=stdout,
+                stderr_stream=stderr,
+            )
+        self.assertEqual(return_code, 0)
+        self.assertEqual(stdout.getvalue(), "😀")
+
+    def test_capture_sink_failure_still_persists_terminal_evidence(self):
+        class FailingSink:
+            def write(self, _content):
+                raise BrokenPipeError("capture sink closed")
+
+            def flush(self):
+                pass
+
+        with self.assertRaisesRegex(BrokenPipeError, "capture sink closed"):
+            run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "closed-capture",
+                "runner.driver_protocol",
+                [sys.executable, "-c", "import os;os.write(1,b'captured-output')"],
+                capture_stdout=True,
+                stdout_stream=FailingSink(),
+                stderr_stream=io.BytesIO(),
+            )
+        metadata = self.command_metadata()
+        self.assertEqual(len(metadata), 1)
+        stdout_record = metadata[0]["stdout"]
+        self.assertEqual(
+            (self.root / stdout_record["path"]).read_bytes(), b"captured-output"
+        )
+        self.assertEqual(
+            [event["status"] for event in self.read_events(self.root)[-2:]],
+            ["started", "passed"],
+        )
+
+    def test_capture_stdout_is_forwarded_while_child_is_still_running(self):
+        class SignallingBuffer:
+            def __init__(self):
+                self.data = bytearray()
+                self.first_write = threading.Event()
+
+            def write(self, content):
+                if isinstance(content, str):
+                    content = content.encode("utf-8")
+                self.data.extend(content)
+                self.first_write.set()
+                return len(content)
+
+            def flush(self):
+                pass
+
+        stdout = SignallingBuffer()
+        stderr = io.BytesIO()
+        outcome = {}
+
+        def invoke():
+            try:
+                outcome["returnCode"] = run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "direct-capture",
+                    "runner.driver_protocol",
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import os,time;"
+                            "os.write(1,b'first-chunk');"
+                            "time.sleep(1.5);"
+                            "os.write(1,b'-last-chunk')"
+                        ),
+                    ],
+                    capture_stdout=True,
+                    stdout_stream=stdout,
+                    stderr_stream=stderr,
+                )
+            except BaseException as exc:  # surfaced after bounded cleanup
+                outcome["error"] = exc
+
+        worker = threading.Thread(target=invoke, daemon=True)
+        worker.start()
+        observed_while_running = stdout.first_write.wait(timeout=0.75)
+        still_running_at_first_write = worker.is_alive()
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "command wrapper did not finish")
+        if "error" in outcome:
+            raise outcome["error"]
+        self.assertTrue(observed_while_running)
+        self.assertTrue(still_running_at_first_write)
+        self.assertEqual(outcome["returnCode"], 0)
+        self.assertEqual(bytes(stdout.data), b"first-chunk-last-chunk")
+
+    def test_streaming_sanitization_handles_split_sensitive_and_utf8_sequences(self):
+        secret = "boundary-secret"
+        password = "boundary-password"
+        raw = (
+            b"prefix "
+            + secret.encode("utf-8")
+            + b" path="
+            + str(self.root / "private" / "value.txt").encode("utf-8")
+            + b" url=https://person:"
+            + password.encode("utf-8")
+            + b"@example.test/resource invalid="
+            + b"\xe2(\xa1"
+            + b" suffix"
+        )
+        pieces = [raw[index : index + 3] for index in range(0, len(raw), 3)]
+        encoded = [base64.b64encode(piece).decode("ascii") for piece in pieces]
+        script = (
+            "import base64,os,sys,time\n"
+            "for value in sys.argv[1:]:\n"
+            " os.write(1,base64.b64decode(value));time.sleep(0.001)\n"
+        )
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+        commands_module = run_evidence.commands
+        with mock.patch.object(
+            commands_module,
+            "_collect_secret_values",
+            return_value=[secret, password],
+        ), mock.patch.object(
+            commands_module, "_PIPE_READ_CHUNK_SIZE", 3, create=True
+        ):
+            return_code = run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "split-sanitization",
+                "runner.driver_protocol",
+                [sys.executable, "-c", script, *encoded],
+                stdout_stream=stdout,
+                stderr_stream=stderr,
+            )
+        self.assertEqual(return_code, 0)
+        expected = run_evidence.sanitize_text(
+            raw.decode("utf-8", errors="replace"),
+            roots=run_evidence._sanitization_roots(self.root),
+            secrets=[secret, password],
+        ).encode("utf-8")
+        metadata = self.command_metadata()[-1]
+        stored = (self.root / metadata["stdout"]["path"]).read_bytes()
+        self.assertEqual(metadata["stdout"]["originalBytes"], len(raw))
+        self.assertEqual(metadata["stdout"]["sanitizedBytes"], len(expected))
+        self.assertEqual(stdout.getvalue(), expected)
+        self.assertEqual(stored, expected)
+        stored.decode("utf-8")
+        for sensitive in (secret.encode(), password.encode(), str(self.root).encode()):
+            self.assertNotIn(sensitive, stored)
+            self.assertNotIn(sensitive, stdout.getvalue())
+
+    @unittest.skipUnless(
+        os.name == "posix" and resource is not None and hasattr(resource, "RLIMIT_AS"),
+        "requires POSIX RLIMIT_AS",
+    )
+    def test_combined_256_mib_output_stays_within_wrapper_address_space(self):
+        chunk_size = 64 * 1024
+        iterations = 2048
+        bytes_per_stream = chunk_size * iterations
+        address_space_headroom = 384 * 1024 * 1024
+        if sys.platform == "darwin":
+            current_virtual_bytes = int(
+                subprocess.check_output(
+                    ["ps", "-o", "vsz=", "-p", str(os.getpid())], text=True
+                ).strip()
+            ) * 1024
+            address_space_limit = current_virtual_bytes + address_space_headroom
+        else:
+            address_space_limit = address_space_headroom
+        script = (
+            "import os,sys\n"
+            "chunk=b'x'*int(sys.argv[1])\n"
+            "for _ in range(int(sys.argv[2])):\n"
+            " os.write(1,chunk);os.write(2,chunk)\n"
+        )
+
+        def limit_address_space():
+            _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            resource.setrlimit(
+                resource.RLIMIT_AS, (address_space_limit, hard)
+            )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command",
+                "--root",
+                str(self.root),
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "bounded-stress",
+                "--failure-code",
+                "runner.driver_protocol",
+                "--",
+                sys.executable,
+                "-c",
+                script,
+                str(chunk_size),
+                str(iterations),
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            preexec_fn=limit_address_space,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        metadata = self.command_metadata()[-1]
+        for stream in ("stdout", "stderr"):
+            record = metadata[stream]
+            self.assertEqual(record["originalBytes"], bytes_per_stream)
+            self.assertEqual(record["sanitizedBytes"], bytes_per_stream)
+            self.assertTrue(record["truncated"])
+            self.assertLessEqual(record["storedBytes"], 10 * 1024 * 1024)
+            self.assertLessEqual(
+                (self.root / record["path"]).stat().st_size, 10 * 1024 * 1024
+            )
+        self.assertFalse(
+            any(path.suffix == ".tmp" for path in (self.root / "commands").iterdir())
+        )
+
     def test_unknown_failure_code_is_rejected_before_command_side_effects(self):
         events_before = (self.root / "bootstrap-events.jsonl").read_bytes()
         commands_before = sorted(path.name for path in (self.root / "commands").iterdir())

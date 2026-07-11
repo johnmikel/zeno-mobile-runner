@@ -348,10 +348,39 @@ else:
                     execution["comparabilityTuple"]["runtimeVersion"], "18.5"
                 )
                 self.assertEqual(self.transaction_files(), [])
-                with self.assertRaises(ValueError):
-                    run_evidence.update_context(
-                        second, {"runtimeVersion": "18.5"}
-                    )
+                retried = run_evidence.update_context(
+                    second, {"runtimeVersion": "18.5"}
+                )
+                self.assertEqual(
+                    retried, self.read_json(second / "run-context.json")
+                )
+
+    def test_context_recovery_applies_the_current_different_patch(self):
+        root = self.attempt_root("context-current-request")
+        context = valid_context(
+            runId=root.name,
+            executionId="context-current-request-execution",
+            runtimeVersion=None,
+        )
+        run_evidence._initialize_attempt(self.index_path, root, context)
+
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence.update_context(root, {"runtimeVersion": "18.5"})
+        self.assertEqual(len(self.transaction_files()), 1)
+
+        recovered_and_updated = run_evidence.update_context(
+            root, {"artifacts": {"trace": "traces/retry.json"}}
+        )
+
+        self.assertEqual(recovered_and_updated["runtimeVersion"], "18.5")
+        self.assertEqual(
+            recovered_and_updated["artifacts"]["trace"], "traces/retry.json"
+        )
+        self.assertEqual(
+            recovered_and_updated, self.read_json(root / "run-context.json")
+        )
+        self.assertEqual(self.transaction_files(), [])
 
     def test_valid_finalization_rolls_forward_without_duplicate_terminal_event(self):
         fault_points = [("prepared", -1), ("target", 0), ("target", 1)]

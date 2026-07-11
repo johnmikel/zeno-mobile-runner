@@ -223,6 +223,19 @@ class LifecycleTests(StorageTestCase):
         with self.assertRaises(ValueError):
             run_evidence.update_context(root, {"notAllowed": "x"})
 
+    def test_identical_context_patch_returns_current_stored_context(self):
+        root = self.initialize(valid_context(runtimeVersion=None))
+        applied = run_evidence.update_context(root, {"runtimeVersion": "18.5"})
+        stored_before_retry = (root / "run-context.json").read_bytes()
+
+        retried = run_evidence.update_context(root, {"runtimeVersion": "18.5"})
+
+        self.assertEqual(retried, applied)
+        self.assertEqual(retried, self.read_json(root / "run-context.json"))
+        self.assertEqual(
+            (root / "run-context.json").read_bytes(), stored_before_retry
+        )
+
     def test_context_resolution_atomically_updates_unfinalized_siblings(self):
         first_context = valid_context(runtimeVersion=None)
         first = self.initialize(first_context)

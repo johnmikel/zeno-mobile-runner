@@ -238,10 +238,7 @@ def update_context(root: Path, patch: dict) -> dict:
     context_path = root / "run-context.json"
     index_path = publication_root / "attempt-index.json"
     with _exclusive_lock(publication_root / ".transactions.lock"):
-        recovered = _recover_pending_transactions_unlocked(publication_root)
-        recovered_result = _recovered_result(recovered, "context", attempt_relative)
-        if recovered_result is not None:
-            return recovered_result
+        _recover_pending_transactions_unlocked(publication_root)
 
         patch = _sanitize_value(
             patch,
@@ -281,7 +278,7 @@ def update_context(root: Path, patch: dict) -> dict:
                 updated = _deep_merge(context, patch)
                 _validate_context_identity(updated)
                 if updated == context:
-                    raise ValueError("context patch makes no changes")
+                    return context
                 registered_tuple = execution["comparabilityTuple"]
                 for run_id, sibling_context in contexts.items():
                     if (

@@ -92,6 +92,101 @@ class CliAndAggregateTests(StorageTestCase):
         self.assertNotIn(secret, result.stderr)
         self.assertNotIn(str(self.publication_root), result.stderr)
 
+    def test_finalize_trace_retry_after_artifact_commit_creates_one_terminal_result(self):
+        root = self.attempt_root("finalize-artifact-retry")
+        context = valid_context(
+            runId=root.name,
+            executionId="finalize-artifact-retry-execution",
+            artifacts={"trace": None, "report": "reports/run.html"},
+        )
+        initialized = self.cli(
+            "init",
+            "--root",
+            root,
+            "--context-json",
+            json.dumps(context),
+            "--index",
+            self.index_path,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+
+        crash_code = """
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_crash", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.cli._finalize_attempt = lambda *args, **kwargs: os._exit(91)
+raise SystemExit(module.main([
+    "finalize",
+    "--root", sys.argv[2],
+    "--status", "passed",
+    "--command-status", "0",
+    "--trace", "traces/retry.json",
+]))
+"""
+        crashed = subprocess.Popen(
+            [sys.executable, "-c", crash_code, str(MODULE_PATH), str(root)],
+            cwd=REPOSITORY_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            crash_stdout, crash_stderr = crashed.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            crashed.kill()
+            crash_stdout, crash_stderr = crashed.communicate(timeout=5)
+            self.fail(
+                "crashing finalize child timed out: "
+                + crash_stdout
+                + crash_stderr
+            )
+        finally:
+            if crashed.poll() is None:
+                crashed.kill()
+                crashed.wait(timeout=5)
+        self.assertEqual(
+            crashed.returncode,
+            91,
+            crash_stdout + crash_stderr,
+        )
+        self.assertFalse((root / "run-summary.json").exists())
+        self.assertEqual(
+            self.read_json(root / "run-context.json")["artifacts"]["trace"],
+            "traces/retry.json",
+        )
+
+        retried = self.cli(
+            "finalize",
+            "--root",
+            root,
+            "--status",
+            "passed",
+            "--command-status",
+            "0",
+            "--trace",
+            "traces/retry.json",
+        )
+
+        self.assertEqual(retried.returncode, 0, retried.stderr)
+        summary = json.loads(retried.stdout)
+        self.assertEqual(summary, self.read_json(root / "run-summary.json"))
+        self.assertEqual(
+            [path.name for path in root.glob("run-summary*.json")],
+            ["run-summary.json"],
+        )
+        matching_terminal_events = [
+            event
+            for event in self.read_events(root)
+            if (event["phase"], event["status"])
+            == (summary["phase"], summary["status"])
+        ]
+        self.assertEqual(len(matching_terminal_events), 1)
+
     def test_aggregate_retains_all_attempts_and_is_deterministic(self):
         first = self.attempt_root("run-1")
         run_evidence._initialize_attempt(self.index_path, first, valid_context())

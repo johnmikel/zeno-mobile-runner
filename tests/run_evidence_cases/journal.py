@@ -1,5 +1,7 @@
 """Publication journal and crash-recovery cases."""
 
+import time
+
 from .support import *  # noqa: F401,F403
 
 
@@ -12,6 +14,20 @@ class TransactionRecoveryTests(StorageTestCase):
             process.stdout.close()
         if process.stderr is not None:
             process.stderr.close()
+
+    def wait_for_path(self, path, *processes, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if path.exists():
+                return
+            for process in processes:
+                if process.poll() is not None:
+                    stderr = process.stderr.read() if process.stderr else ""
+                    self.fail(
+                        f"child {process.pid} exited with {process.returncode}: {stderr}"
+                    )
+            time.sleep(0.01)
+        self.fail(f"timed out waiting for {path.name}")
 
     def spawn_lock_holder(self, lock_path):
         code = """
@@ -186,6 +202,40 @@ else:
             target["path"]
             for target in self.read_json(journals[0])["targets"]
         ]
+
+    def test_register_rolls_forward_after_prepare_and_target_faults(self):
+        for case_number, (stage, position) in enumerate(
+            (("prepared", -1), ("target", 0)), 1
+        ):
+            publication, index_path = self.new_publication()
+            context = valid_context(
+                runId=f"register-crash-{case_number}",
+                executionId=f"register-execution-{case_number}",
+            )
+            root = publication / "attempts" / context["runId"]
+            root.mkdir(parents=True)
+
+            with self.subTest(stage=stage, position=position):
+                with self.checkpoint_failure(stage, position):
+                    with self.assertRaises(OSError):
+                        run_evidence.register_attempt(index_path, root, context)
+
+                self.assertEqual(
+                    self.transaction_target_paths(publication),
+                    ["attempt-index.json"],
+                )
+                recovered = run_evidence.register_attempt(index_path, root, context)
+                self.assertEqual(recovered, self.read_json(index_path))
+                registrations = [
+                    attempt
+                    for execution in recovered["executions"]
+                    for attempt in execution["attempts"]
+                    if attempt["runId"] == context["runId"]
+                ]
+                self.assertEqual(len(registrations), 1)
+                self.assertEqual(self.transaction_files(publication), [])
+                with self.assertRaisesRegex(ValueError, "already registered"):
+                    run_evidence.register_attempt(index_path, root, context)
 
     def test_init_rolls_forward_after_prepare_and_every_target_position(self):
         fault_points = [("prepared", -1), *(('target', index) for index in range(3))]
@@ -467,6 +517,157 @@ else:
         recovered = run_evidence._initialize_attempt(index_path, root, context)
         self.assertEqual(recovered["runId"], context["runId"])
         self.assertEqual(self.transaction_files(publication), [])
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "SIGKILL"),
+        "requires POSIX process-death semantics",
+    )
+    def test_prepared_context_cannot_overwrite_concurrent_registration(self):
+        first_context = valid_context(runtimeVersion=None)
+        first_root = self.attempt_root(first_context["runId"])
+        run_evidence._initialize_attempt(
+            self.index_path, first_root, first_context
+        )
+        second_context = valid_context(
+            runId="register-race-2", attempt=2, runtimeVersion=None
+        )
+        second_root = self.create_attempt_root(second_context["runId"])
+        (second_root / "run-context.json").write_text(
+            json.dumps(second_context), encoding="utf-8"
+        )
+
+        controls = Path(self.temporary.name) / "process-controls"
+        controls.mkdir()
+        register_ready = controls / "register-ready"
+        register_resume = controls / "register-resume"
+        context_started = controls / "context-started"
+        registration_code = """
+import importlib.util
+import json
+import sys
+import time
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+ready = Path(sys.argv[5])
+resume = Path(sys.argv[6])
+
+def pause_after_recovery(original, label):
+    def paused(publication_root):
+        recovered = original(publication_root)
+        temporary = ready.with_name(ready.name + ".tmp")
+        temporary.write_text(label, encoding="utf-8")
+        temporary.replace(ready)
+        deadline = time.monotonic() + 10
+        while not resume.exists():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("registration resume signal timed out")
+            time.sleep(0.01)
+        return recovered
+    return paused
+
+module.lifecycle._recover_pending_transactions = pause_after_recovery(
+    module.lifecycle._recover_pending_transactions, "public"
+)
+module.lifecycle._recover_pending_transactions_unlocked = pause_after_recovery(
+    module.lifecycle._recover_pending_transactions_unlocked, "unlocked"
+)
+result = module.register_attempt(
+    Path(sys.argv[2]), Path(sys.argv[3]), json.loads(sys.argv[4])
+)
+print(json.dumps(result), flush=True)
+"""
+        context_code = """
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+def crash_when_prepared(stage, position):
+    if stage == "prepared" and position == -1:
+        os._exit(42)
+
+module.journal._transaction_checkpoint = crash_when_prepared
+Path(sys.argv[3]).write_text("started", encoding="utf-8")
+module.update_context(Path(sys.argv[2]), {"runtimeVersion": "18.5"})
+raise SystemExit(99)
+"""
+        registration = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                registration_code,
+                str(MODULE_PATH),
+                str(self.index_path),
+                str(second_root),
+                json.dumps(second_context),
+                str(register_ready),
+                str(register_resume),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        context_process = None
+        try:
+            self.wait_for_path(register_ready, registration)
+            paused_recovery = register_ready.read_text(encoding="utf-8")
+            self.assertIn(paused_recovery, ("public", "unlocked"))
+            context_process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    context_code,
+                    str(MODULE_PATH),
+                    str(first_root),
+                    str(context_started),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.wait_for_path(context_started, context_process)
+
+            context_stderr = ""
+            if paused_recovery == "public":
+                self.assertEqual(context_process.wait(timeout=5), 42)
+                context_stderr = context_process.stderr.read()
+                self.assertEqual(len(self.transaction_files()), 1)
+            else:
+                self.assertIsNone(context_process.poll())
+
+            register_resume.write_text("resume", encoding="utf-8")
+            self.assertEqual(
+                registration.wait(timeout=10),
+                0,
+                registration.stderr.read(),
+            )
+            if paused_recovery == "unlocked":
+                self.assertEqual(context_process.wait(timeout=10), 42)
+                context_stderr = context_process.stderr.read()
+            self.assertEqual(context_process.returncode, 42, context_stderr)
+
+            recovered = run_evidence._recover_pending_transactions(
+                self.publication_root
+            )
+            self.assertEqual(len(recovered), 1)
+            registered_run_ids = [
+                attempt["runId"]
+                for execution in self.read_json(self.index_path)["executions"]
+                for attempt in execution["attempts"]
+            ]
+            self.assertIn(second_context["runId"], registered_run_ids)
+        finally:
+            register_resume.touch(exist_ok=True)
+            if context_process is not None:
+                self.stop_process(context_process)
+            self.stop_process(registration)
 
     @unittest.skipUnless(
         os.name == "posix" and hasattr(signal, "SIGKILL"),

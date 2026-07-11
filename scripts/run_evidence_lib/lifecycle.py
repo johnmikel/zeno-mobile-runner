@@ -94,19 +94,37 @@ def _register_attempt_unlocked(
     index_path: Path, attempt_root: Path, context: dict
 ) -> dict:
     index = _registered_index_candidate(index_path, attempt_root, context)
-    _atomic_write_json(index_path, index)
+    publication_root = Path(index_path).absolute().parent
+    attempt_relative = _attempt_root_relative(publication_root, attempt_root)
+    transaction = _make_transaction(
+        publication_root,
+        "register",
+        attempt_root,
+        [attempt_relative],
+        [("attempt-index.json", _json_bytes(index))],
+    )
+    _commit_transaction_unlocked(publication_root, transaction)
     return index
 
 
 def register_attempt(index_path: Path, attempt_root: Path, context: dict) -> dict:
     """Register one globally unique, monotonically numbered attempt atomically."""
 
-    index_path = Path(index_path)
+    index_path = Path(index_path).absolute()
+    attempt_root = Path(attempt_root).absolute()
     if not index_path.parent.is_dir():
         raise ValueError("attempt index parent does not exist")
-    _recover_pending_transactions(index_path.parent)
-    with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-        return _register_attempt_unlocked(index_path, Path(attempt_root), context)
+    publication_root = index_path.parent
+    attempt_relative = _attempt_root_relative(publication_root, attempt_root)
+    with _exclusive_lock(publication_root / ".transactions.lock"):
+        recovered = _recover_pending_transactions_unlocked(publication_root)
+        recovered_result = _recovered_result(
+            recovered, "register", attempt_relative
+        )
+        if recovered_result is not None:
+            return recovered_result
+        with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
+            return _register_attempt_unlocked(index_path, attempt_root, context)
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

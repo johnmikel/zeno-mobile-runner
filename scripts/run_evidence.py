@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import math
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -833,6 +834,518 @@ def _exclusive_lock(path: Path, timeout: float = 5.0):
             pass
 
 
+_TRANSACTION_OPERATIONS = ("init", "context", "finalize")
+_TRANSACTION_KEYS = {
+    "schemaVersion",
+    "operation",
+    "attemptRoot",
+    "requiredDirectories",
+    "targets",
+}
+_TRANSACTION_TARGET_KEYS = {"path", "contentBase64", "sha256"}
+
+
+def _transaction_checkpoint(stage: str, position: int) -> None:
+    """Fault-injection seam used by deterministic crash-recovery tests."""
+
+
+def _publication_root_for_attempt(root: Path) -> Path:
+    return Path(root).absolute().parent.parent
+
+
+def _attempt_root_relative(publication_root: Path, root: Path) -> str:
+    publication_root = Path(publication_root).absolute()
+    root = Path(root).absolute()
+    try:
+        relative = root.relative_to(publication_root).as_posix()
+    except ValueError as exc:
+        raise ValueError("attempt root escapes the publication root") from exc
+    parts = relative.split("/")
+    if len(parts) != 2 or parts[0] != "attempts" or not _safe_run_segment(parts[1]):
+        raise ValueError("attempt root must be attempts/<runId>")
+    return relative
+
+
+def _contained_transaction_path(
+    publication_root: Path, relative: Any, label: str
+) -> Path:
+    if not _valid_relative_path(relative):
+        raise ValueError(f"{label}: must be a normalized relative path")
+    if relative == ".transactions" or relative.startswith(".transactions/"):
+        raise ValueError(f"{label}: transaction internals cannot be targets")
+    publication_root = Path(publication_root).absolute()
+    if publication_root.is_symlink() or not publication_root.is_dir():
+        raise ValueError("publication root must be a real directory")
+    candidate = publication_root.joinpath(*relative.split("/"))
+    current = publication_root
+    for part in relative.split("/"):
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"{label}: path contains a symlink")
+    try:
+        candidate.resolve(strict=False).relative_to(publication_root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{label}: path escapes publication root") from exc
+    return candidate
+
+
+def _transaction_directory(publication_root: Path, *, create: bool) -> Path:
+    transaction_root = Path(publication_root) / ".transactions"
+    if transaction_root.is_symlink():
+        raise ValueError("transaction directory must not be a symlink")
+    if transaction_root.exists():
+        if not transaction_root.is_dir():
+            raise ValueError("transaction directory must be a directory")
+    elif create:
+        transaction_root.mkdir(mode=0o700)
+        _fsync_directory(Path(publication_root))
+    return transaction_root
+
+
+def _validate_transaction_target_content(path: str, content: bytes) -> Any:
+    try:
+        if path == "attempt-index.json":
+            value = json.loads(content.decode("utf-8"))
+            _validate_index(value)
+        elif path.endswith("/run-context.json"):
+            value = json.loads(content.decode("utf-8"))
+            _validate_context_identity(value)
+        elif path.endswith("/run-summary.json"):
+            value = json.loads(content.decode("utf-8"))
+            errors = validate_summary(value)
+            if errors:
+                raise ValueError("; ".join(errors))
+        elif path.endswith("/run-summary.invalid.json"):
+            value = json.loads(content.decode("utf-8"))
+            if not isinstance(value, dict):
+                raise ValueError("invalid candidate must be an object")
+        elif path.endswith("/run-summary.invalid.errors.json"):
+            value = json.loads(content.decode("utf-8"))
+            if not isinstance(value, dict) or not isinstance(value.get("errors"), list):
+                raise ValueError("invalid diagnostics must contain errors")
+        elif path.endswith("/bootstrap-events.jsonl"):
+            events = []
+            for line in content.decode("utf-8").splitlines():
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                errors = validate_event(event)
+                if errors:
+                    raise ValueError("; ".join(errors))
+                events.append(event)
+            if [event["seq"] for event in events] != list(range(1, len(events) + 1)):
+                raise ValueError("event sequence is not contiguous")
+            value = events
+        else:
+            raise ValueError("transaction target is not an approved lifecycle file")
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"transaction target {path} is invalid JSON evidence") from exc
+    return value
+
+
+def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
+    if not isinstance(journal, dict) or set(journal) != _TRANSACTION_KEYS:
+        raise ValueError("transaction journal has an invalid object shape")
+    schema_version = journal.get("schemaVersion")
+    if not _is_integer(schema_version) or schema_version != 1:
+        raise ValueError("transaction journal schemaVersion must equal 1")
+    operation = journal.get("operation")
+    if operation not in _TRANSACTION_OPERATIONS:
+        raise ValueError("transaction journal operation is invalid")
+    attempt_relative = journal.get("attemptRoot")
+    attempt_path = _contained_transaction_path(
+        publication_root, attempt_relative, "transaction attemptRoot"
+    )
+    parts = attempt_relative.split("/") if isinstance(attempt_relative, str) else []
+    if len(parts) != 2 or parts[0] != "attempts" or not _safe_run_segment(parts[1]):
+        raise ValueError("transaction attemptRoot must be attempts/<runId>")
+    del attempt_path
+
+    required_directories = journal.get("requiredDirectories")
+    if not isinstance(required_directories, list) or not required_directories:
+        raise ValueError("transaction requiredDirectories must be a non-empty array")
+    for index, relative in enumerate(required_directories):
+        directory = _contained_transaction_path(
+            publication_root, relative, f"requiredDirectories[{index}]"
+        )
+        if relative != "attempts" and not relative.startswith("attempts/"):
+            raise ValueError("transaction directories must be under attempts")
+        if directory.exists() and not directory.is_dir():
+            raise ValueError("transaction required directory is not a directory")
+    if len(required_directories) != len(set(required_directories)):
+        raise ValueError("transaction requiredDirectories must be unique")
+    if required_directories != sorted(
+        required_directories, key=lambda item: (item.count("/"), item)
+    ):
+        raise ValueError("transaction requiredDirectories must be canonically ordered")
+    if attempt_relative not in required_directories:
+        raise ValueError("transaction must declare its attempt root directory")
+
+    targets = journal.get("targets")
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("transaction targets must be a non-empty array")
+    decoded_targets = []
+    seen_paths = set()
+    for index, target in enumerate(targets):
+        if not isinstance(target, dict) or set(target) != _TRANSACTION_TARGET_KEYS:
+            raise ValueError(f"transaction target {index} has an invalid shape")
+        relative = target.get("path")
+        candidate = _contained_transaction_path(
+            publication_root, relative, f"targets[{index}].path"
+        )
+        if relative in seen_paths:
+            raise ValueError("transaction target paths must be unique")
+        seen_paths.add(relative)
+        if candidate.exists() and not candidate.is_file():
+            raise ValueError("transaction target exists but is not a file")
+        try:
+            content = base64.b64decode(target.get("contentBase64"), validate=True)
+        except (TypeError, ValueError, binascii.Error) as exc:
+            raise ValueError("transaction target contentBase64 is invalid") from exc
+        digest = "sha256:" + hashlib.sha256(content).hexdigest()
+        if target.get("sha256") != digest:
+            raise ValueError("transaction target hash does not match content")
+        value = _validate_transaction_target_content(relative, content)
+        decoded_targets.append(
+            {
+                "path": relative,
+                "content": content,
+                "sha256": digest,
+                "value": value,
+            }
+        )
+
+    event_path = attempt_relative + "/bootstrap-events.jsonl"
+    context_path = attempt_relative + "/run-context.json"
+    summary_path = attempt_relative + "/run-summary.json"
+    invalid_path = attempt_relative + "/run-summary.invalid.json"
+    diagnostic_path = attempt_relative + "/run-summary.invalid.errors.json"
+    ordered_paths = [target["path"] for target in decoded_targets]
+    values = {target["path"]: target["value"] for target in decoded_targets}
+    run_id = attempt_relative.split("/")[-1]
+    if operation == "init":
+        expected_paths = [context_path, event_path, "attempt-index.json"]
+        expected_directories = [
+            "attempts",
+            attempt_relative,
+            attempt_relative + "/commands",
+        ]
+        if (
+            ordered_paths != expected_paths
+            or required_directories != expected_directories
+        ):
+            raise ValueError("init transaction target set is invalid")
+        context = values[context_path]
+        if context.get("runId") != run_id or not _valid_datetime(
+            context.get("startedAt")
+        ):
+            raise ValueError("init transaction context identity is invalid")
+        events = values[event_path]
+        if [
+            (event.get("seq"), event.get("phase"), event.get("status"))
+            for event in events
+        ] != [
+            (1, "evidence.init", "started"),
+            (2, "evidence.init", "passed"),
+        ]:
+            raise ValueError("init transaction event stream is invalid")
+        index = values["attempt-index.json"]
+        registrations = [
+            (execution, entry)
+            for execution in index["executions"]
+            for entry in execution["attempts"]
+            if entry["runId"] == run_id
+        ]
+        if len(registrations) != 1:
+            raise ValueError("init transaction index registration is invalid")
+        execution, entry = registrations[0]
+        if (
+            execution["executionId"] != context["executionId"]
+            or execution["comparabilityTuple"]
+            != comparability(context)["comparabilityTuple"]
+            or entry["attempt"] != context["attempt"]
+        ):
+            raise ValueError("init transaction index disagrees with context")
+    elif operation == "context":
+        if not ordered_paths or ordered_paths[-1] != "attempt-index.json":
+            raise ValueError("context transaction is missing required targets")
+        context_paths = ordered_paths[:-1]
+        if context_path not in context_paths or context_paths != sorted(context_paths):
+            raise ValueError("context transaction target order is invalid")
+        if any(
+            not re.fullmatch(r"attempts/[^/]+/run-context[.]json", path)
+            for path in context_paths
+        ):
+            raise ValueError("context transaction contains an invalid target")
+        expected_directories = sorted(
+            {path.rsplit("/", 1)[0] for path in context_paths},
+            key=lambda item: (item.count("/"), item),
+        )
+        if required_directories != expected_directories:
+            raise ValueError("context transaction directory set is invalid")
+        index = values["attempt-index.json"]
+        registrations = [
+            (execution, entry)
+            for execution in index["executions"]
+            for entry in execution["attempts"]
+            if entry["runId"] == run_id
+        ]
+        if len(registrations) != 1:
+            raise ValueError("context transaction attempt is not registered")
+        execution, _entry = registrations[0]
+        registered_attempts = {
+            entry["runId"]: entry for entry in execution["attempts"]
+        }
+        for path in context_paths:
+            target_run_id = path.split("/")[1]
+            context = values[path]
+            entry = registered_attempts.get(target_run_id)
+            if (
+                entry is None
+                or context.get("runId") != target_run_id
+                or context.get("executionId") != execution["executionId"]
+                or context.get("attempt") != entry["attempt"]
+                or comparability(context)["comparabilityTuple"]
+                != execution["comparabilityTuple"]
+            ):
+                raise ValueError(
+                    "context transaction target disagrees with the attempt index"
+                )
+    else:
+        expected_paths = [event_path, summary_path]
+        invalid_expected_paths = [
+            invalid_path,
+            diagnostic_path,
+            event_path,
+            summary_path,
+        ]
+        if ordered_paths not in (expected_paths, invalid_expected_paths):
+            raise ValueError("finalize transaction contains an invalid target set")
+        if required_directories != [attempt_relative]:
+            raise ValueError("finalize transaction directory set is invalid")
+        terminal = values[summary_path]
+        if terminal.get("runId") != run_id:
+            raise ValueError("finalize transaction summary runId is invalid")
+        events = values[event_path]
+        if not events:
+            raise ValueError("finalize transaction event stream is empty")
+        final_event = events[-1]
+        for field in ("phase", "status", "errorCode", "summary", "commandStatus"):
+            if final_event.get(field) != terminal.get(field):
+                raise ValueError(
+                    "finalize transaction event disagrees with terminal summary"
+                )
+        if ordered_paths == invalid_expected_paths:
+            diagnostics = values[diagnostic_path]
+            errors = diagnostics.get("errors")
+            if (
+                not errors
+                or not all(isinstance(error, str) and error for error in errors)
+                or errors != sorted(set(errors))
+                or terminal.get("classification") != "runner_failure"
+                or terminal.get("phase") != "evidence.finalize"
+                or terminal.get("errorCode") != "runner.evidence_invalid"
+            ):
+                raise ValueError("finalize invalid-fallback transaction is invalid")
+
+    return {
+        "journal": journal,
+        "operation": operation,
+        "attemptRoot": attempt_relative,
+        "requiredDirectories": required_directories,
+        "targets": decoded_targets,
+    }
+
+
+def _pending_transaction_paths(publication_root: Path) -> list[Path]:
+    transaction_root = _transaction_directory(publication_root, create=False)
+    if not transaction_root.exists():
+        return []
+    paths = []
+    for entry in sorted(transaction_root.iterdir(), key=lambda item: item.name):
+        if entry.is_symlink():
+            raise ValueError("pending transaction journal must not be a symlink")
+        if not entry.is_file() or entry.suffix != ".json":
+            raise ValueError("transaction directory contains an unsafe entry")
+        paths.append(entry)
+    return paths
+
+
+def _load_pending_transactions(publication_root: Path) -> list[tuple[Path, dict]]:
+    loaded = []
+    seen_targets = set()
+    seen_operations = set()
+    for journal_path in _pending_transaction_paths(publication_root):
+        journal = _read_json(journal_path)
+        validated = _validate_transaction_journal(publication_root, journal)
+        operation_key = (validated["operation"], validated["attemptRoot"])
+        if operation_key in seen_operations:
+            raise ValueError("duplicate pending transaction operation")
+        seen_operations.add(operation_key)
+        target_paths = {target["path"] for target in validated["targets"]}
+        if seen_targets & target_paths:
+            raise ValueError("pending transactions contain overlapping targets")
+        seen_targets.update(target_paths)
+        loaded.append((journal_path, validated))
+    return loaded
+
+
+def _ensure_transaction_directories(publication_root: Path, relatives: list[str]) -> None:
+    for relative in sorted(relatives, key=lambda item: (item.count("/"), item)):
+        directory = _contained_transaction_path(
+            publication_root, relative, "transaction required directory"
+        )
+        if directory.exists():
+            if not directory.is_dir():
+                raise ValueError("transaction required directory is not a directory")
+            continue
+        if not directory.parent.is_dir() or directory.parent.is_symlink():
+            raise ValueError("transaction required directory parent is unsafe")
+        directory.mkdir(mode=0o700)
+        _fsync_directory(directory.parent)
+
+
+def _apply_transaction(
+    publication_root: Path, journal_path: Path, transaction: dict
+) -> None:
+    _ensure_transaction_directories(
+        publication_root, transaction["requiredDirectories"]
+    )
+    for index, target in enumerate(transaction["targets"]):
+        path = _contained_transaction_path(
+            publication_root, target["path"], f"targets[{index}].path"
+        )
+        existing = path.read_bytes() if path.is_file() else None
+        if existing is None or hashlib.sha256(existing).digest() != hashlib.sha256(
+            target["content"]
+        ).digest():
+            _atomic_write_bytes(path, target["content"])
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("transaction target was not written safely")
+        if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != target["sha256"]:
+            raise ValueError("transaction target failed hash verification")
+        _transaction_checkpoint("target", index)
+
+    for target in transaction["targets"]:
+        path = _contained_transaction_path(
+            publication_root, target["path"], "transaction final target"
+        )
+        if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != target["sha256"]:
+            raise ValueError("transaction final hash verification failed")
+    journal_path.unlink()
+    _fsync_directory(journal_path.parent)
+
+
+def _recover_pending_transactions_unlocked(publication_root: Path) -> list[dict]:
+    pending = _load_pending_transactions(publication_root)
+    recovered = []
+    for journal_path, transaction in pending:
+        _apply_transaction(publication_root, journal_path, transaction)
+        recovered.append(transaction)
+    return recovered
+
+
+def _recover_pending_transactions(publication_root: Path) -> list[dict]:
+    publication_root = Path(publication_root)
+    with _exclusive_lock(publication_root / ".transactions.lock"):
+        return _recover_pending_transactions_unlocked(publication_root)
+
+
+def _make_transaction(
+    publication_root: Path,
+    operation: str,
+    root: Path,
+    required_directories: list[str],
+    targets: list[tuple[str, bytes]],
+) -> dict:
+    attempt_relative = _attempt_root_relative(publication_root, root)
+    journal = {
+        "schemaVersion": 1,
+        "operation": operation,
+        "attemptRoot": attempt_relative,
+        "requiredDirectories": sorted(
+            set(required_directories), key=lambda item: (item.count("/"), item)
+        ),
+        "targets": [
+            {
+                "path": path,
+                "contentBase64": base64.b64encode(content).decode("ascii"),
+                "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+            }
+            for path, content in targets
+        ],
+    }
+    return _validate_transaction_journal(publication_root, journal)
+
+
+def _commit_transaction_unlocked(publication_root: Path, transaction: dict) -> None:
+    transaction_root = _transaction_directory(publication_root, create=True)
+    journal_bytes = _json_bytes(transaction["journal"])
+    run_id = transaction["attemptRoot"].split("/")[-1]
+    fingerprint = hashlib.sha256(journal_bytes).hexdigest()[:16]
+    journal_path = transaction_root / (
+        f"{transaction['operation']}-{run_id}-{fingerprint}.json"
+    )
+    if journal_path.exists():
+        raise ValueError("transaction journal already exists")
+    _atomic_write_bytes(journal_path, journal_bytes)
+    _transaction_checkpoint("prepared", -1)
+    _apply_transaction(publication_root, journal_path, transaction)
+
+
+def _recovered_result(
+    recovered: list[dict], operation: str, attempt_relative: str
+) -> dict | None:
+    matching = [
+        transaction
+        for transaction in recovered
+        if transaction["operation"] == operation
+        and transaction["attemptRoot"] == attempt_relative
+    ]
+    if not matching:
+        return None
+    if len(matching) != 1:
+        raise ValueError("multiple recovered results match one operation")
+    suffix = "/run-summary.json" if operation == "finalize" else "/run-context.json"
+    target = next(
+        (
+            target
+            for target in matching[0]["targets"]
+            if target["path"] == attempt_relative + suffix
+        ),
+        None,
+    )
+    if target is None:
+        raise ValueError("recovered transaction has no result target")
+    try:
+        result = json.loads(target["content"].decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("recovered transaction result is invalid") from exc
+    if not isinstance(result, dict):
+        raise ValueError("recovered transaction result must be an object")
+    return result
+
+
+def _pending_transaction_errors_for_attempt(root: Path) -> list[str]:
+    root = Path(root)
+    publication_root = _publication_root_for_attempt(root)
+    try:
+        pending = _load_pending_transactions(publication_root)
+        attempt_relative = _attempt_root_relative(publication_root, root)
+    except ValueError as exc:
+        return [f"transactions: unsafe pending journal: {exc}"]
+    errors = []
+    for journal_path, transaction in pending:
+        if transaction["attemptRoot"] == attempt_relative or any(
+            target["path"].startswith(attempt_relative + "/")
+            for target in transaction["targets"]
+        ):
+            errors.append(
+                f"transactions/{journal_path.name}: pending transaction affects attempt"
+            )
+    return errors
+
+
 def _safe_run_segment(value: Any) -> bool:
     return (
         isinstance(value, str)
@@ -953,7 +1466,7 @@ def _load_index(index_path: Path) -> dict:
     return index
 
 
-def _register_attempt_unlocked(
+def _registered_index_candidate(
     index_path: Path, attempt_root: Path, context: dict
 ) -> dict:
     _validate_context_identity(context)
@@ -1000,6 +1513,13 @@ def _register_attempt_unlocked(
         }
     )
     _validate_index(index)
+    return index
+
+
+def _register_attempt_unlocked(
+    index_path: Path, attempt_root: Path, context: dict
+) -> dict:
+    index = _registered_index_candidate(index_path, attempt_root, context)
     _atomic_write_json(index_path, index)
     return index
 
@@ -1010,6 +1530,7 @@ def register_attempt(index_path: Path, attempt_root: Path, context: dict) -> dic
     index_path = Path(index_path)
     if not index_path.parent.is_dir():
         raise ValueError("attempt index parent does not exist")
+    _recover_pending_transactions(index_path.parent)
     with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
         return _register_attempt_unlocked(index_path, Path(attempt_root), context)
 
@@ -1095,93 +1616,119 @@ def _execution_for_run(index: dict, run_id: str) -> dict:
 def update_context(root: Path, patch: dict) -> dict:
     """Patch allowlisted context fields while preserving execution identity."""
 
-    root = Path(root)
+    root = Path(root).absolute()
+    publication_root = _publication_root_for_attempt(root)
+    attempt_relative = _attempt_root_relative(publication_root, root)
     context_path = root / "run-context.json"
-    index_path = root.parent.parent / "attempt-index.json"
-    patch = _sanitize_value(
-        patch,
-        roots=_sanitization_roots(root),
-        secrets=_collect_secret_values(),
-    )
-    _validate_context_patch(patch)
-    if not context_path.is_file() or not index_path.is_file():
-        raise ValueError("attempt context or index is missing")
-    with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-        index = _load_index(index_path)
-        execution = _execution_for_run(index, root.name)
-        sibling_roots = {
-            entry["runId"]: index_path.parent / "attempts" / entry["runId"]
-            for entry in execution["attempts"]
-        }
-        if root.name not in sibling_roots or sibling_roots[root.name].absolute() != root.absolute():
-            raise ValueError("attempt root does not match its registered runId")
-        with ExitStack() as locks:
-            for sibling_root in sorted(sibling_roots.values(), key=lambda item: item.name):
-                locks.enter_context(_exclusive_lock(sibling_root / ".context.lock"))
-            contexts = {}
-            for run_id, sibling_root in sibling_roots.items():
-                sibling_context_path = sibling_root / "run-context.json"
-                if not sibling_context_path.is_file():
-                    raise ValueError("registered sibling attempt context is missing")
-                contexts[run_id] = _read_json(sibling_context_path)
+    index_path = publication_root / "attempt-index.json"
+    with _exclusive_lock(publication_root / ".transactions.lock"):
+        recovered = _recover_pending_transactions_unlocked(publication_root)
+        recovered_result = _recovered_result(recovered, "context", attempt_relative)
+        if recovered_result is not None:
+            return recovered_result
 
-            context = contexts[root.name]
-            updated = _deep_merge(context, patch)
-            _validate_context_identity(updated)
-            registered_tuple = execution["comparabilityTuple"]
-            for run_id, sibling_context in contexts.items():
-                if comparability(sibling_context)["comparabilityTuple"] != registered_tuple:
-                    raise ValueError(
-                        f"stored context for {run_id} disagrees with attempt index"
-                    )
-            new_tuple = comparability(updated)["comparabilityTuple"]
-            resolved_tuple = _merge_resolved_identity(registered_tuple, new_tuple)
-            identity_changed = registered_tuple != resolved_tuple
-            if identity_changed and any(
-                (sibling_root / "run-summary.json").exists()
-                for sibling_root in sibling_roots.values()
-            ):
-                raise ValueError("finalized sibling attempt identity is immutable")
-
-            updated_contexts = dict(contexts)
-            updated_contexts[root.name] = updated
-            if identity_changed:
-                updated_contexts = {
-                    run_id: _context_with_registered_tuple(
-                        sibling_context, resolved_tuple
-                    )
-                    for run_id, sibling_context in updated_contexts.items()
-                }
-                for sibling_context in updated_contexts.values():
-                    _validate_context_identity(sibling_context)
-
-            old_index = json.loads(json.dumps(index))
-            execution["comparabilityTuple"] = resolved_tuple
-            changed_contexts = {
-                run_id: value
-                for run_id, value in updated_contexts.items()
-                if value != contexts[run_id]
+        patch = _sanitize_value(
+            patch,
+            roots=_sanitization_roots(root),
+            secrets=_collect_secret_values(),
+        )
+        _validate_context_patch(patch)
+        if not context_path.is_file() or not index_path.is_file():
+            raise ValueError("attempt context or index is missing")
+        with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
+            index = _load_index(index_path)
+            execution = _execution_for_run(index, root.name)
+            sibling_roots = {
+                entry["runId"]: publication_root / "attempts" / entry["runId"]
+                for entry in execution["attempts"]
             }
-            try:
-                _atomic_write_json(index_path, index)
-                for run_id, value in changed_contexts.items():
-                    _atomic_write_json(
-                        sibling_roots[run_id] / "run-context.json", value
+            if (
+                root.name not in sibling_roots
+                or sibling_roots[root.name].absolute() != root
+            ):
+                raise ValueError("attempt root does not match its registered runId")
+            with ExitStack() as locks:
+                for sibling_root in sorted(
+                    sibling_roots.values(), key=lambda item: item.name
+                ):
+                    locks.enter_context(
+                        _exclusive_lock(sibling_root / ".context.lock")
                     )
-            except Exception:
-                _atomic_write_json(index_path, old_index)
-                for run_id, value in contexts.items():
-                    if run_id in changed_contexts:
-                        _atomic_write_json(
-                            sibling_roots[run_id] / "run-context.json", value
+                contexts = {}
+                for run_id, sibling_root in sibling_roots.items():
+                    sibling_context_path = sibling_root / "run-context.json"
+                    if not sibling_context_path.is_file():
+                        raise ValueError("registered sibling attempt context is missing")
+                    contexts[run_id] = _read_json(sibling_context_path)
+
+                context = contexts[root.name]
+                updated = _deep_merge(context, patch)
+                _validate_context_identity(updated)
+                if updated == context:
+                    raise ValueError("context patch makes no changes")
+                registered_tuple = execution["comparabilityTuple"]
+                for run_id, sibling_context in contexts.items():
+                    if (
+                        comparability(sibling_context)["comparabilityTuple"]
+                        != registered_tuple
+                    ):
+                        raise ValueError(
+                            f"stored context for {run_id} disagrees with attempt index"
                         )
-                raise
-            return updated_contexts[root.name]
+                new_tuple = comparability(updated)["comparabilityTuple"]
+                resolved_tuple = _merge_resolved_identity(
+                    registered_tuple, new_tuple
+                )
+                identity_changed = registered_tuple != resolved_tuple
+                if identity_changed and any(
+                    (sibling_root / "run-summary.json").exists()
+                    for sibling_root in sibling_roots.values()
+                ):
+                    raise ValueError("finalized sibling attempt identity is immutable")
+
+                updated_contexts = dict(contexts)
+                updated_contexts[root.name] = updated
+                if identity_changed:
+                    updated_contexts = {
+                        run_id: _context_with_registered_tuple(
+                            sibling_context, resolved_tuple
+                        )
+                        for run_id, sibling_context in updated_contexts.items()
+                    }
+                    for sibling_context in updated_contexts.values():
+                        _validate_context_identity(sibling_context)
+
+                execution["comparabilityTuple"] = resolved_tuple
+                changed_contexts = {
+                    run_id: value
+                    for run_id, value in updated_contexts.items()
+                    if value != contexts[run_id]
+                }
+                targets = list(
+                    (
+                        f"attempts/{run_id}/run-context.json",
+                        _json_bytes(value),
+                    )
+                    for run_id, value in sorted(changed_contexts.items())
+                )
+                targets.append(("attempt-index.json", _json_bytes(index)))
+                required_directories = [
+                    f"attempts/{run_id}" for run_id in sorted(changed_contexts)
+                ]
+                if attempt_relative not in required_directories:
+                    required_directories.append(attempt_relative)
+                transaction = _make_transaction(
+                    publication_root,
+                    "context",
+                    root,
+                    required_directories,
+                    targets,
+                )
+                _commit_transaction_unlocked(publication_root, transaction)
+                return updated_contexts[root.name]
 
 
-def _append_event_unlocked(
-    root: Path, phase: str, status: str, **metadata: Any
-) -> dict:
+def _read_bootstrap_events(root: Path) -> list[dict]:
     path = root / "bootstrap-events.jsonl"
     events = []
     if path.exists():
@@ -1199,6 +1746,18 @@ def _append_event_unlocked(
             raise ValueError(f"invalid bootstrap event log: {exc}") from exc
     if [item["seq"] for item in events] != list(range(1, len(events) + 1)):
         raise ValueError("bootstrap event sequence is not contiguous")
+    return events
+
+
+def _event_stream_candidate(
+    root: Path,
+    phase: str,
+    status: str,
+    *,
+    events: list[dict] | None = None,
+    **metadata: Any,
+) -> tuple[dict, bytes, list[dict]]:
+    events = _read_bootstrap_events(root) if events is None else list(events)
     event = {
         "schemaVersion": 1,
         "seq": len(events) + 1,
@@ -1219,7 +1778,16 @@ def _append_event_unlocked(
         raise ValueError("invalid bootstrap event: " + "; ".join(errors))
     events.append(event)
     content = b"".join(_json_bytes(item) for item in events)
-    _atomic_write_bytes(path, content)
+    return event, content, events
+
+
+def _append_event_unlocked(
+    root: Path, phase: str, status: str, **metadata: Any
+) -> dict:
+    event, content, _events = _event_stream_candidate(
+        root, phase, status, **metadata
+    )
+    _atomic_write_bytes(root / "bootstrap-events.jsonl", content)
     return event
 
 
@@ -1235,48 +1803,58 @@ def _append_event_during_lifecycle(
 
 def _append_event(root: Path, phase: str, status: str, **metadata: Any) -> dict:
     root = Path(root)
+    _recover_pending_transactions(_publication_root_for_attempt(root))
     with _exclusive_lock(root / ".lifecycle.lock"):
         return _append_event_during_lifecycle(root, phase, status, **metadata)
 
 
 def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
-    index_path = Path(index_path)
-    root = Path(root)
-    context = _sanitize_value(
-        context,
-        roots=_sanitization_roots(root),
-        secrets=_collect_secret_values(),
-    )
-    _validate_context_identity(context)
-    _validate_attempt_root(index_path, root, context["runId"])
-    root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    root.mkdir(mode=0o700, exist_ok=False)
-    try:
-        (root / "commands").mkdir(mode=0o700)
-        stored = json.loads(json.dumps(context))
-        stored["startedAt"] = _utc_now()
-        _atomic_write_json(root / "run-context.json", stored)
+    index_path = Path(index_path).absolute()
+    root = Path(root).absolute()
+    publication_root = index_path.parent
+    if not publication_root.is_dir():
+        raise ValueError("attempt index parent does not exist")
+    attempt_relative = _attempt_root_relative(publication_root, root)
+    with _exclusive_lock(publication_root / ".transactions.lock"):
+        recovered = _recover_pending_transactions_unlocked(publication_root)
+        recovered_result = _recovered_result(recovered, "init", attempt_relative)
+        if recovered_result is not None:
+            return recovered_result
+
+        context = _sanitize_value(
+            context,
+            roots=_sanitization_roots(root),
+            secrets=_collect_secret_values(),
+        )
+        _validate_context_identity(context)
+        _validate_attempt_root(index_path, root, context["runId"])
+        if root.exists():
+            raise FileExistsError("attempt root already exists")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-            index_existed = index_path.exists()
-            previous_index = _load_index(index_path)
-            try:
-                _register_attempt_unlocked(index_path, root, stored)
-                _append_event(root, "evidence.init", "started")
-                _append_event(root, "evidence.init", "passed")
-            except Exception:
-                if index_existed:
-                    _atomic_write_json(index_path, previous_index)
-                else:
-                    try:
-                        index_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    _fsync_directory(index_path.parent)
-                raise
-        return stored
-    except Exception:
-        shutil.rmtree(root)
-        raise
+            if root.exists():
+                raise FileExistsError("attempt root already exists")
+            stored = json.loads(json.dumps(context))
+            stored["startedAt"] = _utc_now()
+            index = _registered_index_candidate(index_path, root, stored)
+            _started, _started_bytes, events = _event_stream_candidate(
+                root, "evidence.init", "started", events=[]
+            )
+            _passed, event_bytes, _events = _event_stream_candidate(
+                root, "evidence.init", "passed", events=events
+            )
+            transaction = _make_transaction(
+                publication_root,
+                "init",
+                root,
+                ["attempts", attempt_relative, attempt_relative + "/commands"],
+                [
+                    (attempt_relative + "/run-context.json", _json_bytes(stored)),
+                    (attempt_relative + "/bootstrap-events.jsonl", event_bytes),
+                    ("attempt-index.json", _json_bytes(index)),
+                ],
+            )
+            _commit_transaction_unlocked(publication_root, transaction)
+            return stored
 
 
 def _duration_ms(started_at: Any, finished_at: str) -> int:
@@ -1511,130 +2089,181 @@ def _finalize_attempt(
     hint: str | None = None,
     command_status: int | None = None,
 ) -> dict:
-    root = Path(root)
-    if status not in _TERMINAL_STATUSES:
-        raise ValueError("terminal status must be passed, failed, or cancelled")
-    index_path = root.parent.parent / "attempt-index.json"
-    if not index_path.is_file():
-        raise ValueError("attempt index is missing")
-    with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-        with _exclusive_lock(root / ".lifecycle.lock"):
-            summary_path = root / "run-summary.json"
-            if summary_path.exists():
-                raise FileExistsError("terminal run summary already exists")
-            context = _read_json(root / "run-context.json")
-            sanitized_context = _sanitize_value(
-                context,
-                roots=_sanitization_roots(root),
-                secrets=_collect_secret_values(),
-            )
-            if sanitized_context != context:
-                context = sanitized_context
-                _atomic_write_json(root / "run-context.json", context)
-            index = _load_index(index_path)
-            execution = _execution_for_run(index, context.get("runId"))
-            current_tuple = comparability(context)["comparabilityTuple"]
-            registered_tuple = execution["comparabilityTuple"]
-            tuple_mismatch = registered_tuple != current_tuple
-
-            if status == "passed":
-                if classification is not None and classification != "passed":
-                    raise ValueError("passed status requires passed classification")
-                classification = "passed"
-                phase = "complete" if phase is None else phase
-                error_code = summary_text = hint = None
-            elif status == "cancelled":
-                if classification is not None and classification != "cancelled":
-                    raise ValueError("cancelled status requires cancelled classification")
-                phase = "cleanup" if phase is None else phase
-                if error_code is not None and error_code != "run.cancelled":
-                    raise ValueError("cancelled status requires run.cancelled")
-                classification = "cancelled"
-                error_code = "run.cancelled"
-                summary_text = summary_text or "Run cancelled"
-                hint = hint or "Retry when ready"
-            else:
-                error_code = error_code or "runner.unclassified"
-                inferred, primary_code = classify([error_code])
-                if classification is not None and classification != inferred:
-                    raise ValueError(
-                        "classification disagrees with the owning error code"
+    root = Path(root).absolute()
+    publication_root = _publication_root_for_attempt(root)
+    attempt_relative = _attempt_root_relative(publication_root, root)
+    index_path = publication_root / "attempt-index.json"
+    with _exclusive_lock(publication_root / ".transactions.lock"):
+        recovered = _recover_pending_transactions_unlocked(publication_root)
+        recovered_result = _recovered_result(
+            recovered, "finalize", attempt_relative
+        )
+        if recovered_result is not None:
+            return recovered_result
+        if status not in _TERMINAL_STATUSES:
+            raise ValueError("terminal status must be passed, failed, or cancelled")
+        if not index_path.is_file():
+            raise ValueError("attempt index is missing")
+        with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
+            with _exclusive_lock(root / ".lifecycle.lock"):
+                with _exclusive_lock(root / ".events.lock"):
+                    summary_path = root / "run-summary.json"
+                    if summary_path.exists():
+                        raise FileExistsError("terminal run summary already exists")
+                    context = _read_json(root / "run-context.json")
+                    context = _sanitize_value(
+                        context,
+                        roots=_sanitization_roots(root),
+                        secrets=_collect_secret_values(),
                     )
-                classification = inferred
-                error_code = primary_code
-                phase = phase or "invocation"
-                summary_text = summary_text or "Run failed"
-                hint = hint or "Inspect bootstrap events and command logs"
+                    index = _load_index(index_path)
+                    execution = _execution_for_run(index, context.get("runId"))
+                    current_tuple = comparability(context)["comparabilityTuple"]
+                    registered_tuple = execution["comparabilityTuple"]
+                    tuple_mismatch = registered_tuple != current_tuple
 
-            roots = _sanitization_roots(root)
-            secrets = _collect_secret_values()
-            error_code = (
-                sanitize_text(error_code, roots=roots, secrets=secrets)
-                if error_code is not None
-                else None
-            )
-            summary_text = (
-                sanitize_text(summary_text, roots=roots, secrets=secrets)
-                if summary_text is not None
-                else None
-            )
-            hint = (
-                sanitize_text(hint, roots=roots, secrets=secrets)
-                if hint is not None
-                else None
-            )
+                    if status == "passed":
+                        if classification is not None and classification != "passed":
+                            raise ValueError(
+                                "passed status requires passed classification"
+                            )
+                        classification = "passed"
+                        phase = "complete" if phase is None else phase
+                        error_code = summary_text = hint = None
+                    elif status == "cancelled":
+                        if classification is not None and classification != "cancelled":
+                            raise ValueError(
+                                "cancelled status requires cancelled classification"
+                            )
+                        phase = "cleanup" if phase is None else phase
+                        if error_code is not None and error_code != "run.cancelled":
+                            raise ValueError(
+                                "cancelled status requires run.cancelled"
+                            )
+                        classification = "cancelled"
+                        error_code = "run.cancelled"
+                        summary_text = summary_text or "Run cancelled"
+                        hint = hint or "Retry when ready"
+                    else:
+                        error_code = error_code or "runner.unclassified"
+                        inferred, primary_code = classify([error_code])
+                        if classification is not None and classification != inferred:
+                            raise ValueError(
+                                "classification disagrees with the owning error code"
+                            )
+                        classification = inferred
+                        error_code = primary_code
+                        phase = phase or "invocation"
+                        summary_text = summary_text or "Run failed"
+                        hint = hint or "Inspect bootstrap events and command logs"
 
-            finished_at = _utc_now()
-            candidate = _build_summary(
-                context,
-                status,
-                classification=classification,
-                phase=phase,
-                error_code=error_code,
-                summary_text=summary_text,
-                hint=hint,
-                command_status=command_status,
-                finished_at=finished_at,
-            )
-            validation_errors = validate_summary(candidate)
-            if tuple_mismatch:
-                validation_errors = sorted(
-                    set(
-                        validation_errors
-                        + [
-                            "$.comparabilityTuple: context disagrees with the registered execution"
-                        ]
+                    roots = _sanitization_roots(root)
+                    secrets = _collect_secret_values()
+                    error_code = (
+                        sanitize_text(error_code, roots=roots, secrets=secrets)
+                        if error_code is not None
+                        else None
                     )
-                )
-            if validation_errors:
-                _atomic_write_json(root / "run-summary.invalid.json", candidate)
-                _atomic_write_json(
-                    root / "run-summary.invalid.errors.json",
-                    {"errors": validation_errors},
-                )
-                terminal = _fallback_summary(
-                    root,
-                    _context_with_registered_tuple(context, registered_tuple),
-                    finished_at,
-                    command_status,
-                )
-            else:
-                terminal = candidate
+                    summary_text = (
+                        sanitize_text(summary_text, roots=roots, secrets=secrets)
+                        if summary_text is not None
+                        else None
+                    )
+                    hint = (
+                        sanitize_text(hint, roots=roots, secrets=secrets)
+                        if hint is not None
+                        else None
+                    )
 
-            event_metadata = {"commandStatus": terminal.get("commandStatus")}
-            if terminal["status"] != "passed":
-                event_metadata.update(
-                    errorCode=terminal["errorCode"], summary=terminal["summary"]
-                )
-            with _exclusive_lock(root / ".events.lock"):
-                _append_event_unlocked(
-                    root,
-                    terminal["phase"],
-                    terminal["status"],
-                    **event_metadata,
-                )
-                _atomic_write_json(summary_path, terminal)
-            return terminal
+                    finished_at = _utc_now()
+                    candidate = _build_summary(
+                        context,
+                        status,
+                        classification=classification,
+                        phase=phase,
+                        error_code=error_code,
+                        summary_text=summary_text,
+                        hint=hint,
+                        command_status=command_status,
+                        finished_at=finished_at,
+                    )
+                    validation_errors = validate_summary(candidate)
+                    if tuple_mismatch:
+                        validation_errors = sorted(
+                            set(
+                                validation_errors
+                                + [
+                                    "$.comparabilityTuple: context disagrees with the registered execution"
+                                ]
+                            )
+                        )
+                    if validation_errors:
+                        terminal = _fallback_summary(
+                            root,
+                            _context_with_registered_tuple(
+                                context, registered_tuple
+                            ),
+                            finished_at,
+                            command_status,
+                        )
+                    else:
+                        terminal = candidate
+
+                    event_metadata = {
+                        "commandStatus": terminal.get("commandStatus")
+                    }
+                    if terminal["status"] != "passed":
+                        event_metadata.update(
+                            errorCode=terminal["errorCode"],
+                            summary=terminal["summary"],
+                        )
+                    _terminal_event, event_bytes, _events = (
+                        _event_stream_candidate(
+                            root,
+                            terminal["phase"],
+                            terminal["status"],
+                            **event_metadata,
+                        )
+                    )
+                    targets = []
+                    if validation_errors:
+                        targets.extend(
+                            [
+                                (
+                                    attempt_relative
+                                    + "/run-summary.invalid.json",
+                                    _json_bytes(candidate),
+                                ),
+                                (
+                                    attempt_relative
+                                    + "/run-summary.invalid.errors.json",
+                                    _json_bytes({"errors": validation_errors}),
+                                ),
+                            ]
+                        )
+                    targets.append(
+                        (
+                            attempt_relative + "/bootstrap-events.jsonl",
+                            event_bytes,
+                        )
+                    )
+                    targets.append(
+                        (
+                            attempt_relative + "/run-summary.json",
+                            _json_bytes(terminal),
+                        )
+                    )
+                    transaction = _make_transaction(
+                        publication_root,
+                        "finalize",
+                        root,
+                        [attempt_relative],
+                        targets,
+                    )
+                    _commit_transaction_unlocked(
+                        publication_root, transaction
+                    )
+                    return terminal
 
 
 def _validate_command_name(name: str) -> None:
@@ -1837,6 +2466,7 @@ def _run_command(
     stderr_stream: Any = None,
 ) -> int:
     root = Path(root)
+    _recover_pending_transactions(_publication_root_for_attempt(root))
     with _exclusive_lock(root / ".lifecycle.lock"):
         return _run_command_during_lifecycle(
             root,
@@ -1941,6 +2571,7 @@ def _record_external(
     failure_code: str,
 ) -> int:
     root = Path(root)
+    _recover_pending_transactions(_publication_root_for_attempt(root))
     with _exclusive_lock(root / ".lifecycle.lock"):
         return _record_external_during_lifecycle(
             root, phase, name, outcome, failure_code
@@ -2176,11 +2807,13 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     """Validate a complete attempt bundle, including containment and redaction."""
 
     root = Path(root)
-    errors: list[str] = []
+    errors: list[str] = _pending_transaction_errors_for_attempt(root)
     if root.is_symlink():
-        return ["$: attempt root must not be a symlink"]
+        errors.append("$: attempt root must not be a symlink")
+        return _finish_errors(errors)
     if not root.is_dir():
-        return ["$: attempt root must be a directory"]
+        errors.append("$: attempt root must be a directory")
+        return _finish_errors(errors)
 
     summary_path = root / "run-summary.json"
     summary = None

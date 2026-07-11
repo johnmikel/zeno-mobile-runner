@@ -790,13 +790,12 @@ class LifecycleTests(StorageTestCase):
         self.assertFalse(second.exists())
         self.assertTrue(first.exists())
 
-    def test_init_event_failure_rolls_back_registered_index_entry(self):
+    def test_init_preparation_failure_leaves_no_attempt_or_index(self):
         root = self.attempt_root("run-1")
-        with mock.patch.object(
-            run_evidence, "_append_event", side_effect=OSError("injected event failure")
-        ):
-            with self.assertRaises(OSError):
-                run_evidence._initialize_attempt(self.index_path, root, valid_context())
+        with self.assertRaises(ValueError):
+            run_evidence._initialize_attempt(
+                self.index_path, root, valid_context(attempt=0)
+            )
         self.assertFalse(root.exists())
         self.assertFalse(self.index_path.exists())
 
@@ -956,6 +955,332 @@ class LifecycleTests(StorageTestCase):
             (terminal["phase"], terminal["status"], terminal["errorCode"]),
             ("evidence.finalize", "failed", "runner.evidence_invalid"),
         )
+
+
+class TransactionRecoveryTests(StorageTestCase):
+    def transaction_files(self, publication_root=None):
+        publication_root = self.publication_root if publication_root is None else publication_root
+        transaction_root = publication_root / ".transactions"
+        if not transaction_root.exists():
+            return []
+        return sorted(transaction_root.iterdir())
+
+    def checkpoint_failure(self, stage, position):
+        state = {"failed": False}
+
+        def fail_once(actual_stage, actual_position):
+            if (
+                not state["failed"]
+                and actual_stage == stage
+                and actual_position == position
+            ):
+                state["failed"] = True
+                raise OSError(f"injected crash at {stage}/{position}")
+
+        return mock.patch.object(
+            run_evidence,
+            "_transaction_checkpoint",
+            side_effect=fail_once,
+            create=True,
+        )
+
+    def terminal_events(self, root, summary):
+        return [
+            event
+            for event in self.read_events(root)
+            if event["phase"] == summary["phase"]
+            and event["status"] == summary["status"]
+            and event.get("errorCode") == summary.get("errorCode")
+        ]
+
+    def transaction_target_paths(self, publication_root=None):
+        journals = self.transaction_files(publication_root)
+        self.assertEqual(len(journals), 1)
+        return [
+            target["path"]
+            for target in self.read_json(journals[0])["targets"]
+        ]
+
+    def test_init_rolls_forward_after_prepare_and_every_target_position(self):
+        fault_points = [("prepared", -1), *(('target', index) for index in range(3))]
+        for case_number, (stage, position) in enumerate(fault_points, 1):
+            context = valid_context(
+                runId=f"init-crash-{case_number}",
+                executionId=f"init-execution-{case_number}",
+            )
+            root = self.attempt_root(context["runId"])
+            with self.subTest(stage=stage, position=position):
+                with self.checkpoint_failure(stage, position):
+                    with self.assertRaises(OSError):
+                        run_evidence._initialize_attempt(
+                            self.index_path, root, context
+                        )
+                self.assertEqual(len(self.transaction_files()), 1)
+                self.assertEqual(
+                    self.transaction_target_paths(),
+                    [
+                        f"attempts/{context['runId']}/run-context.json",
+                        f"attempts/{context['runId']}/bootstrap-events.jsonl",
+                        "attempt-index.json",
+                    ],
+                )
+
+                recovered = run_evidence._initialize_attempt(
+                    self.index_path, root, context
+                )
+                self.assertEqual(recovered["runId"], context["runId"])
+                self.assertTrue((root / "commands").is_dir())
+                self.assertEqual(
+                    [(event["seq"], event["phase"], event["status"])
+                     for event in self.read_events(root)],
+                    [
+                        (1, "evidence.init", "started"),
+                        (2, "evidence.init", "passed"),
+                    ],
+                )
+                index = self.read_json(self.index_path)
+                registrations = [
+                    attempt
+                    for execution in index["executions"]
+                    for attempt in execution["attempts"]
+                    if attempt["runId"] == context["runId"]
+                ]
+                self.assertEqual(len(registrations), 1)
+                self.assertEqual(self.transaction_files(), [])
+                with self.assertRaises(FileExistsError):
+                    run_evidence._initialize_attempt(
+                        self.index_path, root, context
+                    )
+
+    def test_two_sibling_context_resolution_rolls_forward_every_target(self):
+        fault_points = [("prepared", -1), *(('target', index) for index in range(3))]
+        for case_number, (stage, position) in enumerate(fault_points, 1):
+            execution_id = f"context-execution-{case_number}"
+            first_context = valid_context(
+                runId=f"context-{case_number}-1",
+                executionId=execution_id,
+                runtimeVersion=None,
+            )
+            first = self.attempt_root(first_context["runId"])
+            run_evidence._initialize_attempt(
+                self.index_path, first, first_context
+            )
+            second_context = valid_context(
+                runId=f"context-{case_number}-2",
+                executionId=execution_id,
+                attempt=2,
+                runtimeVersion=None,
+            )
+            second = self.attempt_root(second_context["runId"])
+            run_evidence._initialize_attempt(
+                self.index_path, second, second_context
+            )
+
+            with self.subTest(stage=stage, position=position):
+                with self.checkpoint_failure(stage, position):
+                    with self.assertRaises(OSError):
+                        run_evidence.update_context(
+                            second, {"runtimeVersion": "18.5"}
+                        )
+                self.assertEqual(len(self.transaction_files()), 1)
+                self.assertEqual(
+                    self.transaction_target_paths(),
+                    [
+                        f"attempts/{first.name}/run-context.json",
+                        f"attempts/{second.name}/run-context.json",
+                        "attempt-index.json",
+                    ],
+                )
+                recovered = run_evidence.update_context(
+                    second, {"runtimeVersion": "18.5"}
+                )
+                self.assertEqual(recovered["runtimeVersion"], "18.5")
+                self.assertEqual(
+                    self.read_json(first / "run-context.json")["runtimeVersion"],
+                    "18.5",
+                )
+                self.assertEqual(
+                    self.read_json(second / "run-context.json")["runtimeVersion"],
+                    "18.5",
+                )
+                execution = next(
+                    item
+                    for item in self.read_json(self.index_path)["executions"]
+                    if item["executionId"] == execution_id
+                )
+                self.assertEqual(
+                    execution["comparabilityTuple"]["runtimeVersion"], "18.5"
+                )
+                self.assertEqual(self.transaction_files(), [])
+                with self.assertRaises(ValueError):
+                    run_evidence.update_context(
+                        second, {"runtimeVersion": "18.5"}
+                    )
+
+    def test_valid_finalization_rolls_forward_without_duplicate_terminal_event(self):
+        fault_points = [("prepared", -1), ("target", 0), ("target", 1)]
+        for case_number, (stage, position) in enumerate(fault_points, 1):
+            context = valid_context(
+                runId=f"finalize-crash-{case_number}",
+                executionId=f"finalize-execution-{case_number}",
+            )
+            root = self.attempt_root(context["runId"])
+            run_evidence._initialize_attempt(self.index_path, root, context)
+            with self.subTest(stage=stage, position=position):
+                with self.checkpoint_failure(stage, position):
+                    with self.assertRaises(OSError):
+                        run_evidence._finalize_attempt(root, "passed")
+                self.assertEqual(len(self.transaction_files()), 1)
+                self.assertEqual(
+                    self.transaction_target_paths(),
+                    [
+                        f"attempts/{root.name}/bootstrap-events.jsonl",
+                        f"attempts/{root.name}/run-summary.json",
+                    ],
+                )
+                if stage == "prepared":
+                    errors = run_evidence.validate_bundle(root, secrets=[])
+                    self.assertTrue(
+                        any("pending transaction" in error for error in errors),
+                        errors,
+                    )
+                summary = run_evidence._finalize_attempt(root, "passed")
+                self.assertEqual(run_evidence.validate_summary(summary), [])
+                self.assertEqual(len(self.terminal_events(root, summary)), 1)
+                self.assertEqual(self.transaction_files(), [])
+                with self.assertRaises(FileExistsError):
+                    run_evidence._finalize_attempt(root, "passed")
+
+    def test_invalid_fallback_rolls_forward_after_every_target_position(self):
+        fault_points = [("prepared", -1), *(('target', index) for index in range(4))]
+        for case_number, (stage, position) in enumerate(fault_points, 1):
+            context = valid_context(
+                runId=f"fallback-crash-{case_number}",
+                executionId=f"fallback-execution-{case_number}",
+            )
+            root = self.attempt_root(context["runId"])
+            run_evidence._initialize_attempt(self.index_path, root, context)
+            context_path = root / "run-context.json"
+            damaged = self.read_json(context_path)
+            damaged["platform"] = "invalid-platform"
+            context_path.write_text(json.dumps(damaged), encoding="utf-8")
+            with self.subTest(stage=stage, position=position):
+                with self.checkpoint_failure(stage, position):
+                    with self.assertRaises(OSError):
+                        run_evidence._finalize_attempt(root, "passed")
+                self.assertEqual(len(self.transaction_files()), 1)
+                self.assertEqual(
+                    self.transaction_target_paths(),
+                    [
+                        f"attempts/{root.name}/run-summary.invalid.json",
+                        f"attempts/{root.name}/run-summary.invalid.errors.json",
+                        f"attempts/{root.name}/bootstrap-events.jsonl",
+                        f"attempts/{root.name}/run-summary.json",
+                    ],
+                )
+                summary = run_evidence._finalize_attempt(root, "passed")
+                self.assertEqual(summary["errorCode"], "runner.evidence_invalid")
+                self.assertEqual(run_evidence.validate_summary(summary), [])
+                self.assertEqual(len(self.terminal_events(root, summary)), 1)
+                self.assertTrue((root / "run-summary.invalid.json").is_file())
+                self.assertTrue(
+                    (root / "run-summary.invalid.errors.json").is_file()
+                )
+                self.assertEqual(self.transaction_files(), [])
+
+    def test_summary_write_failure_recovers_identical_terminal_event(self):
+        root = self.attempt_root("summary-write-crash")
+        context = valid_context(
+            runId=root.name, executionId="summary-write-execution"
+        )
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        original_write = run_evidence._atomic_write_bytes
+        state = {"failed": False}
+
+        def fail_summary_once(path, content, mode=0o600):
+            if Path(path).name == "run-summary.json" and not state["failed"]:
+                state["failed"] = True
+                raise OSError("injected summary write crash")
+            return original_write(path, content, mode)
+
+        with mock.patch.object(
+            run_evidence, "_atomic_write_bytes", side_effect=fail_summary_once
+        ):
+            with self.assertRaises(OSError):
+                run_evidence._finalize_attempt(root, "passed")
+        self.assertEqual(len(self.transaction_files()), 1)
+        summary = run_evidence._finalize_attempt(root, "passed")
+        self.assertEqual(len(self.terminal_events(root, summary)), 1)
+        self.assertEqual(self.transaction_files(), [])
+
+    def new_publication(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        publication = Path(temporary.name) / "publication"
+        publication.mkdir()
+        return publication, publication / "attempt-index.json"
+
+    def prepare_crashed_init(self, publication, index_path, run_id):
+        context = valid_context(runId=run_id, executionId=run_id + "-execution")
+        root = publication / "attempts" / run_id
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._initialize_attempt(index_path, root, context)
+        journals = self.transaction_files(publication)
+        self.assertEqual(len(journals), 1)
+        return root, context, journals[0]
+
+    def test_corrupt_hash_path_and_symlink_journals_block_recovery(self):
+        corruptions = ("hash", "path", "symlink")
+        for corruption in corruptions:
+            publication, index_path = self.new_publication()
+            root, context, journal_path = self.prepare_crashed_init(
+                publication, index_path, "corrupt-" + corruption
+            )
+            if corruption == "symlink":
+                outside = Path(publication.parent) / "outside-journal.json"
+                outside.write_bytes(journal_path.read_bytes())
+                journal_path.unlink()
+                journal_path.symlink_to(outside)
+            else:
+                journal = self.read_json(journal_path)
+                if corruption == "hash":
+                    journal["targets"][0]["sha256"] = "sha256:" + "0" * 64
+                else:
+                    journal["targets"][0]["path"] = "../escape"
+                journal_path.write_text(json.dumps(journal), encoding="utf-8")
+            with self.subTest(corruption=corruption), self.assertRaises(ValueError):
+                run_evidence._initialize_attempt(index_path, root, context)
+            self.assertTrue(journal_path.exists() or journal_path.is_symlink())
+            self.assertFalse((publication.parent / "escape").exists())
+
+    def test_journal_is_retained_until_every_final_hash_verifies(self):
+        publication, index_path = self.new_publication()
+        root, context, journal_path = self.prepare_crashed_init(
+            publication, index_path, "hash-verify"
+        )
+        journal = self.read_json(journal_path)
+        first_target = publication / journal["targets"][0]["path"]
+        state = {"corrupted": False}
+
+        def corrupt_after_first(stage, position):
+            if stage == "target" and position == 0 and not state["corrupted"]:
+                state["corrupted"] = True
+                first_target.write_bytes(b"corrupted-after-write")
+
+        with mock.patch.object(
+            run_evidence,
+            "_transaction_checkpoint",
+            side_effect=corrupt_after_first,
+            create=True,
+        ):
+            with self.assertRaises(ValueError):
+                run_evidence._initialize_attempt(index_path, root, context)
+        self.assertTrue(journal_path.exists())
+
+        recovered = run_evidence._initialize_attempt(index_path, root, context)
+        self.assertEqual(recovered["runId"], context["runId"])
+        self.assertEqual(self.transaction_files(publication), [])
 
 
 class SanitizationTests(unittest.TestCase):

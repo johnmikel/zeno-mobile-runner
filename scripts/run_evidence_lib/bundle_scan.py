@@ -14,6 +14,7 @@ from . import constants as _limits
 from .journal import _ATOMIC_WRITE_TEMP_RE
 from .sanitization import (
     _SANITIZATION_INPUT_LIMIT_DIAGNOSTIC,
+    _canonicalize_sanitization_inputs,
     _normalize_bounded_sanitization_values,
     _sanitization_roots,
     _utf8_byte_length,
@@ -110,26 +111,20 @@ def _normalize_scan_inputs(
 ) -> tuple[dict[str, str], list[str]]:
     """Normalize roots and secrets before allocating scanner state."""
 
-    if not isinstance(roots, dict) or not isinstance(secrets, list):
-        raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
-    if len(roots) > _MAX_SCAN_ROOT_COUNT:
-        raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+    owned_roots, owned_secrets = _canonicalize_sanitization_inputs(
+        roots=roots, secrets=secrets
+    )
     normalized_roots = _normalize_bounded_scan_values(
-        list(roots.values()),
+        list(dict.values(owned_roots)),
         maximum_count=_MAX_SCAN_ROOT_COUNT,
         maximum_total_bytes=_MAX_SCAN_ROOT_TOTAL_BYTES,
-    )
-    normalized_secrets = _normalize_bounded_scan_values(
-        secrets,
-        maximum_count=_MAX_SCAN_SECRET_COUNT,
-        maximum_total_bytes=_MAX_SCAN_SECRET_TOTAL_BYTES,
     )
     return (
         {
             f"root-{index}": value
             for index, value in enumerate(normalized_roots)
         },
-        normalized_secrets,
+        list(owned_secrets),
     )
 
 

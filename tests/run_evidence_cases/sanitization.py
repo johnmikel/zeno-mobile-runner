@@ -1,5 +1,7 @@
 """Secret, path, and argument sanitization cases."""
 
+import tracemalloc
+
 from .support import *  # noqa: F401,F403
 
 
@@ -226,6 +228,299 @@ class SanitizationTests(unittest.TestCase):
             ):
                 call()
 
+    def test_public_sanitizers_use_one_owned_view_of_hostile_containers(self):
+        class SplitView(dict):
+            def __len__(self):
+                return 0
+
+            def items(self):
+                return iter(())
+
+            def values(self):
+                return iter(("",))
+
+            def get(self, key, default=None):
+                if key == "workspace":
+                    return "/attacker/workspace"
+                return default
+
+        class LyingList(list):
+            def __len__(self):
+                return 0
+
+            def __iter__(self):
+                return iter(("attacker-secret",))
+
+        def hostile_inputs():
+            return (
+                SplitView(
+                    {
+                        "workspace": "/owned/workspace",
+                        "run_root": "",
+                        "home": "",
+                    }
+                ),
+                LyingList(["owned-secret"]),
+            )
+
+        value = (
+            "owned-secret /owned/workspace/file "
+            "attacker-secret /attacker/workspace/file"
+        )
+        expected = (
+            "<redacted> ${WORKSPACE}/file "
+            "attacker-secret <absolute-path>"
+        )
+
+        roots, secrets = hostile_inputs()
+        self.assertEqual(
+            run_evidence.sanitize_text(
+                value, roots=roots, secrets=secrets
+            ),
+            expected,
+        )
+
+        roots, secrets = hostile_inputs()
+        self.assertEqual(
+            run_evidence._sanitize_value(
+                {"value": value}, roots=roots, secrets=secrets
+            ),
+            {"value": expected},
+        )
+
+        roots, secrets = hostile_inputs()
+        self.assertEqual(
+            run_evidence._sanitize_argv(
+                [value], roots=roots, secrets=secrets
+            ),
+            [expected],
+        )
+
+        roots, secrets = hostile_inputs()
+        sanitizer = run_evidence.StreamingSanitizer(
+            roots=roots, secrets=secrets
+        )
+        self.assertEqual(
+            (sanitizer.feed(value.encode("utf-8")) + sanitizer.finish()).decode(
+                "utf-8"
+            ),
+            expected,
+        )
+
+        roots, secrets = hostile_inputs()
+        normalized_roots, normalized_secrets = (
+            run_evidence.bundle_scan._normalize_scan_inputs(
+                roots=roots, secrets=secrets
+            )
+        )
+        self.assertEqual(
+            set(normalized_roots.values()), {"/owned/workspace"}
+        )
+        self.assertEqual(normalized_secrets, ["owned-secret"])
+
+    def test_sanitizer_base_iteration_ignores_endless_list_override(self):
+        class EndlessList(list):
+            def __iter__(self):
+                yielded = 0
+                while True:
+                    if (
+                        yielded
+                        > run_evidence.constants.MAX_SANITIZATION_SECRET_COUNT
+                    ):
+                        raise AssertionError(
+                            "sanitizer followed an endless iterator override"
+                        )
+                    yielded += 1
+                    yield "attacker-secret"
+
+        self.assertEqual(
+            run_evidence.sanitize_text(
+                "owned-secret attacker-secret",
+                roots={"workspace": "", "run_root": "", "home": ""},
+                secrets=EndlessList(["owned-secret"]),
+            ),
+            "<redacted> attacker-secret",
+        )
+
+    def test_sanitizer_observed_counts_ignore_false_lengths(self):
+        class SplitView(dict):
+            def __len__(self):
+                return 0
+
+            def values(self):
+                return iter(())
+
+        class LyingList(list):
+            def __len__(self):
+                return 0
+
+            def __iter__(self):
+                return iter(("attacker-secret",))
+
+        exact_roots = {
+            f"root-{index}": f"/root-{index}"
+            for index in range(
+                run_evidence.constants.MAX_SANITIZATION_ROOT_COUNT
+            )
+        }
+        exact_secrets = [
+            f"secret-{index}"
+            for index in range(
+                run_evidence.constants.MAX_SANITIZATION_SECRET_COUNT
+            )
+        ]
+        normalized_roots, normalized_secrets = (
+            run_evidence.bundle_scan._normalize_scan_inputs(
+                roots=exact_roots, secrets=exact_secrets
+            )
+        )
+        self.assertEqual(
+            len(normalized_roots),
+            run_evidence.constants.MAX_SANITIZATION_ROOT_COUNT,
+        )
+        self.assertEqual(
+            len(normalized_secrets),
+            run_evidence.constants.MAX_SANITIZATION_SECRET_COUNT,
+        )
+
+        over_roots = SplitView(exact_roots)
+        over_roots["root-over"] = "/root-over"
+        over_secrets = LyingList(exact_secrets + ["secret-over"])
+        for roots, secrets in (
+            (over_roots, []),
+            ({}, over_secrets),
+        ):
+            with self.subTest(
+                roots=roots, secrets=secrets
+            ), self.assertRaisesRegex(
+                ValueError, "public-safety scan inputs exceed supported limits"
+            ):
+                run_evidence.bundle_scan._normalize_scan_inputs(
+                    roots=roots, secrets=secrets
+                )
+
+    def test_sanitizer_uses_utf8_bytes_for_exact_aggregate_boundaries(self):
+        exact_roots = {
+            "workspace": "é" * (32 * 1024 // 2),
+            "run_root": "ø" * (32 * 1024 // 2),
+        }
+        exact_secrets = [
+            "é" * (128 * 1024 // 2),
+            "ø" * (128 * 1024 // 2),
+        ]
+        self.assertEqual(
+            sum(len(value.encode("utf-8")) for value in exact_roots.values()),
+            run_evidence.constants.MAX_SANITIZATION_ROOT_TOTAL_BYTES,
+        )
+        self.assertEqual(
+            sum(len(value.encode("utf-8")) for value in exact_secrets),
+            run_evidence.constants.MAX_SANITIZATION_SECRET_TOTAL_BYTES,
+        )
+        normalized_roots, normalized_secrets = (
+            run_evidence.bundle_scan._normalize_scan_inputs(
+                roots=exact_roots, secrets=exact_secrets
+            )
+        )
+        self.assertEqual(
+            sum(
+                len(value.encode("utf-8"))
+                for value in normalized_roots.values()
+            ),
+            run_evidence.constants.MAX_SANITIZATION_ROOT_TOTAL_BYTES,
+        )
+        self.assertEqual(
+            sum(len(value.encode("utf-8")) for value in normalized_secrets),
+            run_evidence.constants.MAX_SANITIZATION_SECRET_TOTAL_BYTES,
+        )
+
+        over_roots = dict(exact_roots, home="x")
+        over_secrets = [*exact_secrets, "x"]
+        for roots, secrets in (
+            (over_roots, []),
+            ({}, over_secrets),
+        ):
+            with self.subTest(
+                roots=roots, secrets=secrets
+            ), self.assertRaisesRegex(
+                ValueError, "public-safety scan inputs exceed supported limits"
+            ):
+                run_evidence.bundle_scan._normalize_scan_inputs(
+                    roots=roots, secrets=secrets
+                )
+
+    def test_oversized_string_subclasses_are_rejected_before_allocation(self):
+        class HostileString(str):
+            def __len__(self):
+                return 0
+
+            def __str__(self):
+                raise AssertionError("subclass string conversion was used")
+
+            def encode(self, *_args, **_kwargs):
+                raise AssertionError("subclass UTF-8 encoder was used")
+
+        oversized = HostileString("x" * (16 * 1024 * 1024))
+        term_limit = run_evidence.constants.MAX_SANITIZATION_TERM_BYTES
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        calls = (
+            lambda: run_evidence.sanitize_text(
+                "public", roots=dict(roots, workspace=oversized), secrets=[]
+            ),
+            lambda: run_evidence.sanitize_text(
+                "public", roots={oversized: ""}, secrets=[]
+            ),
+            lambda: run_evidence.sanitize_text(
+                "public", roots=roots, secrets=[oversized]
+            ),
+            lambda: run_evidence._normalize_bounded_sanitization_values(
+                [oversized],
+                maximum_count=1,
+                maximum_total_bytes=term_limit,
+            ),
+            lambda: run_evidence._collect_secret_values(
+                {"API_TOKEN": oversized}
+            ),
+        )
+        for call in calls:
+            with self.subTest(call=call):
+                tracemalloc.start()
+                try:
+                    tracemalloc.reset_peak()
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "public-safety scan inputs exceed supported limits",
+                    ):
+                        call()
+                    _current, peak = tracemalloc.get_traced_memory()
+                finally:
+                    tracemalloc.stop()
+                self.assertLess(peak, 1024 * 1024)
+
+    def test_exact_size_string_subclass_is_copied_with_base_operations(self):
+        class HostileString(str):
+            def __len__(self):
+                return 0
+
+            def __str__(self):
+                raise AssertionError("subclass string conversion was used")
+
+            def encode(self, *_args, **_kwargs):
+                raise AssertionError("subclass UTF-8 encoder was used")
+
+        exact = HostileString(
+            "é"
+            * (run_evidence.constants.MAX_SANITIZATION_TERM_BYTES // 2)
+        )
+        normalized = run_evidence._normalize_bounded_sanitization_values(
+            [exact],
+            maximum_count=1,
+            maximum_total_bytes=(
+                run_evidence.constants.MAX_SANITIZATION_TERM_BYTES
+            ),
+        )
+        self.assertEqual(normalized, [str.__str__(exact)])
+        self.assertIs(type(normalized[0]), str)
+
     def test_streaming_sanitizer_snapshots_mutable_roots_and_secrets(self):
         roots = {
             "workspace": "/snapshot/workspace",
@@ -335,6 +630,10 @@ class PersistenceSanitizationTests(CommandTestCase):
             run_evidence.summaries,
             "validate_summary",
             side_effect=injected_validation,
+        ), mock.patch.object(
+            run_evidence.bundle,
+            "validate_summary",
+            side_effect=injected_validation,
         ):
             summary = run_evidence._finalize_attempt(
                 self.root,
@@ -344,6 +643,9 @@ class PersistenceSanitizationTests(CommandTestCase):
                 summary_text=unsafe,
                 hint=unsafe,
                 command_status=None,
+            )
+            self.assertEqual(
+                run_evidence.validate_bundle(self.root, secrets=[secret]), []
             )
 
         diagnostics = self.read_json(
@@ -387,4 +689,3 @@ class PersistenceSanitizationTests(CommandTestCase):
         ):
             self.assertIn(replacement, persisted)
         self.assertEqual(summary["errorCode"], "runner.evidence_invalid")
-        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[secret]), [])

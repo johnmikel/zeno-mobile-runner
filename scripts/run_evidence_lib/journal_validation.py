@@ -130,13 +130,37 @@ def _validate_transaction_operation(
         event_path,
         summary_path,
     ]
-    if ordered_paths not in (expected_paths, invalid_expected_paths):
+    has_context_target = bool(ordered_paths and ordered_paths[0] == context_path)
+    terminal_paths = ordered_paths[1:] if has_context_target else ordered_paths
+    if terminal_paths not in (expected_paths, invalid_expected_paths):
         raise ValueError("finalize transaction contains an invalid target set")
     if required_directories != [attempt_relative]:
         raise ValueError("finalize transaction directory set is invalid")
     terminal = values[summary_path]
     if terminal.get("runId") != run_id:
         raise ValueError("finalize transaction summary runId is invalid")
+    if has_context_target:
+        context = values[context_path]
+        context_artifacts = context.get("artifacts")
+        context_artifacts = (
+            context_artifacts if isinstance(context_artifacts, dict) else {}
+        )
+        terminal_artifacts = terminal.get("artifacts")
+        terminal_artifacts = (
+            terminal_artifacts if isinstance(terminal_artifacts, dict) else {}
+        )
+        if (
+            context.get("runId") != run_id
+            or context.get("executionId") != terminal.get("executionId")
+            or context.get("attempt") != terminal.get("attempt")
+            or any(
+                context_artifacts.get(field) != terminal_artifacts.get(field)
+                for field in ("trace", "report")
+            )
+        ):
+            raise ValueError(
+                "finalize transaction context disagrees with terminal summary"
+            )
     events = values[event_path]
     if not events:
         raise ValueError("finalize transaction event stream is empty")
@@ -146,7 +170,7 @@ def _validate_transaction_operation(
             raise ValueError(
                 "finalize transaction event disagrees with terminal summary"
             )
-    if ordered_paths == invalid_expected_paths:
+    if terminal_paths == invalid_expected_paths:
         diagnostics = values[diagnostic_path]
         errors = diagnostics.get("errors")
         if (

@@ -1,5 +1,8 @@
 """CLI and aggregate-summary cases."""
 
+import io
+from contextlib import redirect_stdout
+
 from .support import *  # noqa: F401,F403
 
 
@@ -92,7 +95,7 @@ class CliAndAggregateTests(StorageTestCase):
         self.assertNotIn(secret, result.stderr)
         self.assertNotIn(str(self.publication_root), result.stderr)
 
-    def test_finalize_trace_retry_after_artifact_commit_creates_one_terminal_result(self):
+    def test_finalize_trace_retry_before_atomic_commit_creates_one_terminal_result(self):
         root = self.attempt_root("finalize-artifact-retry")
         context = valid_context(
             runId=root.name,
@@ -157,7 +160,7 @@ raise SystemExit(module.main([
         self.assertFalse((root / "run-summary.json").exists())
         self.assertEqual(
             self.read_json(root / "run-context.json")["artifacts"]["trace"],
-            "traces/retry.json",
+            None,
         )
 
         retried = self.cli(
@@ -186,6 +189,54 @@ raise SystemExit(module.main([
             == (summary["phase"], summary["status"])
         ]
         self.assertEqual(len(matching_terminal_events), 1)
+
+    def test_cli_finalize_keeps_requested_artifacts_during_context_interleaving(self):
+        root = self.attempt_root("finalize-context-interleaving")
+        run_evidence._initialize_attempt(
+            self.index_path,
+            root,
+            valid_context(
+                runId=root.name,
+                executionId=root.name + "-execution",
+                artifacts={"trace": None, "report": None},
+            ),
+        )
+        original_finalize = run_evidence.cli._finalize_attempt
+
+        def finalize_after_context_update(*args, **kwargs):
+            run_evidence.update_context(
+                root,
+                {"artifacts": {"trace": "traces/interleaved.json"}},
+            )
+            return original_finalize(*args, **kwargs)
+
+        output = io.StringIO()
+        with mock.patch.object(
+            run_evidence.cli,
+            "_finalize_attempt",
+            side_effect=finalize_after_context_update,
+        ), redirect_stdout(output):
+            return_code = run_evidence.main(
+                [
+                    "finalize",
+                    "--root",
+                    str(root),
+                    "--status",
+                    "passed",
+                    "--command-status",
+                    "0",
+                    "--trace",
+                    "traces/requested.json",
+                ]
+            )
+
+        self.assertEqual(return_code, 0)
+        summary = json.loads(output.getvalue())
+        self.assertEqual(summary["artifacts"]["trace"], "traces/requested.json")
+        self.assertEqual(
+            self.read_json(root / "run-context.json")["artifacts"]["trace"],
+            "traces/requested.json",
+        )
 
     @unittest.skipUnless(
         os.name == "posix",
@@ -221,7 +272,13 @@ raise SystemExit(module.main([
 ]))
 """
         for case_number, (stage, position) in enumerate(
-            (("prepared", -1), ("target", 0), ("target", 1)), 1
+            (
+                ("prepared", -1),
+                ("target", 0),
+                ("target", 1),
+                ("target", 2),
+            ),
+            1,
         ):
             with self.subTest(stage=stage, position=position):
                 run_id = f"cli-finalize-wal-{case_number}"
@@ -348,7 +405,10 @@ raise SystemExit(module.main([
             "reports/final.html",
         )
         self.assertEqual(mismatched.returncode, 2)
-        self.assertIn("finalized attempt context is immutable", mismatched.stderr)
+        self.assertIn(
+            "recovered transaction request fingerprint does not match retry",
+            mismatched.stderr,
+        )
         self.assertEqual(
             self.read_json(root / "run-context.json")["artifacts"],
             {

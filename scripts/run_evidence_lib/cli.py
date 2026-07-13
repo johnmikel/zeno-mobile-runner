@@ -198,18 +198,11 @@ def _dispatch(args: argparse.Namespace) -> int:
             args.remediation,
         )
     if args.action == "finalize":
-        recovered_transactions = []
         artifact_patch = {
             key: value
             for key, value in (("trace", args.trace), ("report", args.report))
             if value is not None
         }
-        if artifact_patch:
-            update_context(
-                args.root,
-                {"artifacts": artifact_patch},
-                _recovered_transactions=recovered_transactions,
-            )
         result = _finalize_attempt(
             args.root,
             args.status,
@@ -219,7 +212,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             summary_text=args.summary,
             hint=args.hint,
             command_status=args.command_status,
-            _recovered_transactions=recovered_transactions,
+            artifact_patch=artifact_patch or None,
         )
         _print_json(result)
         return 0

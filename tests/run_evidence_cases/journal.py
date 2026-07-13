@@ -431,6 +431,84 @@ else:
             run_evidence._initialize_attempt(index_path, root, context)
         self.assertTrue(journal_path.is_file())
 
+    def test_finalize_retry_without_original_artifact_patch_fails_closed(self):
+        root = self.attempt_root("finalize-artifact-request-binding")
+        context = valid_context(
+            runId=root.name,
+            executionId=root.name + "-execution",
+            artifacts={"trace": None, "report": None},
+        )
+        run_evidence._initialize_attempt(self.index_path, root, context)
+
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._finalize_attempt(
+                    root,
+                    "passed",
+                    command_status=0,
+                    artifact_patch={"trace": "traces/requested.json"},
+                )
+
+        self.assertEqual(
+            self.transaction_target_paths(),
+            [
+                f"attempts/{root.name}/run-context.json",
+                f"attempts/{root.name}/bootstrap-events.jsonl",
+                f"attempts/{root.name}/run-summary.json",
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "request fingerprint"):
+            run_evidence._finalize_attempt(root, "passed", command_status=0)
+
+        self.assertEqual(
+            self.read_json(root / "run-context.json")["artifacts"]["trace"],
+            "traces/requested.json",
+        )
+        self.assertTrue((root / "run-summary.json").is_file())
+        self.assertEqual(self.transaction_files(), [])
+
+    def test_finalize_retry_accepts_legacy_separate_artifact_commit(self):
+        root = self.attempt_root("finalize-legacy-artifact-recovery")
+        context = valid_context(
+            runId=root.name,
+            executionId=root.name + "-execution",
+            artifacts={"trace": None, "report": None},
+        )
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        run_evidence.update_context(
+            root,
+            {"artifacts": {"trace": "traces/requested.json"}},
+        )
+
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._finalize_attempt(
+                    root,
+                    "passed",
+                    command_status=0,
+                )
+
+        self.assertEqual(
+            self.transaction_target_paths(),
+            [
+                f"attempts/{root.name}/bootstrap-events.jsonl",
+                f"attempts/{root.name}/run-summary.json",
+            ],
+        )
+        recovered = run_evidence._finalize_attempt(
+            root,
+            "passed",
+            command_status=0,
+            artifact_patch={"trace": "traces/requested.json"},
+        )
+
+        self.assertEqual(recovered, self.read_json(root / "run-summary.json"))
+        self.assertEqual(
+            recovered["artifacts"]["trace"], "traces/requested.json"
+        )
+        self.assertEqual(len(self.terminal_events(root, recovered)), 1)
+        self.assertEqual(self.transaction_files(), [])
+
     def test_request_fingerprint_persists_no_secret_or_absolute_request_material(self):
         publication, index_path = self.new_publication()
         root = publication / "attempts" / "sanitized-fingerprint"

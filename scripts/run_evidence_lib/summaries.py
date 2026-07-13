@@ -280,6 +280,7 @@ def _finalize_attempt(
     summary_text: str | None = None,
     hint: str | None = None,
     command_status: int | None = None,
+    artifact_patch: dict[str, str] | None = None,
     _recovered_transactions: list[dict] | None = None,
 ) -> dict:
     root = Path(root).absolute()
@@ -302,11 +303,24 @@ def _finalize_attempt(
                     if not recovered and _evidence_exists(summary_path):
                         raise FileExistsError("terminal run summary already exists")
                     context = _read_json(root / "run-context.json")
+                    roots = _sanitization_roots(root)
+                    secrets = _collect_secret_values()
                     context = _sanitize_value(
                         context,
-                        roots=_sanitization_roots(root),
-                        secrets=_collect_secret_values(),
+                        roots=roots,
+                        secrets=secrets,
                     )
+                    sanitized_artifact_patch = None
+                    if artifact_patch is not None:
+                        patch = _sanitize_value(
+                            {"artifacts": artifact_patch},
+                            roots=roots,
+                            secrets=secrets,
+                        )
+                        _validate_context_patch(patch)
+                        sanitized_artifact_patch = patch["artifacts"]
+                        context = _deep_merge(context, patch)
+                        _validate_context_identity(context)
                     index = _load_index(index_path)
                     execution = _execution_for_run(index, context.get("runId"))
                     current_tuple = _comparability_tuple(context)
@@ -348,8 +362,6 @@ def _finalize_attempt(
                         summary_text = summary_text or "Run failed"
                         hint = hint or "Inspect bootstrap events and command logs"
 
-                    roots = _sanitization_roots(root)
-                    secrets = _collect_secret_values()
                     error_code = (
                         sanitize_text(error_code, roots=roots, secrets=secrets)
                         if error_code is not None
@@ -365,29 +377,60 @@ def _finalize_attempt(
                         if hint is not None
                         else None
                     )
+                    request = {
+                        "context": context,
+                        "terminal": {
+                            "status": status,
+                            "classification": classification,
+                            "phase": phase,
+                            "errorCode": error_code,
+                            "summary": summary_text,
+                            "hint": hint,
+                            "commandStatus": command_status,
+                        },
+                    }
+                    if sanitized_artifact_patch is not None:
+                        request["artifactPatch"] = sanitized_artifact_patch
                     request_fingerprint = _request_fingerprint(
                         publication_root,
                         "finalize",
                         root,
-                        {
-                            "context": context,
-                            "terminal": {
-                                "status": status,
-                                "classification": classification,
-                                "phase": phase,
-                                "errorCode": error_code,
-                                "summary": summary_text,
-                                "hint": hint,
-                                "commandStatus": command_status,
-                            },
-                        },
+                        request,
                     )
+                    recovery_fingerprint = request_fingerprint
+                    matching_recovered = [
+                        transaction
+                        for transaction in recovered
+                        if transaction["operation"] == "finalize"
+                        and transaction["attemptRoot"] == attempt_relative
+                    ]
+                    context_target_path = (
+                        attempt_relative + "/run-context.json"
+                    )
+                    if (
+                        sanitized_artifact_patch is not None
+                        and len(matching_recovered) == 1
+                        and all(
+                            target["path"] != context_target_path
+                            for target in matching_recovered[0]["targets"]
+                        )
+                    ):
+                        # Finalize journals written before artifact patching
+                        # became atomic bind only the already-patched context.
+                        legacy_request = dict(request)
+                        legacy_request.pop("artifactPatch")
+                        recovery_fingerprint = _request_fingerprint(
+                            publication_root,
+                            "finalize",
+                            root,
+                            legacy_request,
+                        )
                     recovered_result = _recovered_result(
                         publication_root,
                         recovered,
                         "finalize",
                         attempt_relative,
-                        request_fingerprint,
+                        recovery_fingerprint,
                     )
                     if recovered_result is not None:
                         return recovered_result
@@ -447,6 +490,13 @@ def _finalize_attempt(
                         )
                     )
                     targets = []
+                    if artifact_patch is not None:
+                        targets.append(
+                            (
+                                attempt_relative + "/run-context.json",
+                                _json_bytes(context),
+                            )
+                        )
                     if validation_errors:
                         targets.extend(
                             [

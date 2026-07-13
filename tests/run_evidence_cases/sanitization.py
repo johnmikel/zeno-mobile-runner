@@ -192,6 +192,73 @@ class SanitizationTests(unittest.TestCase):
                 _inputs_validated=True,
             )
 
+    def test_public_sanitizers_reject_non_string_scan_inputs(self):
+        class MustNotStringify:
+            def __str__(self):
+                raise AssertionError("untrusted scan input was stringified")
+
+        valid_roots = {"workspace": "", "run_root": "", "home": ""}
+        invalid_roots = dict(valid_roots, workspace=MustNotStringify())
+        invalid_secrets = [MustNotStringify()]
+        calls = (
+            lambda: run_evidence.sanitize_text(
+                "public value", roots=invalid_roots, secrets=[]
+            ),
+            lambda: run_evidence.StreamingSanitizer(
+                roots=invalid_roots, secrets=[]
+            ),
+            lambda: run_evidence.bundle_scan._normalize_scan_inputs(
+                roots=invalid_roots, secrets=[]
+            ),
+            lambda: run_evidence.sanitize_text(
+                "public value", roots=valid_roots, secrets=invalid_secrets
+            ),
+            lambda: run_evidence.StreamingSanitizer(
+                roots=valid_roots, secrets=invalid_secrets
+            ),
+            lambda: run_evidence.bundle_scan._normalize_scan_inputs(
+                roots=valid_roots, secrets=invalid_secrets
+            ),
+        )
+        for call in calls:
+            with self.subTest(call=call), self.assertRaisesRegex(
+                ValueError, "public-safety scan inputs exceed supported limits"
+            ):
+                call()
+
+    def test_streaming_sanitizer_snapshots_mutable_roots_and_secrets(self):
+        roots = {
+            "workspace": "/snapshot/workspace",
+            "run_root": "/snapshot/run",
+            "home": "/snapshot/home",
+        }
+        secrets = ["snapshot-secret"]
+        sanitizer = run_evidence.StreamingSanitizer(
+            roots=roots, secrets=secrets
+        )
+
+        roots.clear()
+        roots.update(
+            {
+                "workspace": "/replacement/workspace",
+                "added": "/replacement/added",
+            }
+        )
+        secrets.clear()
+        secrets.extend(["replacement-secret", "added-secret"])
+
+        payload = b"snapshot-secret /snapshot/workspace/file replacement-secret"
+        sanitized = (
+            sanitizer.feed(payload[:11])
+            + sanitizer.feed(payload[11:31])
+            + sanitizer.feed(payload[31:])
+            + sanitizer.finish()
+        ).decode("utf-8")
+        self.assertEqual(
+            sanitized,
+            "<redacted> ${WORKSPACE}/file replacement-secret",
+        )
+
     def test_root_only_drive_paths_are_redacted_across_every_split(self):
         roots = {"workspace": "", "run_root": "", "home": ""}
         for value in ("C:/", "p:/", "x:\\", "\\\\"):

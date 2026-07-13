@@ -20,6 +20,7 @@ import time
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from .constants import *  # noqa: F401,F403
@@ -51,7 +52,9 @@ def _normalize_bounded_sanitization_values(
     normalized: dict[bytes, str] = {}
     total_bytes = 0
     for value in values:
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str):
+            raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+        if not value:
             continue
         encoded_length = _utf8_byte_length(value)
         if (
@@ -239,7 +242,7 @@ def _sanitize_text_validated(
         ("run_root", "${RUN_ROOT}"),
         ("home", "${HOME}"),
     ):
-        text = _replace_root(text, str(roots.get(key, "")), replacement)
+        text = _replace_root(text, roots.get(key, ""), replacement)
     text = _FILE_URL_RE.sub("<absolute-path>", text)
     text = _WINDOWS_ABSOLUTE_RE.sub("<absolute-path>", text)
     text = _POSIX_ABSOLUTE_RE.sub("<absolute-path>", text)
@@ -272,9 +275,20 @@ class StreamingSanitizer:
 
     def __init__(self, *, roots: dict[str, str], secrets: list[str]) -> None:
         _validate_sanitization_inputs(roots=roots, secrets=secrets)
+        root_snapshot = {
+            key: roots.get(key, "")
+            for key in ("workspace", "run_root", "home")
+        }
+        secret_snapshot = tuple(
+            _normalize_bounded_sanitization_values(
+                secrets,
+                maximum_count=MAX_SANITIZATION_SECRET_COUNT,
+                maximum_total_bytes=MAX_SANITIZATION_SECRET_TOTAL_BYTES,
+            )
+        )
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
-        self._roots = roots
-        self._secrets = secrets
+        self._roots = MappingProxyType(root_snapshot)
+        self._secrets = secret_snapshot
         known_roots: list[tuple[str, int, str, tuple[int, ...]]] = []
         for priority, (key, replacement) in enumerate(
             (
@@ -283,7 +297,7 @@ class StreamingSanitizer:
                 ("home", "${HOME}"),
             )
         ):
-            root = str(roots.get(key, ""))
+            root = self._roots.get(key, "")
             candidates = {root.rstrip("/\\")}
             if "\\" in root:
                 candidates.add(root.replace("\\", "/").rstrip("/"))
@@ -304,8 +318,7 @@ class StreamingSanitizer:
         configured_width = max(
             (
                 len(value)
-                for value in (*roots.values(), *secrets)
-                if isinstance(value, str)
+                for value in (*self._roots.values(), *self._secrets)
             ),
             default=0,
         )

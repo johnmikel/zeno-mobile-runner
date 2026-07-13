@@ -149,7 +149,8 @@ _AJV_TIME_RE = re.compile(
 )
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _CREDENTIAL_URL_RE = re.compile(
-    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]{0,31}://)[^/@\s]+@"
+    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)"
+    r"[^/@\s\x00\"'<>|,;]+@"
 )
 _FILE_URL_RE = re.compile(r"file:///(?:[^\s\x00\"'<>|,;]+)", re.IGNORECASE)
 _POSIX_ABSOLUTE_RE = re.compile(

@@ -162,6 +162,10 @@ class BundleValidationTests(CommandTestCase):
             "profile:///public/resource",
             "xfile:///public/resource",
             "my-file://authority/public/resource",
+            ".file:///public",
+            "+file://host/public",
+            "-file:/",
+            "1file:/",
         )
 
         report.write_text("\n".join(safe_values), encoding="utf-8")
@@ -189,6 +193,55 @@ class BundleValidationTests(CommandTestCase):
         scanner.feed(first_chunk)
         scanner.feed(b"b")
         self.assertNotIn("absolute_path", scanner.finish())
+
+        raw = b"!file:/private"
+        for split in range(len(raw) + 1):
+            scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                roots={}, secrets=[]
+            )
+            scanner.feed(raw[:split])
+            scanner.feed(raw[split:])
+            with self.subTest(boundary=b"!", split=split):
+                self.assertIn("absolute_path", scanner.finish())
+
+        scanner = run_evidence.bundle_scan._RawSemanticScanner(
+            roots={}, secrets=[]
+        )
+        raw = (
+            b"."
+            + b"1" * (scanner.carry_bytes * 2 + 1)
+            + b"file:///public"
+        )
+        for offset in range(0, len(raw), scanner.carry_bytes // 2):
+            scanner.feed(raw[offset : offset + scanner.carry_bytes // 2])
+        self.assertNotIn("absolute_path", scanner.finish())
+
+    def test_file_uri_without_trailing_path_is_classified_consistently(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        value = "file://host"
+        raw = value.encode("ascii")
+        self.assertEqual(
+            run_evidence.sanitize_text(value, roots=roots, secrets=[]),
+            "<absolute-path>",
+        )
+
+        for split in range(len(raw) + 1):
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=[]
+            )
+            streamed = (
+                sanitizer.feed(raw[:split])
+                + sanitizer.feed(raw[split:])
+                + sanitizer.finish()
+            )
+            scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                roots={}, secrets=[]
+            )
+            scanner.feed(raw[:split])
+            scanner.feed(raw[split:])
+            with self.subTest(split=split):
+                self.assertEqual(streamed, b"<absolute-path>")
+                self.assertIn("absolute_path", scanner.finish())
 
     def test_raw_bundle_scanner_tracks_userinfo_subdelimiters_across_every_split(self):
         for delimiter in b"!$&'()*+,;=":

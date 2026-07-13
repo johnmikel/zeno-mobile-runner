@@ -278,6 +278,7 @@ def _scan_publishable_entry_name(
 class _RawSemanticScanner:
     """Scan arbitrary bytes with bounded dynamic overlap and token state."""
 
+    _SCHEME_START_INELIGIBLE = -1
     _TAIL_BYTES = 64
 
     def __init__(self, *, roots: dict[str, str], secrets: list[str]) -> None:
@@ -505,6 +506,8 @@ class _RawSemanticScanner:
         ):
             self._scheme_prefix.append(value)
             self._scheme_state = 1
+        elif self._is_scheme_character(value):
+            self._scheme_state = self._SCHEME_START_INELIGIBLE
         else:
             self._scheme_state = 0
 
@@ -526,7 +529,10 @@ class _RawSemanticScanner:
                 else:
                     self._authority_characters += 1
 
-            if self._scheme_state == 0:
+            if self._scheme_state == self._SCHEME_START_INELIGIBLE:
+                if not self._is_scheme_character(value):
+                    self._restart_scheme(value)
+            elif self._scheme_state == 0:
                 self._restart_scheme(value)
             elif self._scheme_state == 1:
                 if self._is_scheme_character(value):

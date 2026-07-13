@@ -337,6 +337,53 @@ def _replay_bytes(stream: Any, content: bytes) -> None:
     target.flush()
 
 
+def _preflight_started_and_terminal_events(
+    root: Path,
+    phase: str,
+    expected_next_sequence: int,
+    *,
+    roots: dict[str, str],
+    secrets: Any,
+    terminal_status: str | None = None,
+    terminal_metadata: dict[str, Any] | None = None,
+    reserve_maximum_terminal_line: bool = False,
+) -> None:
+    """Prove both lifecycle records fit before a command can have effects."""
+
+    events = _read_bootstrap_events(root)
+    if len(events) + 1 != expected_next_sequence:
+        raise RuntimeError("command event sequence changed while locked")
+    _started, started_content, started_events = _event_stream_candidate(
+        root,
+        phase,
+        "started",
+        events=events,
+        _roots_snapshot=roots,
+        _secrets_snapshot=secrets,
+    )
+    if reserve_maximum_terminal_line:
+        if terminal_status is not None or terminal_metadata is not None:
+            raise RuntimeError("maximum terminal reservation cannot be exact")
+        reserved_size = len(started_content) + MAX_JSONL_LINE_BYTES + 1
+        if reserved_size > MAX_LIFECYCLE_EVENT_STREAM_BYTES:
+            raise ValueError(
+                "bootstrap event stream exceeds "
+                f"{MAX_LIFECYCLE_EVENT_STREAM_BYTES} bytes"
+            )
+        return
+    if terminal_status is None or terminal_metadata is None:
+        raise RuntimeError("exact terminal reservation is incomplete")
+    _event_stream_candidate(
+        root,
+        phase,
+        terminal_status,
+        events=started_events,
+        _roots_snapshot=roots,
+        _secrets_snapshot=secrets,
+        **terminal_metadata,
+    )
+
+
 def _execute_command_during_lifecycle(
     root: Path,
     phase: str,
@@ -399,7 +446,21 @@ def _execute_command_during_lifecycle(
     bounded_io._json_bytes_bounded(
         preflight_metadata, label="command metadata"
     )
-    started = _append_event_during_lifecycle(root, phase, "started")
+    _preflight_started_and_terminal_events(
+        root,
+        phase,
+        next_sequence,
+        roots=roots,
+        secrets=secrets,
+        reserve_maximum_terminal_line=True,
+    )
+    started = _append_event_during_lifecycle(
+        root,
+        phase,
+        "started",
+        _roots_snapshot=roots,
+        _secrets_snapshot=secrets,
+    )
     if started["seq"] != next_sequence:
         raise RuntimeError("command event sequence changed while locked")
 
@@ -519,7 +580,14 @@ def _execute_command_during_lifecycle(
             "commandStatus": return_code,
             "artifact": metadata_relative,
         }
-    _append_event_during_lifecycle(root, phase, event_status, **event_metadata)
+    _append_event_during_lifecycle(
+        root,
+        phase,
+        event_status,
+        _roots_snapshot=roots,
+        _secrets_snapshot=secrets,
+        **event_metadata,
+    )
 
     if not capture_stdout:
         _replay_bytes(stdout_stream, stored_stdout)
@@ -606,10 +674,12 @@ def _record_external_during_lifecycle(
         raise ValueError("failed external outcome cannot use run.cancelled")
     if not isinstance(remediation, str) or not remediation.strip():
         raise ValueError("external remediation must be a non-empty string")
+    roots = _sanitization_roots(root)
+    secrets = _collect_secret_values()
     sanitized_remediation = sanitize_text(
         remediation,
-        roots=_sanitization_roots(root),
-        secrets=_collect_secret_values(),
+        roots=roots,
+        secrets=secrets,
     )
     if not sanitized_remediation.strip():
         raise ValueError("external remediation must be non-empty after sanitization")
@@ -670,12 +740,6 @@ def _record_external_during_lifecycle(
     metadata_content = bounded_io._json_bytes_bounded(
         metadata, label="command metadata"
     )
-    started = _append_event_during_lifecycle(root, phase, "started")
-    if started["seq"] != next_sequence:
-        raise RuntimeError("external command event sequence changed while locked")
-    _atomic_write_bytes(root / stdout_relative, stdout_content)
-    _atomic_write_bytes(root / stderr_relative, stderr_content)
-    _atomic_write_bytes(root / metadata_relative, metadata_content)
     event_status = {
         "success": "passed",
         "failure": "failed",
@@ -687,7 +751,35 @@ def _record_external_during_lifecycle(
             errorCode=failure_code,
             summary=sanitized_remediation,
         )
-    _append_event_during_lifecycle(root, phase, event_status, **event_metadata)
+    _preflight_started_and_terminal_events(
+        root,
+        phase,
+        next_sequence,
+        roots=roots,
+        secrets=secrets,
+        terminal_status=event_status,
+        terminal_metadata=event_metadata,
+    )
+    started = _append_event_during_lifecycle(
+        root,
+        phase,
+        "started",
+        _roots_snapshot=roots,
+        _secrets_snapshot=secrets,
+    )
+    if started["seq"] != next_sequence:
+        raise RuntimeError("external command event sequence changed while locked")
+    _atomic_write_bytes(root / stdout_relative, stdout_content)
+    _atomic_write_bytes(root / stderr_relative, stderr_content)
+    _atomic_write_bytes(root / metadata_relative, metadata_content)
+    _append_event_during_lifecycle(
+        root,
+        phase,
+        event_status,
+        _roots_snapshot=roots,
+        _secrets_snapshot=secrets,
+        **event_metadata,
+    )
     return {"success": 0, "failure": 1, "cancelled": 130}[outcome]
 
 

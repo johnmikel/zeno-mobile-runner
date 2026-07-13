@@ -84,6 +84,16 @@ def _attempt_root_relative(publication_root: Path, root: Path) -> str:
     return relative
 
 
+def _preflight_transaction_request(request: Any) -> bytes:
+    """Canonically admit one semantic request within its public memory cap."""
+
+    return bounded_io._json_bytes_bounded(
+        request,
+        maximum=MAX_TRANSACTION_REQUEST_BYTES,
+        label="transaction request",
+    )
+
+
 def _request_fingerprint(
     publication_root: Path, operation: str, root: Path, request: Any
 ) -> str:
@@ -97,10 +107,7 @@ def _request_fingerprint(
         "attemptRoot": _attempt_root_relative(publication_root, root),
         "request": request,
     }
-    try:
-        content = _json_bytes(payload)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("transaction request is not canonical JSON") from exc
+    content = _preflight_transaction_request(payload)
     return "sha256:" + hashlib.sha256(content).hexdigest()
 
 
@@ -490,14 +497,28 @@ def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
     transaction["legacyFinalizeUpgrade"] = True
 
 
-def _bounded_directory_entries(path: Path, *, label: str) -> list[Path]:
+def _bounded_directory_entries(
+    path: Path,
+    *,
+    label: str,
+    maximum_entries: int | None = None,
+    include_name: Any = None,
+) -> list[Path]:
     """Enumerate a transaction-related directory before sorting bounded names."""
 
+    limit = (
+        MAX_TRANSACTION_DIRECTORY_ENTRY_COUNT
+        if maximum_entries is None
+        else maximum_entries
+    )
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+        raise ValueError("transaction directory entry limit is invalid")
     authority = _active_rooted_io()
     path = Path(path)
     relative = authority._relative(path)
     descriptor = authority._open_directory_unchecked(relative)
     names = []
+    observed_entries = 0
     try:
         _rooted_io_checkpoint("list", "before_list", authority.path(relative))
         authority._validate_directory(relative, descriptor)
@@ -506,12 +527,14 @@ def _bounded_directory_entries(path: Path, *, label: str) -> list[Path]:
                 name = entry.name
                 if name in ("", ".", "..") or "/" in name or "\x00" in name:
                     raise authority._error("transaction entry name is not normalized")
-                if len(names) >= MAX_TRANSACTION_DIRECTORY_ENTRY_COUNT:
+                if observed_entries >= limit:
                     raise ValueError(
                         f"{label} directory entry count exceeds "
-                        f"{MAX_TRANSACTION_DIRECTORY_ENTRY_COUNT}"
+                        f"{limit}"
                     )
-                names.append(name)
+                observed_entries += 1
+                if include_name is None or include_name(name):
+                    names.append(name)
         authority._validate_directory(relative, descriptor)
     except OSError as exc:
         raise authority._error(
@@ -524,7 +547,11 @@ def _bounded_directory_entries(path: Path, *, label: str) -> list[Path]:
 
 def _pending_transaction_inventory(
     publication_root: Path,
-) -> tuple[Path, list[Path], list[tuple[Path, os.stat_result]]]:
+) -> tuple[
+    Path,
+    list[tuple[Path, os.stat_result]],
+    list[tuple[Path, os.stat_result]],
+]:
     transaction_root = _transaction_directory(publication_root, create=False)
     if not _evidence_exists(transaction_root):
         return transaction_root, [], []
@@ -568,7 +595,7 @@ def _pending_transaction_inventory(
                 "pending transaction bytes exceed "
                 f"{MAX_PENDING_TRANSACTION_BYTES}"
             )
-        paths.append(entry)
+        paths.append((entry, metadata))
     return transaction_root, paths, orphan_temporaries
 
 
@@ -593,8 +620,11 @@ def _cleanup_orphan_transaction_temporaries(
                 )
             ):
                 raise ValueError("orphan transaction temporary changed before cleanup")
-        for entry, _metadata in orphan_temporaries:
-            _evidence_unlink(entry)
+        for entry, metadata in orphan_temporaries:
+            _evidence_unlink(
+                entry,
+                expected_identity=(metadata.st_dev, metadata.st_ino),
+            )
         _fsync_directory(transaction_root)
 
 
@@ -610,17 +640,17 @@ def _pending_transaction_paths(
         _cleanup_orphan_transaction_temporaries(
             transaction_root, orphan_temporaries
         )
-    return paths
+    return [path for path, _metadata in paths]
 
 
 def _load_transactions_from_paths(
-    publication_root: Path, journal_paths: list[Path]
-) -> list[tuple[Path, dict]]:
+    publication_root: Path,
+    journal_inventory: list[tuple[Path, os.stat_result]],
+) -> list[tuple[Path, os.stat_result, dict]]:
     loaded = []
     seen_targets = set()
     seen_operations = set()
-    for journal_path in journal_paths:
-        metadata = _evidence_stat(journal_path)
+    for journal_path, metadata in journal_inventory:
         try:
             journal_bytes = _read_bounded_bytes(
                 journal_path,
@@ -660,13 +690,13 @@ def _load_transactions_from_paths(
         if seen_targets & target_paths:
             raise ValueError("pending transactions contain overlapping targets")
         seen_targets.update(target_paths)
-        loaded.append((journal_path, validated))
+        loaded.append((journal_path, metadata, validated))
     return loaded
 
 
 def _load_pending_transactions(
     publication_root: Path, *, cleanup_orphan_temporaries: bool = False
-) -> list[tuple[Path, dict]]:
+) -> list[tuple[Path, os.stat_result, dict]]:
     transaction_root, paths, orphan_temporaries = (
         _pending_transaction_inventory(publication_root)
     )
@@ -710,7 +740,13 @@ def _validated_target_temporaries(path: Path) -> list[tuple[Path, os.stat_result
     candidate_prefixes = (f".{path.name}.", f"{path.name}.")
     temporaries = []
     for entry in _bounded_directory_entries(
-        parent, label="transaction target parent"
+        parent,
+        label="transaction target parent",
+        maximum_entries=MAX_TRANSACTION_TARGET_PARENT_ENTRY_COUNT,
+        include_name=lambda name: (
+            name == f"{path.name}.lock"
+            or any(name.startswith(prefix) for prefix in candidate_prefixes)
+        ),
     ):
         if entry.name == f"{path.name}.lock":
             continue
@@ -722,9 +758,9 @@ def _validated_target_temporaries(path: Path) -> list[tuple[Path, os.stat_result
             continue
         if not exact:
             raise ValueError("transaction target has a malformed atomic temporary")
-        if _evidence_is_symlink(entry):
-            raise ValueError("transaction target temporary must not be a symlink")
         metadata = _evidence_stat(entry)
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError("transaction target temporary must not be a symlink")
         if not stat.S_ISREG(metadata.st_mode):
             raise ValueError("transaction target temporary must be a regular file")
         if os.name == "posix" and stat.S_IMODE(metadata.st_mode) != 0o600:
@@ -758,8 +794,11 @@ def _remove_target_temporaries(
             )
         ):
             raise ValueError("transaction target temporary changed before cleanup")
-    for entry, _metadata in temporaries:
-        _evidence_unlink(entry)
+    for entry, metadata in temporaries:
+        _evidence_unlink(
+            entry,
+            expected_identity=(metadata.st_dev, metadata.st_ino),
+        )
     _fsync_directory(Path(path).parent)
 
 
@@ -811,12 +850,14 @@ def _existing_target_matches(path: Path, target: dict) -> bool:
 
 
 def _preflight_pending_transactions(
-    publication_root: Path, pending: list[tuple[Path, dict]]
+    publication_root: Path,
+    pending: list[tuple],
 ) -> None:
     """Validate the complete recovery set before its first filesystem change."""
 
     virtual_directories = set()
-    for _journal_path, transaction in pending:
+    for pending_item in pending:
+        transaction = pending_item[-1]
         for relative in sorted(
             transaction["requiredDirectories"],
             key=lambda item: (item.count("/"), item),
@@ -864,8 +905,14 @@ def _preflight_pending_transactions(
 
 
 def _apply_transaction(
-    publication_root: Path, journal_path: Path, transaction: dict
+    publication_root: Path,
+    journal_path: Path,
+    transaction: dict,
+    *,
+    journal_metadata: os.stat_result | None = None,
 ) -> None:
+    if journal_metadata is None:
+        journal_metadata = _evidence_stat(journal_path)
     prepared_targets = []
     for index, target in enumerate(transaction["targets"]):
         path = _contained_transaction_path(
@@ -923,7 +970,10 @@ def _apply_transaction(
             raise RootedIOError(
                 f"{ROOTED_IO_CONTAINMENT_ERROR}: transaction target parent changed before commit"
             )
-    _evidence_unlink(journal_path)
+    _evidence_unlink(
+        journal_path,
+        expected_identity=(journal_metadata.st_dev, journal_metadata.st_ino),
+    )
     _fsync_directory(journal_path.parent)
     _transaction_checkpoint("committed", -1)
 
@@ -938,8 +988,13 @@ def _recover_pending_transactions_unlocked(publication_root: Path) -> list[dict]
         transaction_root, orphan_temporaries
     )
     recovered = []
-    for journal_path, transaction in pending:
-        _apply_transaction(publication_root, journal_path, transaction)
+    for journal_path, journal_metadata, transaction in pending:
+        _apply_transaction(
+            publication_root,
+            journal_path,
+            transaction,
+            journal_metadata=journal_metadata,
+        )
         recovered.append(transaction)
     return recovered
 
@@ -1199,7 +1254,7 @@ def _pending_transaction_errors_for_attempt(root: Path) -> list[str]:
     except ValueError as exc:
         return [f"transactions: unsafe pending journal: {exc}"]
     errors = []
-    for journal_path, transaction in pending:
+    for journal_path, _journal_metadata, transaction in pending:
         if transaction["attemptRoot"] == attempt_relative or any(
             target["path"].startswith(attempt_relative + "/")
             for target in transaction["targets"]
@@ -1221,6 +1276,7 @@ __all__ = (
     "_transaction_checkpoint",
     "_publication_root_for_attempt",
     "_attempt_root_relative",
+    "_preflight_transaction_request",
     "_request_fingerprint",
     "_contained_transaction_path",
     "_transaction_directory",

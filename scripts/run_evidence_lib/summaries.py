@@ -302,6 +302,20 @@ def _finalize_attempt(
     publication_root = _publication_root_for_attempt(root)
     attempt_relative = _attempt_root_relative(publication_root, root)
     index_path = publication_root / "attempt-index.json"
+    raw_request = {
+        "terminal": {
+            "status": status,
+            "classification": classification,
+            "phase": phase,
+            "errorCode": error_code,
+            "summary": summary_text,
+            "hint": hint,
+            "commandStatus": command_status,
+        }
+    }
+    if artifact_patch is not None:
+        raw_request["artifactPatch"] = artifact_patch
+    _preflight_transaction_request(raw_request)
     with _exclusive_lock(publication_root / ".transactions.lock"):
         recovered = list(_recovered_transactions or [])
         recovered.extend(

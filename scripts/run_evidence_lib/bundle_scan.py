@@ -704,7 +704,10 @@ def _scan_publishable_files(
     try:
         entries = bounded_io._iter_rooted_tree(
             root,
-            maximum_directories=max(4096, _limits.MAX_BUNDLE_FILE_COUNT),
+            maximum_directories=max(
+                _limits.MAX_BUNDLE_DIRECTORY_COUNT,
+                _limits.MAX_BUNDLE_FILE_COUNT,
+            ),
         )
         for path, metadata in entries:
             relative = path.relative_to(root).as_posix()
@@ -766,7 +769,9 @@ def _scan_publishable_files(
     except bounded_io._EntryLimitExceeded:
         errors.append(
             "$: publishable bundle exceeds maximum directory count "
-            f"({max(4096, _limits.MAX_BUNDLE_FILE_COUNT)})"
+            "("
+            f"{max(_limits.MAX_BUNDLE_DIRECTORY_COUNT, _limits.MAX_BUNDLE_FILE_COUNT)}"
+            ")"
         )
         return None
     if not publishable_names_safe:
@@ -785,7 +790,10 @@ def _verify_publishable_snapshot(
     try:
         entries = bounded_io._iter_rooted_tree(
             root,
-            maximum_directories=max(4096, _limits.MAX_BUNDLE_FILE_COUNT),
+            maximum_directories=max(
+                _limits.MAX_BUNDLE_DIRECTORY_COUNT,
+                _limits.MAX_BUNDLE_FILE_COUNT,
+            ),
         )
         for path, metadata in entries:
             relative = path.relative_to(root).as_posix()

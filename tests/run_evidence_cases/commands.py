@@ -40,6 +40,82 @@ class CommandCaptureTests(CommandTestCase):
         self.assertEqual(events_path.read_bytes(), events_before)
         self.assertEqual(sorted((self.root / "commands").iterdir()), commands_before)
 
+    def test_subprocess_reserves_terminal_event_before_spawn_or_write(self):
+        events_path = self.root / "bootstrap-events.jsonl"
+        events_before = events_path.read_bytes()
+        commands_before = sorted((self.root / "commands").iterdir())
+        timestamp = "2026-07-13T12:00:00.000Z"
+        events = self.read_events(self.root)
+        _started, started_content, _started_events = (
+            run_evidence._event_stream_candidate(
+                self.root,
+                "scenario.execute",
+                "started",
+                events=events,
+                _timestamp=timestamp,
+            )
+        )
+        exact_reservation = (
+            len(started_content) + run_evidence.MAX_JSONL_LINE_BYTES + 1
+        )
+
+        with mock.patch.object(
+            run_evidence.lifecycle, "_utc_now", return_value=timestamp
+        ), mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            exact_reservation - 1,
+        ), mock.patch.object(
+            run_evidence.commands,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            exact_reservation - 1,
+        ), mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            wraps=subprocess.Popen,
+        ) as popen, self.assertRaisesRegex(
+            ValueError, "event stream exceeds"
+        ):
+            run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "reserved-command",
+                "runner.unclassified",
+                [sys.executable, "-c", "pass"],
+                stdout_stream=io.BytesIO(),
+                stderr_stream=io.BytesIO(),
+            )
+
+        self.assertEqual(popen.call_count, 0)
+        self.assertEqual(events_path.read_bytes(), events_before)
+        self.assertEqual(sorted((self.root / "commands").iterdir()), commands_before)
+
+        with mock.patch.object(
+            run_evidence.lifecycle, "_utc_now", return_value=timestamp
+        ), mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            exact_reservation,
+        ), mock.patch.object(
+            run_evidence.commands,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            exact_reservation,
+        ):
+            return_code = run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "reserved-command",
+                "runner.unclassified",
+                [sys.executable, "-c", "pass"],
+                stdout_stream=io.BytesIO(),
+                stderr_stream=io.BytesIO(),
+            )
+        self.assertEqual(return_code, 0)
+        self.assertEqual(
+            [event["status"] for event in self.read_events(self.root)[-2:]],
+            ["started", "passed"],
+        )
+
     @staticmethod
     def _process_is_running(pid):
         try:
@@ -1681,6 +1757,79 @@ class ExternalCaptureTests(CommandTestCase):
 
         self.assertEqual(events_path.read_bytes(), events_before)
         self.assertEqual(sorted((root / "commands").iterdir()), commands_before)
+
+    def test_external_reserves_exact_terminal_event_before_any_write(self):
+        root = self._external_root("event-reservation")
+        events_path = root / "bootstrap-events.jsonl"
+        events_before = events_path.read_bytes()
+        commands_before = sorted((root / "commands").iterdir())
+        timestamp = "2026-07-13T12:00:00.000Z"
+        events = self.read_events(root)
+        next_sequence = len(events) + 1
+        metadata_relative = (
+            f"commands/{next_sequence:06d}-reserved-external.json"
+        )
+        _started, _started_content, started_events = (
+            run_evidence._event_stream_candidate(
+                root,
+                "app.build",
+                "started",
+                events=events,
+                _timestamp=timestamp,
+            )
+        )
+        _terminal, terminal_content, _terminal_events = (
+            run_evidence._event_stream_candidate(
+                root,
+                "app.build",
+                "passed",
+                events=started_events,
+                _timestamp=timestamp,
+                command=metadata_relative,
+                artifact=metadata_relative,
+            )
+        )
+        exact_reservation = len(terminal_content)
+
+        with mock.patch.object(
+            run_evidence.lifecycle, "_utc_now", return_value=timestamp
+        ), mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            exact_reservation - 1,
+        ), self.assertRaisesRegex(ValueError, "event stream exceeds"):
+            run_evidence._record_external(
+                root,
+                "app.build",
+                "reserved-external",
+                "success",
+                "infra.hosted_runner",
+                "No remediation is required",
+            )
+
+        self.assertEqual(events_path.read_bytes(), events_before)
+        self.assertEqual(sorted((root / "commands").iterdir()), commands_before)
+
+        with mock.patch.object(
+            run_evidence.lifecycle, "_utc_now", return_value=timestamp
+        ), mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            exact_reservation,
+        ):
+            return_code = run_evidence._record_external(
+                root,
+                "app.build",
+                "reserved-external",
+                "success",
+                "infra.hosted_runner",
+                "No remediation is required",
+            )
+        self.assertEqual(return_code, 0)
+        self.assertEqual(
+            [event["status"] for event in self.read_events(root)[-2:]],
+            ["started", "passed"],
+        )
 
     def test_external_rejects_unknown_or_outcome_mismatched_codes_before_writes(self):
         cases = (

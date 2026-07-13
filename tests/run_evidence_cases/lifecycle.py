@@ -240,6 +240,94 @@ class LifecycleTests(StorageTestCase):
         index = self.read_json(self.index_path)
         self.assertEqual(index["executions"][0]["attempts"][0]["runId"], "run-1")
 
+    @staticmethod
+    def _cyclic_request(value):
+        value["cycle"] = value
+        return value
+
+    def test_init_and_register_preflight_raw_requests_before_sanitization(self):
+        cases = (
+            ("init", run_evidence._initialize_attempt),
+            ("register", run_evidence.register_attempt),
+        )
+        for name, operation in cases:
+            context = valid_context(
+                runId=f"bounded-{name}",
+                executionId=f"bounded-{name}-execution",
+            )
+            self._cyclic_request(context["toolchain"])
+            root = self.attempt_root(context["runId"])
+            with self.subTest(operation=name), mock.patch.object(
+                run_evidence.lifecycle,
+                "_sanitize_value",
+                side_effect=AssertionError("sanitizer ran before request preflight"),
+            ) as sanitize, self.assertRaisesRegex(
+                ValueError, "circular JSON container reference"
+            ):
+                operation(self.index_path, root, context)
+            self.assertEqual(sanitize.call_count, 0)
+            self.assertFalse(root.exists())
+            self.assertFalse(self.index_path.exists())
+
+    def test_context_preflights_raw_patch_before_recovery_or_sanitization(self):
+        root = self.initialize()
+        context_path = root / "run-context.json"
+        context_before = context_path.read_bytes()
+        index_before = self.index_path.read_bytes()
+        patch = {"host": {}}
+        self._cyclic_request(patch["host"])
+
+        with mock.patch.object(
+            run_evidence.lifecycle,
+            "_recover_pending_transactions_unlocked",
+            side_effect=AssertionError("recovery ran before request preflight"),
+        ) as recover, mock.patch.object(
+            run_evidence.lifecycle,
+            "_sanitize_value",
+            side_effect=AssertionError("sanitizer ran before request preflight"),
+        ) as sanitize, self.assertRaisesRegex(
+            ValueError, "circular JSON container reference"
+        ):
+            run_evidence.update_context(root, patch)
+
+        self.assertEqual(recover.call_count, 0)
+        self.assertEqual(sanitize.call_count, 0)
+        self.assertEqual(context_path.read_bytes(), context_before)
+        self.assertEqual(self.index_path.read_bytes(), index_before)
+
+    def test_finalize_preflights_raw_request_before_recovery_or_reads(self):
+        root = self.initialize()
+        context_path = root / "run-context.json"
+        events_path = root / "bootstrap-events.jsonl"
+        context_before = context_path.read_bytes()
+        events_before = events_path.read_bytes()
+        patch = {}
+        self._cyclic_request(patch)
+
+        with mock.patch.object(
+            run_evidence.summaries,
+            "_recover_pending_transactions_unlocked",
+            side_effect=AssertionError("recovery ran before request preflight"),
+        ) as recover, mock.patch.object(
+            run_evidence.summaries.bounded_io,
+            "_read_json_bounded",
+            side_effect=AssertionError("read ran before request preflight"),
+        ) as read_json, self.assertRaisesRegex(
+            ValueError, "circular JSON container reference"
+        ):
+            run_evidence._finalize_attempt(
+                root,
+                "failed",
+                error_code="runner.unclassified",
+                artifact_patch=patch,
+            )
+
+        self.assertEqual(recover.call_count, 0)
+        self.assertEqual(read_json.call_count, 0)
+        self.assertEqual(context_path.read_bytes(), context_before)
+        self.assertEqual(events_path.read_bytes(), events_before)
+        self.assertFalse((root / "run-summary.json").exists())
+
     def test_context_reads_reject_duplicate_keys_without_mutation(self):
         root = self.initialize()
         context_path = root / "run-context.json"
@@ -535,6 +623,107 @@ class LifecycleTests(StorageTestCase):
             ],
             "18.5",
         )
+
+    def test_context_sibling_count_is_bounded_before_sibling_locks(self):
+        first = self.initialize(valid_context(runtimeVersion=None))
+        index = self.read_json(self.index_path)
+        attempts = index["executions"][0]["attempts"]
+        sibling_roots = [first]
+        for attempt in range(2, run_evidence.MAX_CONTEXT_SIBLING_COUNT + 2):
+            run_id = f"run-{attempt}"
+            sibling_root = self.attempt_root(run_id)
+            sibling_root.mkdir(parents=True)
+            context = valid_context(
+                runId=run_id,
+                executionId="execution-1",
+                attempt=attempt,
+                runtimeVersion=None,
+            )
+            (sibling_root / "run-context.json").write_bytes(
+                run_evidence._json_bytes(context)
+            )
+            attempts.append(
+                {
+                    "runId": run_id,
+                    "attempt": attempt,
+                    "summary": f"attempts/{run_id}/run-summary.json",
+                }
+            )
+            sibling_roots.append(sibling_root)
+        self.index_path.write_bytes(run_evidence._json_bytes(index))
+        index_before = self.index_path.read_bytes()
+        contexts_before = {
+            root.name: (root / "run-context.json").read_bytes()
+            for root in sibling_roots
+        }
+
+        with self.assertRaisesRegex(ValueError, "sibling count exceeds"):
+            run_evidence.update_context(first, {"runtimeVersion": "18.5"})
+
+        self.assertEqual(self.index_path.read_bytes(), index_before)
+        self.assertEqual(
+            {
+                root.name: (root / "run-context.json").read_bytes()
+                for root in sibling_roots
+            },
+            contexts_before,
+        )
+        self.assertTrue(
+            all(not (root / ".context.lock").exists() for root in sibling_roots)
+        )
+
+        attempts.pop()
+        self.index_path.write_bytes(run_evidence._json_bytes(index))
+        accepted = run_evidence.update_context(
+            first, {"runtimeVersion": "18.5"}
+        )
+        self.assertEqual(accepted["runtimeVersion"], "18.5")
+
+    def test_context_sibling_bytes_are_preflighted_before_any_context_read(self):
+        first = self.initialize(valid_context(runtimeVersion=None))
+        second_context = valid_context(
+            runId="run-2", attempt=2, runtimeVersion=None
+        )
+        second = self.attempt_root("run-2")
+        run_evidence._initialize_attempt(self.index_path, second, second_context)
+        contexts = (first / "run-context.json", second / "run-context.json")
+        exact_aggregate = sum(path.stat().st_size for path in contexts)
+        index_before = self.index_path.read_bytes()
+        contexts_before = {path: path.read_bytes() for path in contexts}
+
+        with mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_CONTEXT_SIBLING_AGGREGATE_BYTES",
+            exact_aggregate - 1,
+        ), mock.patch.object(
+            run_evidence.lifecycle.bounded_io,
+            "_read_json_bounded",
+            wraps=run_evidence.lifecycle.bounded_io._read_json_bounded,
+        ) as read_json, self.assertRaisesRegex(
+            ValueError, "sibling context bytes exceed"
+        ):
+            run_evidence.update_context(first, {"runtimeVersion": "18.5"})
+
+        context_reads = [
+            call
+            for call in read_json.call_args_list
+            if Path(call.args[0]).name == "run-context.json"
+        ]
+        self.assertEqual(context_reads, [])
+        self.assertEqual(self.index_path.read_bytes(), index_before)
+        self.assertEqual(
+            {path: path.read_bytes() for path in contexts}, contexts_before
+        )
+
+        with mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_CONTEXT_SIBLING_AGGREGATE_BYTES",
+            exact_aggregate,
+        ):
+            accepted = run_evidence.update_context(
+                first, {"runtimeVersion": "18.5"}
+            )
+        self.assertEqual(accepted["runtimeVersion"], "18.5")
 
     def test_finalized_identity_is_immutable(self):
         root = self.initialize()

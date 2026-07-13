@@ -126,6 +126,7 @@ def register_attempt(index_path: Path, attempt_root: Path, context: dict) -> dic
         raise ValueError("attempt index parent does not exist")
     publication_root = index_path.parent
     attempt_relative = _attempt_root_relative(publication_root, attempt_root)
+    _preflight_transaction_request(context)
     context = _sanitize_value(
         context,
         roots=_sanitization_roots(attempt_root),
@@ -272,6 +273,7 @@ def update_context(
     attempt_relative = _attempt_root_relative(publication_root, root)
     context_path = root / "run-context.json"
     index_path = publication_root / "attempt-index.json"
+    _preflight_transaction_request(patch)
     with _exclusive_lock(publication_root / ".transactions.lock"):
         recovered = _recover_pending_transactions_unlocked(publication_root)
         if _recovered_transactions is not None:
@@ -301,20 +303,51 @@ def update_context(
                 or sibling_roots[root.name].absolute() != root
             ):
                 raise ValueError("attempt root does not match its registered runId")
+            if len(sibling_roots) > MAX_CONTEXT_SIBLING_COUNT:
+                raise ValueError(
+                    "context sibling count exceeds "
+                    f"{MAX_CONTEXT_SIBLING_COUNT}"
+                )
+            ordered_sibling_roots = sorted(
+                sibling_roots.values(), key=lambda item: item.name
+            )
             with ExitStack() as locks:
-                for sibling_root in sorted(
-                    sibling_roots.values(), key=lambda item: item.name
-                ):
+                for sibling_root in ordered_sibling_roots:
                     locks.enter_context(
                         _exclusive_lock(sibling_root / ".context.lock")
                     )
+                context_metadata = {}
+                aggregate_bytes = 0
+                authority = _active_rooted_io()
+                for run_id, sibling_root in sibling_roots.items():
+                    sibling_context_path = sibling_root / "run-context.json"
+                    metadata = authority.stat(
+                        sibling_context_path, missing_ok=True
+                    )
+                    if metadata is None or not stat.S_ISREG(metadata.st_mode):
+                        raise ValueError(
+                            "registered sibling attempt context is missing"
+                        )
+                    if metadata.st_size > MAX_STRUCTURED_JSON_BYTES:
+                        raise ValueError(
+                            "structured JSON exceeds "
+                            f"{MAX_STRUCTURED_JSON_BYTES} bytes"
+                        )
+                    aggregate_bytes += metadata.st_size
+                    if aggregate_bytes > MAX_CONTEXT_SIBLING_AGGREGATE_BYTES:
+                        raise ValueError(
+                            "sibling context bytes exceed "
+                            f"{MAX_CONTEXT_SIBLING_AGGREGATE_BYTES} bytes"
+                        )
+                    context_metadata[run_id] = metadata
                 contexts = {}
                 for run_id, sibling_root in sibling_roots.items():
                     sibling_context_path = sibling_root / "run-context.json"
-                    if not _evidence_is_file(sibling_context_path):
-                        raise ValueError("registered sibling attempt context is missing")
                     contexts[run_id], _byte_count = (
-                        bounded_io._read_json_bounded(sibling_context_path)
+                        bounded_io._read_json_bounded(
+                            sibling_context_path,
+                            expected_metadata=context_metadata[run_id],
+                        )
                     )
 
                 context = contexts[root.name]
@@ -437,6 +470,8 @@ def _event_stream_candidate(
     *,
     events: list[dict] | None = None,
     _timestamp: str | None = None,
+    _roots_snapshot: dict[str, str] | None = None,
+    _secrets_snapshot: Any = None,
     **metadata: Any,
 ) -> tuple[dict, bytes, list[dict]]:
     events = _read_bootstrap_events(root) if events is None else list(events)
@@ -454,8 +489,16 @@ def _event_stream_candidate(
     )
     metadata = _sanitize_value(
         metadata,
-        roots=_sanitization_roots(root),
-        secrets=_collect_secret_values(),
+        roots=(
+            _sanitization_roots(root)
+            if _roots_snapshot is None
+            else _roots_snapshot
+        ),
+        secrets=(
+            _collect_secret_values()
+            if _secrets_snapshot is None
+            else _secrets_snapshot
+        ),
     )
     for field in ("errorCode", "summary", "command", "commandStatus", "artifact"):
         if field in metadata and metadata[field] is not None:
@@ -484,23 +527,47 @@ def _event_stream_candidate(
 
 
 def _append_event_unlocked(
-    root: Path, phase: str, status: str, **metadata: Any
+    root: Path,
+    phase: str,
+    status: str,
+    *,
+    _roots_snapshot: dict[str, str] | None = None,
+    _secrets_snapshot: Any = None,
+    **metadata: Any,
 ) -> dict:
     event, content, _events = _event_stream_candidate(
-        root, phase, status, **metadata
+        root,
+        phase,
+        status,
+        _roots_snapshot=_roots_snapshot,
+        _secrets_snapshot=_secrets_snapshot,
+        **metadata,
     )
     _atomic_write_bytes(root / "bootstrap-events.jsonl", content)
     return event
 
 
 def _append_event_during_lifecycle(
-    root: Path, phase: str, status: str, **metadata: Any
+    root: Path,
+    phase: str,
+    status: str,
+    *,
+    _roots_snapshot: dict[str, str] | None = None,
+    _secrets_snapshot: Any = None,
+    **metadata: Any,
 ) -> dict:
     root = Path(root)
     with _exclusive_lock(root / ".events.lock"):
         if _evidence_exists(root / "run-summary.json"):
             raise ValueError("cannot append events after finalization")
-        return _append_event_unlocked(root, phase, status, **metadata)
+        return _append_event_unlocked(
+            root,
+            phase,
+            status,
+            _roots_snapshot=_roots_snapshot,
+            _secrets_snapshot=_secrets_snapshot,
+            **metadata,
+        )
 
 
 @_rooted_attempt_mutation
@@ -519,6 +586,7 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
     if not _evidence_is_dir(publication_root):
         raise ValueError("attempt index parent does not exist")
     attempt_relative = _attempt_root_relative(publication_root, root)
+    _preflight_transaction_request(context)
     context = _sanitize_value(
         context,
         roots=_sanitization_roots(root),

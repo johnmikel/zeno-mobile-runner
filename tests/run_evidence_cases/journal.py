@@ -9,6 +9,41 @@ from .support import *  # noqa: F401,F403
 
 
 class TransactionRecoveryTests(StorageTestCase):
+    def test_request_fingerprint_enforces_exact_canonical_request_cap(self):
+        self.assertEqual(
+            run_evidence.MAX_TRANSACTION_REQUEST_BYTES, 4 * 1024 * 1024
+        )
+        root = self.attempt_root("fingerprint-boundary")
+        request = {"value": "bounded"}
+        payload = {
+            "schemaVersion": 1,
+            "operation": "finalize",
+            "attemptRoot": f"attempts/{root.name}",
+            "request": request,
+        }
+        exact_size = len(run_evidence._json_bytes(payload))
+
+        with mock.patch.object(
+            run_evidence.journal,
+            "MAX_TRANSACTION_REQUEST_BYTES",
+            exact_size,
+            create=True,
+        ):
+            fingerprint = run_evidence._request_fingerprint(
+                self.publication_root, "finalize", root, request
+            )
+        self.assertRegex(fingerprint, r"^sha256:[0-9a-f]{64}$")
+
+        with mock.patch.object(
+            run_evidence.journal,
+            "MAX_TRANSACTION_REQUEST_BYTES",
+            exact_size - 1,
+            create=True,
+        ), self.assertRaisesRegex(ValueError, "transaction request exceeds"):
+            run_evidence._request_fingerprint(
+                self.publication_root, "finalize", root, request
+            )
+
     def stop_process(self, process):
         if process.poll() is None:
             process.kill()
@@ -2734,3 +2769,166 @@ class TransactionResourceLimitTests(StorageTestCase):
             journal_module._preflight_pending_transactions(
                 self.publication_root, pending
             )
+
+    def test_pending_journal_read_is_bound_to_inventory_metadata(self):
+        root, transaction = self.capture_init_transaction("inventory-binding")
+        journal_path, content = self.write_pending_journal(
+            transaction["journal"]
+        )
+        original_loader = journal_module._load_transactions_from_paths
+
+        def grow_after_inventory(publication_root, inventory):
+            journal_path.write_bytes(content + b" " * 4096)
+            return original_loader(publication_root, inventory)
+
+        with mock.patch.object(
+            journal_module,
+            "MAX_PENDING_TRANSACTION_BYTES",
+            len(content),
+        ), mock.patch.object(
+            journal_module,
+            "MAX_TRANSACTION_JOURNAL_BYTES",
+            len(content) + 4096,
+        ), mock.patch.object(
+            journal_module,
+            "_load_transactions_from_paths",
+            side_effect=grow_after_inventory,
+        ), self.assertRaisesRegex(
+            run_evidence.RootedIOError, "changed while scanning"
+        ):
+            run_evidence._recover_pending_transactions(self.publication_root)
+
+        self.assertTrue(journal_path.is_file())
+        self.assertFalse(root.exists())
+
+    def test_target_parent_scan_accepts_public_bundle_sized_directories(self):
+        context = valid_context(
+            runId="target-parent-bound",
+            executionId="target-parent-bound-execution",
+        )
+        root = self.attempt_root(context["runId"])
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        commands = root / "commands"
+        public_directory_limit = max(
+            4096, run_evidence.MAX_BUNDLE_FILE_COUNT
+        )
+        for index in range(run_evidence.MAX_BUNDLE_FILE_COUNT):
+            (commands / f"artifact-{index:04d}.log").write_bytes(b"safe")
+        for index in range(public_directory_limit - 1):
+            (commands / f"child-{index:04d}").mkdir()
+        target = commands / "future.log"
+
+        with run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            self.assertEqual(
+                journal_module._validated_target_temporaries(target), []
+            )
+
+        for index in range(run_evidence.MAX_TRANSACTION_DIRECTORY_ENTRY_COUNT):
+            (commands / f"transaction-control-{index:03d}").write_bytes(b"")
+        self.assertEqual(
+            len(tuple(commands.iterdir())),
+            run_evidence.MAX_TRANSACTION_TARGET_PARENT_ENTRY_COUNT,
+        )
+        with run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            self.assertEqual(
+                journal_module._validated_target_temporaries(target), []
+            )
+
+        (commands / "over-production-limit").write_bytes(b"")
+        with run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "target parent directory entry count"
+        ):
+            journal_module._validated_target_temporaries(target)
+
+    def _assert_unlink_replacement_is_preserved(
+        self, victim, replacement, operation
+    ):
+        original = victim.with_name(victim.name + ".original")
+        replacement_content = replacement.read_bytes()
+        swapped = False
+
+        def swap_at_unlink(actual_operation, phase, path):
+            nonlocal swapped
+            if (
+                not swapped
+                and actual_operation == "unlink"
+                and phase == "before_unlink"
+                and Path(path) == victim
+            ):
+                victim.replace(original)
+                replacement.replace(victim)
+                swapped = True
+
+        with mock.patch.object(
+            run_evidence.safe_io,
+            "_rooted_io_checkpoint",
+            side_effect=swap_at_unlink,
+        ), self.assertRaisesRegex(
+            run_evidence.RootedIOError, "unlink target binding changed"
+        ):
+            operation()
+
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_bytes(), replacement_content)
+        self.assertTrue(original.is_file())
+
+    def test_orphan_cleanup_binds_identity_through_unlink(self):
+        transaction_root = self.publication_root / ".transactions"
+        transaction_root.mkdir(mode=0o700)
+        orphan = transaction_root / (
+            ".init-unlink-race-0123456789abcdef.json.abcdefgh.tmp"
+        )
+        orphan.write_bytes(b"original orphan")
+        orphan.chmod(0o600)
+        replacement = self.publication_root / "replacement-orphan"
+        replacement.write_bytes(b"replacement orphan")
+        replacement.chmod(0o600)
+
+        self._assert_unlink_replacement_is_preserved(
+            orphan,
+            replacement,
+            lambda: run_evidence._recover_pending_transactions(
+                self.publication_root
+            ),
+        )
+
+    def test_target_temporary_cleanup_binds_identity_through_unlink(self):
+        _root, transaction = self.capture_init_transaction("target-unlink-race")
+        self.write_pending_journal(transaction["journal"])
+        temporary = self.publication_root / ".attempt-index.json.abcdefgh.tmp"
+        temporary.write_bytes(b"original target temporary")
+        temporary.chmod(0o600)
+        replacement = self.publication_root / "replacement-target-temporary"
+        replacement.write_bytes(b"replacement target temporary")
+        replacement.chmod(0o600)
+
+        self._assert_unlink_replacement_is_preserved(
+            temporary,
+            replacement,
+            lambda: run_evidence._recover_pending_transactions(
+                self.publication_root
+            ),
+        )
+
+    def test_final_journal_cleanup_binds_identity_through_unlink(self):
+        _root, transaction = self.capture_init_transaction("journal-unlink-race")
+        journal_path, content = self.write_pending_journal(
+            transaction["journal"]
+        )
+        replacement = self.publication_root / "replacement-journal"
+        replacement.write_bytes(content)
+        replacement.chmod(0o600)
+
+        self._assert_unlink_replacement_is_preserved(
+            journal_path,
+            replacement,
+            lambda: run_evidence._recover_pending_transactions(
+                self.publication_root
+            ),
+        )

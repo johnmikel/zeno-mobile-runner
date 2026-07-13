@@ -342,11 +342,29 @@ class _RootedIO:
         finally:
             os.close(descriptor)
 
-    def unlink(self, path: Path | str, *, missing_ok: bool = False) -> None:
+    def unlink(
+        self,
+        path: Path | str,
+        *,
+        missing_ok: bool = False,
+        expected_identity: tuple[int, int] | None = None,
+    ) -> None:
         parent, name, parent_relative, relative = self._parent(path)
         try:
+            self._validate_directory(parent_relative, parent)
             _rooted_io_checkpoint("unlink", "before_unlink", self.path(relative))
             self._validate_directory(parent_relative, parent)
+            if expected_identity is not None:
+                try:
+                    visible = os.stat(
+                        name, dir_fd=parent, follow_symlinks=False
+                    )
+                except FileNotFoundError:
+                    if missing_ok:
+                        return
+                    raise
+                if (visible.st_dev, visible.st_ino) != expected_identity:
+                    raise self._error("unlink target binding changed")
             try:
                 os.unlink(name, dir_fd=parent)
             except FileNotFoundError:
@@ -573,8 +591,17 @@ def _evidence_mkdir(path: Path, mode: int = 0o700) -> None:
     _active_rooted_io().ensure_directory(path, mode)
 
 
-def _evidence_unlink(path: Path, *, missing_ok: bool = False) -> None:
-    _active_rooted_io().unlink(path, missing_ok=missing_ok)
+def _evidence_unlink(
+    path: Path,
+    *,
+    missing_ok: bool = False,
+    expected_identity: tuple[int, int] | None = None,
+) -> None:
+    _active_rooted_io().unlink(
+        path,
+        missing_ok=missing_ok,
+        expected_identity=expected_identity,
+    )
 
 
 def _rooted_publication_mutation(function):

@@ -20,6 +20,19 @@ class _EntryLimitExceeded(ValueError):
 _MAX_JSON_NESTING_DEPTH = 256
 
 
+def _reject_duplicate_object_pairs(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    """Build one JSON object while rejecting ambiguous duplicate members."""
+
+    value: dict[str, Any] = {}
+    for key, member in pairs:
+        if key in value:
+            raise ValueError("duplicate object key")
+        value[key] = member
+    return value
+
+
 def _validate_json_nesting(
     value: Any, maximum: int = _MAX_JSON_NESTING_DEPTH
 ) -> None:
@@ -65,7 +78,10 @@ def _decode_json_bytes(content: bytes) -> Any:
     """Strictly decode one JSON document and enforce deterministic depth."""
 
     try:
-        value = json.loads(content.decode("utf-8"))
+        value = json.loads(
+            content.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_object_pairs,
+        )
     except RecursionError as exc:
         raise ValueError("nesting exceeds supported depth") from exc
     except (UnicodeError, json.JSONDecodeError) as exc:

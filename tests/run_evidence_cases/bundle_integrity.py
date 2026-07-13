@@ -363,6 +363,50 @@ class BundleIntegrityTests(CommandTestCase):
         self.assertIn("attempt-index.json: contains a raw absolute path", errors)
         self.assertFalse((self.root.parent / "unrelated-run").exists())
 
+    def test_attempt_index_rejects_duplicate_object_keys_without_echoing_values(self):
+        self.make_bundle()
+        secret = "index-duplicate-known-secret"
+        index_path = self.publication_root / "attempt-index.json"
+        index = self.read_json(index_path)
+        execution_id = index["executions"][0]["executionId"]
+        encoded_key = json.dumps("executionId")
+        encoded_value = json.dumps(execution_id)
+        original_member = f"{encoded_key}:{encoded_value}"
+        duplicate_member = (
+            f"{encoded_key}:{json.dumps(secret)},{original_member}"
+        )
+        content = json.dumps(index, separators=(",", ":"))
+        self.assertIn(original_member, content)
+        index_path.write_text(
+            content.replace(original_member, duplicate_member, 1),
+            encoding="utf-8",
+        )
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[secret])
+        joined = "\n".join(errors)
+
+        self.assertIn("attempt-index.json", joined)
+        self.assertIn("duplicate object key", joined)
+        self.assertNotIn(secret, joined)
+
+    def test_attempt_structured_file_rejects_nested_duplicate_object_keys(self):
+        self.make_bundle()
+        secret = "artifact-duplicate-known-secret"
+        artifact = self.root / "duplicate-artifact.json"
+        artifact.write_text(
+            '{"outer":{"value":'
+            + json.dumps(secret)
+            + ',"value":"safe"}}',
+            encoding="utf-8",
+        )
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[secret])
+        joined = "\n".join(errors)
+
+        self.assertIn("duplicate-artifact.json", joined)
+        self.assertIn("duplicate object key", joined)
+        self.assertNotIn(secret, joined)
+
     def test_attempt_index_replacement_after_scan_is_rejected(self):
         self.make_bundle()
         index_path = self.publication_root / "attempt-index.json"
@@ -409,6 +453,23 @@ class BundleIntegrityTests(CommandTestCase):
         self.assertIn(
             "surrogate.json: contains non-Unicode scalar text", errors
         )
+
+    def test_bounded_json_decoder_rejects_duplicate_keys_at_every_object_depth(self):
+        secret = "decoder-duplicate-known-secret"
+        documents = (
+            f'{{"value":"{secret}","value":"safe"}}',
+            f'{{"outer":{{"value":"{secret}","value":"safe"}}}}',
+            f'[{{"outer":{{"value":"{secret}","value":"safe"}}}}]',
+        )
+
+        for depth, document in enumerate(documents):
+            with self.subTest(document_depth=depth):
+                with self.assertRaises(ValueError) as raised:
+                    run_evidence.bounded_io._decode_json_bytes(
+                        document.encode("utf-8")
+                    )
+                self.assertEqual(str(raised.exception), "duplicate object key")
+                self.assertNotIn(secret, str(raised.exception))
 
     def test_scanner_inputs_are_accepted_at_caps_and_rejected_beyond_them(self):
         self.make_bundle()

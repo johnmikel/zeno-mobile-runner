@@ -628,6 +628,8 @@ that a bundle is complete merely because a shell process is exiting.
 - Modify: `scripts/run_evidence_lib/lifecycle.py`
 - Modify: `scripts/run_evidence_lib/summaries.py`
 - Modify: `scripts/run_evidence_lib/bundle.py`
+- Modify: `schemas/run-summary.schema.json`
+- Modify: `tests/schemas-contract.test.mjs`
 - Modify: `tests/run_evidence_cases/commands.py`
 - Modify: `tests/run_evidence_cases/cli.py`
 - Modify: `tests/run_evidence_cases/lifecycle.py`
@@ -645,11 +647,17 @@ The completed Python CLI must expose this contract while retaining the Task 3
 run_evidence.py command-id
 run_evidence.py session-claim --root <dir> --owner-pid <pid>
 run_evidence.py session-status --root <dir> --session-id <32hex>
+                               --generation <positive-int>
 run_evidence.py session-intent --root <dir> --session-id <32hex>
+                               --generation <positive-int>
                                --intent-json <json>
+run_evidence.py session-close --root <dir> --session-id <32hex>
+                              --generation <positive-int>
 run_evidence.py session-finalize --root <dir> --session-id <32hex>
+                                 --generation <positive-int>
 run_evidence.py command-supervise --root <dir> --command-id <32hex>
                                   --session-id <32hex>
+                                  --generation <positive-int>
                                   --phase <phase> --name <slug>
                                   --failure-code <code>
                                   --failure-policy <terminal|handled>
@@ -657,11 +665,61 @@ run_evidence.py command-supervise --root <dir> --command-id <32hex>
                                   --mode <foreground|background|capture-stdout|capture-both>
                                   --stdin-policy <devnull|inherit>
                                   -- <command> [args...]
-run_evidence.py command-status --root <dir> --command-id <32hex> [--wait]
+run_evidence.py command-status --root <dir> --command-id <32hex>
+                               --session-id <32hex>
+                               --generation <positive-int> [--wait]
 run_evidence.py command-stop --root <dir> --command-id <32hex>
+                             --session-id <32hex>
+                             --generation <positive-int>
                              --kind <expected|cancel>
-run_evidence.py command-recover --root <dir> [--cancel-live]
+run_evidence.py command-recover --root <dir> --session-id <32hex>
+                                --generation <positive-int> [--cancel-live]
 ```
+
+`--owner-pid` is an assertion, not authority. For a new claim or takeover it
+must equal the CLI's immediate parent PID. Python reads that parent's stable
+birth identity before and after acquiring the stable `.commands.lock`, which is
+the session/command gate for claim, takeover, launch, recovery claim, close, and
+finalization. It rejects any
+PID, parent, or identity change. The adapter exports both
+`ZMR_EVIDENCE_SESSION_ID` and `ZMR_EVIDENCE_SESSION_GENERATION`. Every adapter
+mutation supplies the exact pair; stale-generation mutations fail before any
+recovery, event allocation, or filesystem change. `session-close` and
+`session-finalize` additionally require the CLI's immediate parent to be the
+stored owner PID with the same birth identity. A borrower is accepted only
+when an at-most-64-process, cycle-checked ancestry walk contains that stored owner
+identity. Once `prepared` is durably authorized, the exact stored supervisor
+identity may advance only that command despite later shell exit or reparenting;
+it may not launch another command or mutate unrelated session state.
+
+Takeover runs entirely under `.commands.lock`, after the old owner identity is
+absent. For every bounded noncommitted command, its stable supervisor lease
+must be immediately acquirable and its stored supervisor birth identity absent;
+any disagreement blocks takeover. All supervisor/recovery lease claims briefly
+take the same gate, so no claim can appear between this scan and the atomic
+session-generation increment. The new owner authorizes recovery of any same-
+session command whose immutable `creationGeneration` is less than or equal to
+the new current generation; it never rewrites those command identities. Old
+terminal diagnostics remain stamped with their original `recordedGeneration`,
+and new diagnostics use the new one, so takeover needs no multi-file intent
+rollover. A live group anchor is recovered after takeover under the normal
+exclusive supervisor-lease claim.
+
+Linux birth identity is `linux:<boot-id>:<proc-start-ticks>`, using the kernel
+boot ID and field 22 of `/proc/<pid>/stat` with parentheses-safe parsing. macOS
+uses `libproc` `PROC_PIDTBSDINFO` start seconds and microseconds. Sensitive
+identity observations are read twice; provider absence or disagreement fails
+closed. The implementation must work on Python 3.10+ on Linux and macOS and
+must not rely on `pidfd`, `preexec_fn`, Linux `/proc` on macOS, or
+second-resolution `ps` output.
+
+The Task 3 `context`, `event`, and `external` commands gain optional paired
+`--session-id`/`--generation` arguments, and the compatibility `command` reads
+the inherited pair. Both values are mandatory whenever an active or finalizing
+control session exists and forbidden as a partial pair. The legacy `finalize`
+entry point is refused while control state exists; only owner-authorized
+`session-finalize` may commit that attempt. Outside an adapter, the Task 3
+surfaces retain their one-shot compatibility behavior.
 
 `stdin-policy=inherit` is valid only for foreground/capture/delegated commands;
 background commands use `devnull`. A foreground supervisor returns the child's
@@ -678,9 +736,19 @@ record, and removes that session control record without finalizing the run. This
 preserves the existing explicit `command`-then-`finalize` CLI workflow. Inside
 an adapter it joins the inherited session. For background mode, the adapter
 starts `command-supervise` as a shell background job, registers the command ID
-before spawn, and polls `command-status` for `running` or a terminal state for
-at most five seconds. `command-status --wait` may block for child completion but
-never holds an evidence lock while waiting.
+before spawn, and polls `command-status` for verified `running`/
+`stop_requested` or fully `committed` for at most five seconds. `prepared`,
+`exited`, and `materialized` are transitional and are not ready.
+`command-status --wait` may block for child completion but never holds an
+evidence lock while waiting. Its strict JSON query succeeds with exit zero and
+contains the stored `shellStatus`; the adapter returns that status. A readiness
+timeout records supervisor-control failure, requests stop/recovery, and returns
+reserved adapter status 125 rather than abandoning a possibly starting
+supervisor. Committed command state remains queryable throughout an active
+adapter session and is removed only during owner finalization; one-shot
+compatibility sessions may remove it after delivering the result. A session is
+capped at 1,024 total command directories in addition to the eight-active
+command limit.
 
 - [ ] **Step 1: Write failing private-state contract tests**
 
@@ -689,9 +757,11 @@ tree and is opened with rooted, no-symlink safety:
 
 ```text
 <attempt>/.evidence-control/
+  .commands.lock
   session.json
   terminal-intent.json
   commands/<32hex-command-id>/
+    state.lock
     state.json
     supervisor.lease
     group.lease
@@ -715,11 +785,28 @@ tree and is opened with rooted, no-symlink safety:
 ```
 
 `state` is `active`, `finalizing`, or `committed`. A session ID is 32 lowercase
-hexadecimal characters. `terminal-intent.json` binds the same session and
-generation, contains one nullable `primary` diagnostic plus a `secondary`
-array, and rejects a ninth secondary diagnostic. Each diagnostic contains only
-`status`, `classification`, `phase`, `errorCode`, `summary`, `hint`,
-`commandStatus`, `source`, and `recordedAt`; passed intent omits failure fields.
+hexadecimal characters. `terminal-intent.json` binds the session, but not one
+mutable current generation: it contains `schemaVersion`, `sessionId`,
+`nextOrdinal`, one nullable `primary`, a `secondary` array, and `droppedCount`.
+Each persisted diagnostic contains only `status`, `classification`, `phase`,
+`errorCode`, `summary`, `hint`, `commandStatus`, `source`, `recordedAt`, and a
+server-assigned `ordinal` and `recordedGeneration`; callers cannot supply the
+last three fields. Passed
+intent omits failure fields. Updates atomically deduplicate identical
+diagnostics over the normalized caller fields (everything except the three
+server fields), but only against the currently retained primary-plus-secondary
+set, and recompute primary under the fixed public precedence. The strongest
+diagnostic is primary; the next eight unique diagnostics are secondary,
+ordered strongest-precedence first and ordinal ascending for ties. A retained-
+key duplicate allocates no ordinal and increments neither counter. Every
+delivery whose key is absent from the retained set allocates/increments
+`nextOrdinal`; every such delivery that is not retained increments
+`droppedCount`. Dropped keys are not remembered. A stronger insertion evicts
+the weakest and atomically removes its semantic key; redelivery after eviction
+or dropping is therefore a new insertion, allocates another ordinal, and is
+counted again if it remains unretained.
+Thus a late evidence or cleanup fault cannot be rejected because the array is
+full.
 
 Each command `state.json` has exactly these top-level fields:
 
@@ -728,7 +815,7 @@ Each command `state.json` has exactly these top-level fields:
   "schemaVersion": 1,
   "commandId": "0123456789abcdef0123456789abcdef",
   "sessionId": "fedcba9876543210fedcba9876543210",
-  "generation": 1,
+  "creationGeneration": 1,
   "stage": "prepared",
   "requestFingerprint": "sha256:<canonical-persisted-request>",
   "request": {
@@ -754,7 +841,12 @@ Each command `state.json` has exactly these top-level fields:
     "status": "started",
     "command": "commands/zmr-run.json"
   },
-  "supervisor": null,
+  "supervisor": {
+    "pid": 1234,
+    "birthIdentity": "linux:boot-id:start-ticks",
+    "leaseIdentity": "device:inode"
+  },
+  "anchor": null,
   "child": null,
   "stopIntent": null,
   "outcome": null,
@@ -766,7 +858,96 @@ Each command `state.json` has exactly these top-level fields:
 Only legal stage-specific null/object combinations are accepted. State advances
 monotonically through
 `prepared -> running -> stop_requested? -> exited -> materialized -> committed`.
-The prepared record is the write-ahead copy of the exact started event;
+The sole branch around `running` is
+`prepared -> exited(exec_failure:127) -> materialized -> committed` for an
+exact negative exec handshake.
+`creationGeneration` never changes and may be less than the authoritative
+current `session.json.generation` after takeover. Mutation authorization always
+checks the caller's current session generation separately. The immutable
+`requestFingerprint` is SHA-256 over canonical native JSON containing exactly
+`sessionId`, `creationGeneration`, `request`, and `paths`; it is recomputed on
+every read and is not rewritten by recovery.
+
+The strict non-null running-stage identities are:
+
+```json
+{
+  "supervisor": {
+    "pid": 1234,
+    "birthIdentity": "platform-stable-token",
+    "leaseIdentity": "device:inode",
+    "role": "launch",
+    "predecessor": null
+  },
+  "anchor": {
+    "pid": 1235,
+    "birthIdentity": "platform-stable-token",
+    "sid": 1235,
+    "pgid": 1235,
+    "groupLeaseIdentity": "device:inode",
+    "controlProtocolVersion": 1
+  },
+  "child": {
+    "pid": 1236,
+    "birthIdentity": "platform-stable-token",
+    "execAcknowledgedAt": "2026-07-11T00:00:02Z"
+  }
+}
+```
+
+`role` is `launch` or `recovery`; `predecessor` is null or the SHA-256 digest of
+the canonical prior supervisor object. A recovery claim replaces `supervisor`
+with the exact claimant and stores that bounded digest, never a recursive chain.
+Prepared requires only non-null supervisor. Running requires non-null
+supervisor/anchor/child and null stop/outcome/materialized. Stop-requested adds
+only non-null stop intent. Exited requires outcome and capture, with stop intent
+optional; materialized adds the hash bindings; committed retains all historical
+identity/outcome objects. Anchor PID, SID, and PGID must be equal and all PIDs
+are positive and distinct where the OS reports distinct processes. Unknown
+fields, illegal null combinations, identity mutation outside the recovery
+claim rule, or a fingerprint mismatch are corruption.
+
+The direct negative exec-handshake branch has exactly this exited-stage shape;
+no other `prepared -> exited` shape is legal:
+
+```text
+supervisor = <the verified launch supervisor object>
+anchor = {pid, birthIdentity, sid, pgid, groupLeaseIdentity,
+          controlProtocolVersion}
+child = null
+stopIntent = null
+outcome = {kind: "exec_failure", exitStatus: 127, signal: null,
+           shellVisibleStatus: 127, execFailedAt: <RFC3339 UTC timestamp>}
+capture = {
+  captureComplete: true,
+  stdout: {originalBytes: 0, sanitizedBytes: 0, storedBytes: 0,
+           truncated: false},
+  stderr: {originalBytes: N, sanitizedBytes: M, storedBytes: M,
+           truncated: false}
+}
+materialized = null
+```
+
+`N` and `M` are bounded non-negative integers, `M` is at most 10 MiB, and the
+bounded negative-handshake diagnostic is complete so `truncated` is false.
+The anchor is verified and retained because it completed the negative
+handshake; `child` is null because no executable image was acknowledged.
+Consequently `child.execAcknowledgedAt` is mandatory only for the positive
+handshake that enters `running`. A missing, malformed, timed-out, or transport-
+failed handshake is a supervisor/capture failure, not status-127 exec failure.
+
+The prepared record is the write-ahead copy of the exact started event and
+always contains the verified identity of the process holding the stable
+`supervisor.lease` inode. Under commands -> lifecycle -> events -> state-lock,
+launch allocates the exact event and paths, fsyncs `prepared`, then appends and
+fsyncs that exact event. No anchor or child is spawned before both records
+verify. Every event allocation briefly takes `.commands.lock`; recovery fills a
+missing stored sequence only when it is exactly next, accepts already identical
+bytes, and treats an occupied different sequence as corruption.
+`running` is persisted only after anchor lease/identity, bounded control pipes,
+and a positive child exec acknowledgement verify. A direct negative handshake
+uses the strict `prepared -> exited(exec_failure:127)` shape above and is never
+advertised as running.
 materialized state binds hashes and sizes for both logs, metadata, and the exact
 terminal event. Raw argv, environment values, and raw output are never stored.
 Tests enforce the constants in this plan, relative paths only, immutable request
@@ -796,16 +977,24 @@ git commit -m "feat(evidence): add durable command state"
 Inject process death after every durable transition and assert this recovery
 table:
 
+Include distinct launch faults before prepared, after prepared but before the
+exact event append, after that append but before anchor spawn, after anchor
+spawn but before exec acknowledgement, and immediately after acknowledgement.
+Every case yields zero or exactly one byte-identical started event, never
+allocates over a different occupied sequence, and proves no child was spawned
+before durable started evidence.
+
 | Durable state | Lease observation | Required recovery |
 | --- | --- | --- |
 | `prepared` | supervisor live | report busy; do not alter state |
-| stale `prepared` | supervisor free | append or verify the exact stored started event, publish bounded incomplete logs/metadata, and append exactly one `runner.command_supervisor_lost` terminal event |
+| stale `prepared` | supervisor lease free | claim recovery, append or verify the exact stored started event, publish bounded incomplete logs/metadata, and append exactly one `runner.command_supervisor_lost` terminal event |
 | `running` or `stop_requested` | supervisor live | report busy; finalization refuses |
-| `running` or `stop_requested` | supervisor free, group lease held, PID/birth/PGID still proven | mark orphaned, TERM the process group, wait two seconds, KILL if needed, and materialize incomplete recovered evidence |
-| `running` or `stop_requested` | both leases free | treat the group as gone and materialize incomplete recovered evidence |
+| `running` or `stop_requested` | supervisor free; anchor lease, PID/birth/SID/PGID agree | claim recovery, TERM the anchored process group, wait two seconds, KILL if needed, and materialize incomplete recovered evidence |
+| `running` or `stop_requested` | group lease free; anchor identity absent; two settlement-separated `killpg(pgid, 0)` probes return `ESRCH` | treat the group as gone and materialize incomplete recovered evidence |
+| `running` or `stop_requested` | lease, anchor identity, membership, or signal probe disagree | treat as corruption; do not signal or finalize |
 | `exited` | supervisor lost before materialization | retain the observed child result as secondary; make command recovery/capture loss primary |
 | `materialized` | outputs partially committed | verify matching hashes, complete only missing exact outputs/event, and never overwrite a mismatch |
-| `committed` | all bound outputs match | verify and remove that command's private state |
+| `committed` | all bound outputs match | verify and retain during an active adapter session; remove only on owner finalization or after a one-shot result is delivered |
 | any stage | corrupt/unsafe state or unproven PID reuse | do not signal, delete, overwrite, or finalize; block mutation and publication |
 
 Recovered streams set `captureComplete: false` and `truncated: true`; recorded
@@ -819,8 +1008,13 @@ Implement recovery in `command_state.py`/`commands.py` and invoke it before ever
 mutating lifecycle, command, session, or finalization operation. Read-only
 `validate-bundle` never recovers: it refuses any remaining
 `.evidence-control` tree. Once a committed receipt and every bound output have
-been verified, a later mutation may remove committed state so validation can
-proceed.
+been verified, only owner finalization (or completed one-shot delivery) removes
+committed state so validation can proceed. Recovery is two-phase: under short
+locks a worker acquires the free `supervisor.lease` as its exclusive recovery
+claim and persists its identity; it then releases every mutation lock before
+signal, wait, drain, sleep, or join, and reacquires locks only to persist the
+next transition. Two recoverers can therefore never both signal or materialize
+one command.
 
 Run:
 
@@ -840,9 +1034,10 @@ git commit -m "feat(evidence): recover interrupted commands"
 Start a command that runs for more than five seconds. While it is running,
 append an ordinary event and start an independent command; both must complete
 their short critical sections without timing out. Race command launch against
-finalization and prove exactly one outcome: launch durably reaches `prepared`
-before finalization inspects it and finalization refuses, or finalization commits
-first and launch refuses. Also assert the eight-active-command ceiling and that
+`session-close` and prove exactly one outcome: launch durably reaches `prepared`
+before close inspects it and close proceeds with that command durably owned, or
+close commits `finalizing` first and launch refuses. Also assert the
+eight-active-command ceiling and that
 a live or recoverable noncommitted command blocks terminal summary creation.
 
 The only valid nested lock order is:
@@ -859,17 +1054,32 @@ The only valid nested lock order is:
 A caller may omit locks it does not need but may never acquire a listed lock
 after one to its right. No lock is held across spawn, wait, stream drain,
 sanitized replay, thread join, readiness/status polling, sleep, or signal
-delivery. `command-stop` records intent under the state lock, releases every
+delivery. These are short mutation locks. `supervisor.lease` and `group.lease`
+are long-lived ownership leases and are expressly exempt from that duration
+rule. `.commands.lock`, `state.lock`, and both lease files have stable inodes:
+they are never atomically replaced or unlinked while any possible holder may
+exist; only JSON payload files are atomically replaced. `command-stop` records
+intent under the state lock, releases every
 lock, then signals. Command launch takes `.commands.lock`, rejects a terminal
 summary, recovers stale state, persists `prepared`, and commits the exact started
-event in short transactions. Finalization takes the same command gate, recovers,
-and refuses live/noncommitted state before creating a summary.
+event in short transactions. Owner EXIT calls `session-close` before shell
+cleanup. That operation atomically changes `active -> finalizing` under the
+same command gate. Once finalizing, new commands, ordinary events, context
+changes, delegation, and pass intent are rejected; stop/recovery and
+cleanup/evidence diagnostics remain permitted. Final summary commit locks in
+transaction -> index -> commands -> lifecycle -> events order, rechecks the
+generation/finalizing state and absence of live/noncommitted commands, and
+changes the session to committed only after the durable finalize receipt
+verifies. A launch/close race has exactly one serial winner.
 
 - [ ] **Step 6: Refactor command execution to the short-lock protocol**
 
 Route the compatibility `command` entry point and the new command CLI through
 the state machine. Add `commandId`, `configuredFailureCode`, `captureComplete`,
-and an exact `termination` object to command metadata. `termination` records
+the backward-compatible `supervisorFailure` boolean, and an exact `termination`
+object to command metadata. `supervisorFailure` distinguishes runner-owned
+control failure from independently truthful capture completeness and child
+outcome. `termination` records
 `kind` (`exit` or `signal`), numeric code/signal, whether stop was requested,
 the request kind, grace/escalation state, and the shell-visible status. Keep
 existing 10 MiB sanitized head/tail log semantics.
@@ -892,9 +1102,16 @@ git commit -m "refactor(evidence): keep command locks short"
 Use real child/grandchild processes plus injected PID/birth-identity providers
 to prove:
 
-- every child starts in a new process session/group;
-- only the supervisor holds `supervisor.lease`, while `group.lease` is inherited
-  by the child and descendants;
+- every command uses a trusted Python anchor started with
+  `start_new_session=True`; the anchor is SID/PGID leader and the actual command
+  joins that group;
+- only the supervisor holds `supervisor.lease`; only the trusted anchor holds
+  the long-lived `group.lease`, so arbitrary executables closing descriptors
+  cannot invalidate ownership;
+- the anchor reports a bounded exec handshake, child PID/birth identity, and
+  wait outcome over anonymous control pipes and stays alive until the
+  supervisor has persisted the result, drained both streams, and proved no
+  non-anchor member remains;
 - SIGINT/SIGTERM received by the session owner persists cancellation intent
   before forwarding TERM to active command groups;
 - an unexpected child signal is the caller's configured failure, not
@@ -903,20 +1120,28 @@ to prove:
   inside the two-second grace period;
 - KILL escalation is `runner.cleanup_failed`, even after requested cancellation;
 - a lost supervisor is `runner.command_supervisor_lost`;
-- a missing/closed group lease or changed PID birth identity never authorizes a
-  signal to a possibly reused PID/PGID.
+- a free group lease alone never proves group death: anchor identity must be
+  absent and `killpg(pgid, 0)` must return `ESRCH` twice across settlement;
+  any lease/identity/SID/PGID/membership disagreement blocks signalling and
+  finalization.
 
 Kill the supervisor after `prepared`, after child spawn, after child exit, and
 during materialization. Recovery must follow the table in Step 3 without
-leaking a descendant or misclassifying a signal.
+leaking a descendant or misclassifying a signal. Also prove a child that closes
+every descriptor >=3 cannot release the anchor lease, and a direct child that
+exits before a grandchild is still recovered. The anchor handles group TERM
+without exiting; KILL escalation intentionally ends it and releases the lease.
+If its supervisor control pipe closes, it remains as the stable group identity
+and does not mutate evidence.
 
 - [ ] **Step 8: Implement process supervision and verify crash recovery**
 
 Implement concurrent stdout/stderr draining, supervisor/group leases, stable
 PID birth identity, process-group signalling, TERM/KILL timing, and exact
-termination metadata in `command_supervisor.py`. If the platform cannot prove a
-stored process identity, fail closed: retain the control state and block
-finalization instead of signalling.
+termination metadata in `command_supervisor.py`. Linux group membership uses
+`/proc`; macOS uses `libproc` plus `getsid`. If the platform cannot prove a
+stored process identity or membership, fail closed: retain the control state
+and block finalization instead of signalling.
 
 Run:
 
@@ -939,19 +1164,36 @@ and signalled commands. A stress child writes 256 MiB to each stream
 concurrently; the supervisor must not deadlock or retain unbounded memory.
 
 Requested raw streams are capped independently at 1 MiB and exist only in
-memory/pipes. Bash assignment follows command-substitution newline semantics.
-Raw capture overflow, a NUL byte, or a broken capture channel records
-`runner.capture_failed`; the child outcome remains secondary. Sanitized recovery
+memory/pipes. Capture emits exactly one strict ASCII JSON/base64 envelope over
+a dedicated anonymous result pipe which Python verifies by `fstat` is a FIFO or
+socket, never a regular file or terminal. The envelope is capped at 3 MiB and
+contains only `schemaVersion`, `commandId`, `shellStatus`, nullable payloads,
+exact decoded lengths, SHA-256 digests, and `captureComplete`. Raw capture
+overflow, a NUL byte, malformed/truncated/digest-mismatched envelope, or a
+broken capture channel records `runner.capture_failed`; no partial raw payload
+is returned and the observed child outcome remains secondary. Sanitized recovery
 spools/logs remain independently capped at 10 MiB per stream with first/final
 5 MiB retention. Secrets, credentials, and raw absolute paths may appear in the
 in-memory test value but never in state, logs, metadata, events, or diagnostics.
+Exact 1 MiB succeeds and 1 MiB+1 fails. Embedded newlines and invalid UTF-8
+survive base64 transport; assignment intentionally follows Bash command-
+substitution trailing-newline removal. Complete capture returns the child's
+shell-visible status. Supervisor or capture-control failure returns reserved
+adapter status 125 and leaves every destination unchanged; child nonzero with a
+complete capture still assigns output and returns that child status.
 
 - [ ] **Step 10: Implement capture modes, verify bounds, and commit**
 
-Implement bounded raw channels without temporary regular files. Do not pass a
-captured payload through argv or environment variables. Ensure xtrace is
-disabled before a raw value reaches the shell and restore the caller's prior
-xtrace/errexit state afterward.
+Implement bounded raw channels without temporary regular files. The Bash
+adapter disables xtrace before capture, holds the ASCII envelope in memory, and
+feeds it with builtin `printf` into a Python decoder that reads only stdin and
+writes exactly one selected decoded stream to stdout. `capture-both` decodes
+each stream independently and assigns only after the envelope and both streams
+validate; identical destinations are rejected. Raw-derived data never enters
+argv, environment variables, here-documents, here-strings, or regular files.
+Restore the caller's prior xtrace/errexit state only after intermediates are
+unset. Tests monitor attempt files, `TMPDIR`, xtrace, and every non-child
+process argv/environment for raw markers.
 
 Run:
 
@@ -969,8 +1211,9 @@ git commit -m "feat(evidence): add bounded command capture"
 - [ ] **Step 11: Write failing owner/borrower and terminal-intent tests**
 
 The first adapter process for an attempt claims ownership and exports
-`ZMR_EVIDENCE_SESSION_ID`; instrumented descendants that inherit that value are
-borrowers. Assert:
+`ZMR_EVIDENCE_SESSION_ID` and `ZMR_EVIDENCE_SESSION_GENERATION`; instrumented
+descendants that inherit both values and whose bounded ancestry still proves
+the stored owner identity are borrowers. Assert:
 
 - an independent second owner is rejected while the stored owner PID and birth
   identity are live;
@@ -978,12 +1221,21 @@ borrowers. Assert:
   failure, but cannot finalize pass or commit the run summary;
 - a borrower exit never finalizes the owner's attempt;
 - orphan takeover requires the exact stored owner process to be gone and no
-  live supervisor lease; generation increments on takeover;
-- one primary and at most eight secondary terminal diagnostics survive nested
-  scripts and signals without last-writer-wins loss;
-- owner EXIT runs registered cleanup in LIFO order, requests stops for every
-  remaining background handle, recovers command state, resolves terminal
-  intent, finalizes exactly once, then validates the bundle.
+  live supervisor lease; generation increments atomically and every old-
+  generation borrower mutation is rejected without change;
+- spoofed owner PID, unrelated same-user process, borrower finalization, and
+  same-PID/different-birth injection fail before mutation;
+- all permutations of ten mixed-precedence diagnostics choose the same primary
+  class; a ninth evidence/cleanup fault displaces a weaker diagnostic, a
+  retained-key duplicate is idempotent, and redelivery after eviction or drop
+  allocates/counts again while remaining bounded;
+- cleanup callbacks are shell-local and never serialized: each borrower runs
+  its own LIFO callbacks before deferring failure, while the owner runs only
+  owner-local callbacks and durably enumerates/stops every command regardless
+  of inherited Bash arrays;
+- owner EXIT first closes the session launch gate, then runs cleanup, requests
+  stops for all durably active commands, recovers state, resolves intent,
+  finalizes exactly once, removes verified control state, and validates.
 
 Terminal resolution order is fixed:
 
@@ -996,13 +1248,16 @@ Terminal resolution order is fixed:
 
 - [ ] **Step 12: Implement session ownership and owner-only finalization**
 
-Implement `session-claim`, `session-status`, `session-intent`, and
-`session-finalize`. Persist the owner PID's platform-stable birth identity, not
-only its numeric PID. Transition the session `active -> finalizing -> committed`
-around the existing durable finalization receipt. The same call verifies the
-committed summary/receipt and removes fully committed control state before
-bundle validation; a retry completes that verification/removal after a crash at
-any point in the sequence.
+Implement `session-claim`, `session-status`, `session-intent`, `session-close`,
+and `session-finalize`. Persist the owner PID's platform-stable birth identity,
+not only its numeric PID, and bind every mutation to the session generation.
+`session-close` performs owner-authorized `active -> finalizing` before shell
+cleanup; `session-finalize` requires finalizing state and changes it to
+committed only around the existing durable finalization receipt. The same call
+verifies the committed summary/receipt and removes fully committed control
+state before bundle validation; a retry completes that sequence after a crash
+after close, cleanup, recovery, summary write, receipt write, committed state,
+or control cleanup.
 
 Run:
 
@@ -1054,10 +1309,11 @@ zmr_evidence_finalize_failure <classification> <phase> <code> <summary> <hint> [
 
 The two `zmr_evidence_finalize_*` names are compatibility APIs: they persist
 pass/failure intent only. They never write a summary directly; only the owner
-EXIT dispatcher calls `session-finalize` after cleanup and recovery.
+EXIT dispatcher calls `session-close` before cleanup and `session-finalize`
+after cleanup and recovery.
 
 `try` selects handled-failure policy for retries. `delegate` preserves the
-session ID so the nested script is a borrower. Background command IDs are
+session ID and generation so the nested script is a borrower. Background command IDs are
 assigned to the caller's destination variable with `printf -v` and registered
 in indexed arrays in the current shell; callers must not use command
 substitution to obtain a background handle. Tests preserve caller errexit and
@@ -1069,9 +1325,10 @@ destination names without evaluating them as shell code.
 
 The adapter uses indexed arrays only and delegates every state mutation to the
 Python CLI. Owner INT/TERM traps persist cancellation intent before requesting
-command stops. The owner EXIT dispatcher is the only path that may call
-`session-finalize`; borrower traps only persist a deferred failure. No trap
-silently converts an unexpected signal into cancellation.
+command stops. The owner EXIT dispatcher first calls `session-close`, then is
+the only path that may call `session-finalize`; borrower traps run only their
+shell-local cleanup and persist a deferred failure. No trap silently converts
+an unexpected signal into cancellation.
 
 Run:
 
@@ -1117,7 +1374,7 @@ signal, expected TERM, TERM-to-KILL escalation, supervisor loss, raw-capture
 overflow, corrupt private state, and evidence invalidation.
 
 Add race/crash cases for a command running longer than five seconds while an
-event is appended, concurrent command launch versus finalization, all durable
+event is appended, concurrent command launch versus `session-close`, all durable
 state transitions, nested owner/borrower delegation, rejected independent
 ownership, orphan takeover, PID reuse, and 256 MiB concurrent stdout/stderr.
 `validate-bundle` must refuse live/private state and succeed only after verified
@@ -1146,6 +1403,14 @@ bash tests/release-gate-script-test.sh
 
 Expected: all pass; no descendant process or `.evidence-control` tree remains
 after a successfully finalized test attempt.
+
+The gate matrix includes native macOS with Python 3.10 and system Bash 3.2 plus
+Linux with Python 3.10. Both run birth-identity/PID-reuse, stable lock/lease
+inode, group-anchor recovery, and invalid-byte capture smoke tests; macOS also
+runs `/bin/bash -n` and the full adapter suite. Fixture tests cover Linux
+`/proc/<pid>/stat` names containing spaces and parentheses, native provider
+failure, child FD closure, leader-before-grandchild exit, and all close/
+recovery/finalization crash boundaries.
 
 ```bash
 git add tests/run_evidence_test.py tests/run-evidence-acceptance-test.sh scripts/ci-gate.sh scripts/release-gate.sh tests/ci-gate-script-test.sh tests/release-gate-script-test.sh

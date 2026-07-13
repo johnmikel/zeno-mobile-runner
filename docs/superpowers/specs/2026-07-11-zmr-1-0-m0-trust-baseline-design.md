@@ -394,9 +394,20 @@ stderr.
 
 A direct compatibility `command` outside an adapter uses a one-shot handled
 session and removes it after the command commits; it does not finalize the run.
+Task 3 `context`, `event`, and `external` mutations accept an optional exact
+session/generation pair, which becomes mandatory whenever control state exists;
+the compatibility command reads the inherited pair. Partial/stale pairs fail
+before recovery or mutation, and legacy `finalize` is refused while a control
+session exists. Outside an adapter these surfaces retain one-shot compatibility.
 Background adapter launch registers its command ID before spawn, waits at most
-five seconds for `running`/terminal readiness, and later waits by status without
-holding evidence locks.
+five seconds for verified `running`/`stop_requested` or fully `committed`
+readiness, and later waits by status without holding evidence locks. Prepared,
+exited, and materialized states are transitional, not ready. Committed command
+state remains queryable during an active adapter session and is removed only by
+owner finalization; a one-shot session may remove it after delivering the
+result. The total command count per session is capped at 1,024, independently
+of the eight-active-command limit. Readiness/control failure returns reserved
+adapter status 125 and never abandons a possibly starting supervisor.
 
 If a candidate summary fails validation, retain it as
 `run-summary.invalid.json`, retain sanitized validator output, and atomically
@@ -409,9 +420,11 @@ The nonpublishable control layout is:
 
 ```text
 <attempt>/.evidence-control/
+  .commands.lock
   session.json
   terminal-intent.json
   commands/<32hex-command-id>/
+    state.lock
     state.json
     supervisor.lease
     group.lease
@@ -426,46 +439,154 @@ diagnostics, and at most eight active commands. Command/session IDs are 32
 lowercase hexadecimal characters. A command accepts at most 256 argv elements,
 16 KiB per element, and 64 KiB total encoded argv.
 
+`.commands.lock`, lifecycle/event locks, and `state.lock` are short mutation
+locks. `supervisor.lease` and `group.lease` are long-lived ownership leases and
+are not mutation locks. Every lock/lease path has a stable inode which is never
+atomically replaced or unlinked while a possible holder exists; JSON state is
+the replaceable payload.
+
 `session.json` binds `schemaVersion`, `sessionId`, `runId`, owner PID, a
 platform-stable owner birth identity, `state`, `generation`, and `startedAt`.
 Session state advances `active -> finalizing -> committed`.
 
-Each command state binds `schemaVersion`, command/session/generation identity,
-stage, a canonical persisted-request fingerprint, sanitized request and
-relative output paths, the exact started event, supervisor/child identity,
+Each command state binds `schemaVersion`, command/session identity, immutable
+`creationGeneration`, stage, a canonical persisted-request fingerprint,
+sanitized request and relative output paths, the exact started event,
+supervisor/anchor/child identity,
 stop intent, child outcome, capture state, and materialization hashes. It
 advances monotonically:
 
 ```text
 prepared -> running -> stop_requested? -> exited -> materialized -> committed
+         \-> exited(exec_failure:127) -> materialized -> committed
 ```
 
-`prepared` is the write-ahead record for the exact started event.
+`prepared` is the write-ahead record for the exact started event and contains a
+non-null verified supervisor PID/birth/lease identity. Under commands ->
+lifecycle -> events -> state-lock order, launch writes/fsyncs prepared and then
+appends/fsyncs those exact event bytes. No anchor or child is spawned before
+both verify. Every event allocation briefly takes `.commands.lock`, allowing a
+crash-created prepared/event hole to be repaired before another sequence is
+assigned. Running is durable only after verified anchor identity/lease/control
+pipes and a positive child exec acknowledgement. A direct negative exec
+handshake is the sole legal `prepared -> exited` transition: it atomically
+persists the verified anchor, no child object, the exact status-127 outcome and
+complete bounded capture described below. Missing, malformed, timed-out, or
+transport-failed handshakes are supervisor/capture failures, not this variant.
+
+`requestFingerprint` is SHA-256 over canonical native JSON containing exactly
+`sessionId`, `creationGeneration`, `request`, and `paths`, and is recomputed on
+every read. Running state has these exact non-null identity shapes:
+
+```text
+supervisor = {pid, birthIdentity, leaseIdentity, role, predecessor}
+anchor     = {pid, birthIdentity, sid, pgid, groupLeaseIdentity,
+              controlProtocolVersion}
+child      = {pid, birthIdentity, execAcknowledgedAt}
+```
+
+Supervisor role is `launch` or `recovery`; predecessor is null or a SHA-256
+digest of the prior canonical supervisor object, preventing recursive history.
+Anchor PID/SID/PGID are equal; PIDs are positive and distinct where the OS
+reports distinct processes. Prepared requires only supervisor. Running requires
+supervisor/anchor/child with null stop/outcome/materialized; stop-requested adds
+stop intent; exited adds outcome/capture; materialized adds exact hashes; and
+committed retains the historical objects. A recovery claim may replace only the
+supervisor object under its stable lease and predecessor rule. Every other
+identity mutation, illegal null combination, unknown field, or fingerprint
+mismatch is corruption. The current session generation authorizes mutation
+separately and may exceed creationGeneration after takeover.
+
+The direct negative exec-handshake variant has exactly this complete exited
+shape (in addition to the immutable common fields):
+
+```text
+supervisor = <the verified launch supervisor object>
+anchor = {pid, birthIdentity, sid, pgid, groupLeaseIdentity,
+          controlProtocolVersion}
+child = null
+stopIntent = null
+outcome = {kind: "exec_failure", exitStatus: 127, signal: null,
+           shellVisibleStatus: 127, execFailedAt: <RFC3339 UTC timestamp>}
+capture = {
+  captureComplete: true,
+  stdout: {originalBytes: 0, sanitizedBytes: 0, storedBytes: 0,
+           truncated: false},
+  stderr: {originalBytes: N, sanitizedBytes: M, storedBytes: M,
+           truncated: false}
+}
+materialized = null
+```
+
+`N` and `M` are bounded non-negative integers and `M` is at most the public
+10 MiB stream limit. The bounded negative handshake is the complete stderr
+diagnostic, so it cannot be truncated. `child` is null because no executable
+image was acknowledged; `child.execAcknowledgedAt` exists only on the positive
+handshake required for `running`. Any exited status-127 record with a null
+anchor, a non-null child, a different outcome/capture shape, or an ambiguous
+handshake is corrupt rather than an exec-failure result.
+
 `materialized` binds the exact terminal event and hashes/sizes for metadata and
 both logs. `committed` means those exact outputs/events have been verified and
-the private command directory may be removed. Raw argv, environment values, and
+the private command directory may be removed only at owner finalization or
+after one-shot delivery. Raw argv, environment values, and
 raw command output never enter state. Recovery spools contain only sanitized
 data and use the public 10 MiB-per-stream head/tail limit.
 
 ### Command supervision and recovery
 
-Every child starts in a new process session/group. The supervisor concurrently
-drains stdout and stderr so either stream can fill without deadlock. Only the
-supervisor holds `supervisor.lease`; `group.lease` is inherited by the child and
-descendants. Stored PID, process birth identity, PGID, and lease observations
-must all agree before recovery may signal a process group. If identity cannot be
-proven, recovery fails closed and blocks finalization rather than risking a
-reused PID/PGID.
+Each command has a trusted Python group anchor launched with
+`start_new_session=True`. The anchor is SID/PGID leader and sole long-lived
+holder of `group.lease`; the actual executable joins its group and never owns
+the lease invariant. The anchor reports a bounded exec handshake, child
+PID/birth identity, and wait outcome through anonymous control pipes. The
+supervisor concurrently drains stdout and stderr so either stream can fill
+without deadlock and is the sole holder of `supervisor.lease`.
+
+The anchor remains alive after direct-child exit until the result is durable,
+both streams are drained, and no non-anchor group member remains. It handles
+group TERM without exiting; KILL escalation intentionally ends it. If the
+supervisor pipe closes, the anchor remains as the stable group identity and
+does not mutate evidence. Linux membership uses `/proc`; macOS uses `libproc`
+plus `getsid`. Stored anchor PID, process birth identity, SID, PGID, membership,
+and lease observations must agree before recovery may signal. A free group
+lease alone is not death: the anchor identity must be absent and two
+settlement-separated `killpg(pgid, 0)` probes must return `ESRCH`. Any
+disagreement fails closed and blocks finalization.
+
+Linux identity is `linux:<boot-id>:<proc-start-ticks>`, with parentheses-safe
+field-22 parsing. macOS identity is `libproc` `PROC_PIDTBSDINFO` start seconds
+and microseconds. Authorization-sensitive observations are performed twice.
+The implementation supports Python 3.10+ on Linux and macOS without `pidfd`,
+`preexec_fn`, second-resolution `ps`, or Linux-only assumptions on macOS.
 
 Raw shell capture is independently capped at 1 MiB per requested stream and
-exists only in memory/pipes. Overflow, NUL, or channel failure is
-`runner.capture_failed`, with any child result retained as secondary. Sanitized
+exists only in memory/pipes. The supervisor emits one strict ASCII JSON/base64
+envelope over a dedicated anonymous FD that it verifies with `fstat` is a FIFO
+or socket, never a regular file or terminal. The envelope is capped at 3 MiB and
+binds schema version, command ID, shell status, nullable payloads, decoded
+lengths, SHA-256 digests, and capture completeness. Overflow, NUL, malformed or
+truncated data, digest mismatch, or channel failure is `runner.capture_failed`,
+with no partial payload and any child result retained as secondary. Sanitized
 logs remain capped at 10 MiB per stream, retaining the first and final 5 MiB.
 The stress requirement is simultaneous 256 MiB stdout and stderr without
 deadlock or unbounded retention.
 
+The Bash adapter disables xtrace before capture, holds only the ASCII envelope,
+and pipes it with builtin `printf` to a Python stdin-only decoder which writes
+one selected stream to stdout. Dual capture validates both streams before
+assigning either destination. Raw-derived bytes never enter argv, environment,
+here-documents, here-strings, or regular files. Exact 1 MiB succeeds; 1 MiB+1,
+NUL, broken transport, or invalid envelope returns status 125 and leaves
+destinations unchanged. Complete capture assigns output using Bash command-
+substitution trailing-newline semantics and returns the child's shell-visible
+status, including nonzero status.
+
 Command metadata adds `commandId`, `configuredFailureCode`,
-`captureComplete`, and an exact `termination` object. An unexpected child signal
+`captureComplete`, the backward-compatible `supervisorFailure` boolean, and an
+exact `termination` object. The supervisor marker distinguishes a runner-owned
+control failure from independently truthful capture completeness and observed
+child outcome. An unexpected child signal
 uses the configured failure code, not cancellation. An expected TERM is success
 only when explicitly requested and completed inside the two-second grace.
 Escalation to KILL is `runner.cleanup_failed`. Supervisor loss is
@@ -477,32 +598,65 @@ Recovery is deterministic and idempotent:
 | --- | --- |
 | live supervisor | report busy; do not mutate or finalize |
 | stale `prepared` | append/verify the exact started event, materialize incomplete evidence, and emit one supervisor-lost terminal event |
-| orphaned `running`/`stop_requested` with proven live group | TERM, wait two seconds, KILL if required, then materialize incomplete evidence |
-| `running`/`stop_requested` with both leases free | treat the group as gone and materialize incomplete evidence |
+| orphaned `running`/`stop_requested` with proven anchored live group | claim recovery, TERM, wait two seconds, KILL if required, then materialize incomplete evidence |
+| group lease free, anchor absent, and two settlement-separated signal probes return `ESRCH` | treat the group as gone and materialize incomplete evidence |
+| any lease/anchor/identity/membership disagreement | do not signal; retain state and block finalization |
 | `exited` before materialization | retain child result as secondary; recovery/capture loss is primary |
 | `materialized` | complete only missing exact hash-bound outputs/event; never overwrite a mismatch |
-| `committed` | verify exact outputs/receipt, then remove private state |
+| `committed` | verify and retain in an active adapter session; remove at owner finalization or after one-shot delivery |
 | corrupt state, changed birth identity, or unproven group | do not signal/delete/overwrite; block mutation, finalization, and publication |
 
 Recovered streams set `captureComplete: false`, `truncated: true`, and byte
 counts as lower bounds. Repeated recovery cannot duplicate a started or terminal
-event.
+event. Recovery first claims a free `supervisor.lease` and persists the
+recoverer under short locks, then releases mutation locks before signalling,
+waiting, sleeping, draining, or joining. Locks are reacquired only to persist
+transitions, so two recoverers cannot both act on one command.
 
 ### Session ownership and terminal intent
 
 The first adapter process claims the attempt and exports
-`ZMR_EVIDENCE_SESSION_ID`. Instrumented descendants inherit the ID and are
-borrowers. Borrowers may append events, supervise commands, register cleanup,
-and defer failure, but they cannot commit pass or finalize the run. An
-independent owner is rejected while the stored owner PID/birth identity is live.
-Orphan takeover requires that exact process identity to be gone and no
-supervisor lease to be live; takeover increments the generation.
+`ZMR_EVIDENCE_SESSION_ID` and `ZMR_EVIDENCE_SESSION_GENERATION`. `--owner-pid`
+is only an assertion: it must equal the CLI's immediate parent, whose stable
+birth identity is read before and after stable `.commands.lock` is acquired.
+That file is the session/command gate for claim, takeover, launch, recovery
+claim, close, and finalization.
+Instrumented descendants are borrowers only when they supply the exact session
+and generation and an at-most-64-process, cycle-checked ancestry walk proves the stored
+owner identity. All authorization observations fail closed on change.
+
+Borrowers may append events, supervise commands, and defer failure, but they
+cannot close or finalize the run. `session-close` and `session-finalize` require
+the CLI's immediate parent to be the stored owner with the same birth identity.
+An independent owner is rejected while that identity is live. Orphan takeover
+requires it to be absent and every supervisor lease free; takeover atomically
+replaces owner identity and increments generation. Old-generation mutations
+are rejected without recovery or mutation. Once prepared under an authorized
+ancestry, the exact stored supervisor identity may advance only that already-
+bound command despite later shell exit or reparenting; it cannot launch another
+or mutate unrelated session state.
+
+Takeover holds `.commands.lock` and performs a bounded scan of every
+noncommitted command. Each stable supervisor lease must be immediately
+acquirable and its stored supervisor birth identity absent; lease claims also
+briefly require the gate, so none can appear between the scan and generation
+increment. Any disagreement blocks takeover. Command `creationGeneration` is
+immutable: a new owner may claim/recover an older same-session command using
+the current generation without rewriting it. Terminal diagnostics retain
+server-stamped `recordedGeneration`; new diagnostics use the new generation.
+Thus takeover needs no multi-file rebinding. A live group anchor is handled by
+normal post-takeover recovery under an exclusive supervisor lease.
 
 INT/TERM handling persists cancellation intent before forwarding signals.
-Owner EXIT dispatch performs registered cleanup in LIFO order, stops remaining
-background groups, recovers commands, resolves terminal intent, finalizes once,
-verifies/removes fully committed control state, and validates. A retry completes
-that sequence after a crash. Borrower exit only defers a failure to the owner.
+Owner EXIT first calls `session-close`, atomically moving active to finalizing
+under the command gate. New commands, ordinary events, context changes,
+delegation, and pass intent then fail; stop/recovery and cleanup/evidence
+diagnostics remain permitted. The owner runs only owner-local cleanup in LIFO
+order, durably enumerates/stops every remaining group, recovers commands,
+resolves terminal intent, finalizes once, verifies/removes fully committed
+control state, and validates. Each borrower runs its own shell-local cleanup
+before deferring failure; cleanup functions/argv are never serialized. A retry
+completes the owner sequence after a crash.
 Resolution is:
 
 1. evidence write/recovery/finalization failure;
@@ -512,9 +666,22 @@ Resolution is:
 5. nonzero unclassified shell exit as `runner.unclassified`;
 6. pass.
 
-The persisted intent contains one primary plus bounded secondary diagnostics so
-nested scripts and traps cannot erase an earlier cause through last-writer-wins
-updates.
+The persisted intent is session-bound rather than current-generation-bound. It
+contains a server-assigned ordinal, timestamp, and `recordedGeneration` per
+diagnostic, `nextOrdinal`, `droppedCount`, one recomputed primary, and the eight
+strongest unique secondaries. Dedupe compares normalized caller semantic fields
+only, excluding those three server fields, and only against the currently
+retained primary-plus-secondary set. Retained order is strongest precedence
+first and ordinal ascending for ties. A retained-key duplicate changes neither
+counter. Every delivery whose key is absent from the retained set allocates an
+ordinal; an evicted or unretained delivery increments `droppedCount`. Dropped
+keys are not remembered. Eviction atomically removes the evicted diagnostic's
+semantic key, so any later redelivery is a new insertion and is counted again
+with a fresh ordinal; if it remains unretained, it increments `droppedCount`
+again. Callers cannot supply the server fields. Atomic
+recomputation ensures nested
+scripts, concurrent traps, and a full secondary set cannot erase a later
+evidence or cleanup cause.
 
 ### Locking and publication invariants
 
@@ -534,17 +701,23 @@ lock to their right. No lock remains held during process spawn/wait, stream
 drain/replay, thread join, status polling, sleep, or signal delivery. The
 readiness timeout and ordinary evidence-lock timeout are each five seconds;
 status polling uses 50 ms and TERM/KILL grace/settlement are two seconds each.
+The duration rule applies to mutation locks, not the two ownership leases.
 
 Every mutation first recovers lifecycle journals and stale command state.
-Command launch and finalization share the short `.commands.lock` gate: launch
-persists `prepared` before release; finalization recovers and refuses any live or
-noncommitted command. Therefore a launch/finalize race has one serial outcome
-and cannot create post-summary commands. Ordinary events and other commands
-remain available while a child runs longer than the five-second lock timeout.
+Command launch and `session-close` share the short `.commands.lock` gate:
+launch persists `prepared` before release; close performs `active -> finalizing`
+before shell cleanup. Therefore a launch/close race has one serial outcome and
+cannot create post-close commands. Final summary commit takes transaction ->
+index -> commands -> lifecycle -> events locks, rechecks exact generation,
+finalizing state, and absence of live/noncommitted commands, and changes the
+session to committed only after the existing finalize receipt verifies.
+Ordinary events and other commands remain available while an active-session
+child runs longer than the five-second lock timeout.
 
 `validate-bundle` is deliberately read-only. It never repairs state and refuses
 any `.evidence-control` tree. A prior mutation may remove verified committed
-state; only then can public validation and upload succeed.
+state only during owner finalization (or completed one-shot delivery); only then
+can public validation and upload succeed.
 
 ### iOS shim provenance and run-outcome boundary
 
@@ -657,12 +830,20 @@ classification fields.
 - crash recovery after every command stage, including idempotent exact-event
   replay and fail-closed corrupt/PID-reuse cases;
 - a command running longer than five seconds while events and independent
-  command launches continue, plus launch/finalize races;
+  command launches continue, plus launch/session-close races;
 - process-group descendant cleanup, expected TERM, cancellation, unexpected
   signal, escalation, and supervisor loss;
 - 1 MiB raw capture limits and 256 MiB simultaneous stdout/stderr stress;
+- strict anonymous-pipe capture envelopes at exact/+1 bounds, malformed/digest
+  failure status 125, unchanged destinations, and no raw marker in argv,
+  environment, xtrace, attempt files, or monitored temporary directories;
 - owner/borrower nesting, rejected independent ownership, orphan takeover, and
-  LIFO cleanup;
+  shell-local LIFO cleanup, including spoofed owner, stale generation, ancestry
+  race, and same-PID/different-birth rejection;
+- session-close launch-gate races, two-recoverer claims, top-eight terminal
+  precedence/eviction, and every close/finalize crash boundary;
+- Linux boot-ID/start-tick and macOS libproc birth providers, child FD closure,
+  leader-before-grandchild exit, and ambiguous lease/group fail-closed cases;
 - GNU Bash 3.2 parsing and behavior without Bash 4-only features;
 - bounded/truncated command log behavior;
 - path sanitization and secret redaction;
@@ -700,10 +881,10 @@ bounded command log with the expected classification.
 The harness also injects supervisor death at each durable command stage,
 capture overflow, unexpected signal, requested cancellation, expected TERM,
 TERM-to-KILL escalation, cleanup failure, corrupt private state, nested borrower
-failure, owner loss/takeover, and launch/finalize races. A command running longer
+failure, owner loss/takeover, and launch/session-close races. A command running longer
 than five seconds cannot block ordinary event append. Read-only validation must
 refuse live private state and succeed only after verified recovery removes all
-committed control data.
+committed control data during owner finalization or one-shot delivery.
 
 The acceptance table follows the precedence rules above. In particular: shim
 build/readiness and runner-owned wait failures are `runner_failure`; missing app

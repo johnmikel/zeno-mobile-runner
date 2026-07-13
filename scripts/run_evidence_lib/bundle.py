@@ -24,17 +24,20 @@ from typing import Any
 from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
+from .contracts import _comparability_tuple
 from .sanitization import *  # noqa: F401,F403
 from .sanitization import _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
 from .summaries import *  # noqa: F401,F403
+from .summaries import _sanitize_validation_errors
 from .commands import *  # noqa: F401,F403
 from .receipts import *  # noqa: F401,F403
 from .bounded_io import *  # noqa: F401,F403
 from .bundle_scan import *  # noqa: F401,F403
 from .bundle_consistency import *  # noqa: F401,F403
+from .bundle_consistency import _registrations_for_run
 
 
 _MAX_VALIDATION_DIAGNOSTICS = 4096
@@ -229,6 +232,15 @@ def _validate_command_metadata(
             errors.append(f"{stream_label}.storedBytes: must be non-negative")
         if not isinstance(truncated, bool):
             errors.append(f"{stream_label}.truncated: must be a boolean")
+        if _is_integer(stored) and truncated is True:
+            # UTF-8-safe head/tail capture can discard at most three bytes at
+            # each boundary while retaining the configured byte budget.
+            minimum_stored = _LOG_LIMIT - 6
+            if not minimum_stored <= stored <= _LOG_LIMIT:
+                errors.append(
+                    f"{stream_label}.storedBytes: truncated stream must retain "
+                    f"between {minimum_stored} and {_LOG_LIMIT} bytes"
+                )
         stream_path = record.get("path")
         expected_path = f"commands/{path.stem}.{stream_name}.log"
         if isinstance(stream_path, str) and not stream_path.startswith("commands/"):
@@ -501,6 +513,118 @@ def _validate_finalize_receipt_for_bundle(
         errors.append(f"finalize-receipt.json: {exc}")
 
 
+def _is_evidence_invalid_fallback(summary: Any) -> bool:
+    """Return whether *summary* carries the internal semantic failure marker."""
+
+    return isinstance(summary, dict) and all(
+        summary.get(field) == expected
+        for field, expected in (
+            ("status", "failed"),
+            ("classification", "runner_failure"),
+            ("errorCode", "runner.evidence_invalid"),
+        )
+    )
+
+
+def _validate_invalid_summary_diagnostic_pair(
+    root: Path,
+    snapshot: _BundleSnapshot,
+    summary: Any,
+    index: Any,
+    secrets: list[str],
+    errors: list[str],
+) -> None:
+    """Bind an evidence-invalid fallback to its canonical diagnostics."""
+
+    candidate_relative = "run-summary.invalid.json"
+    diagnostics_relative = "run-summary.invalid.errors.json"
+    candidate_metadata = snapshot.metadata(candidate_relative)
+    diagnostics_metadata = snapshot.metadata(diagnostics_relative)
+    fallback = _is_evidence_invalid_fallback(summary)
+
+    if not fallback:
+        if candidate_metadata is not None or diagnostics_metadata is not None:
+            errors.append(
+                "invalid-summary diagnostic pair: artifacts require the exact "
+                "evidence-invalid fallback summary"
+            )
+        return
+
+    if (
+        summary.get("phase") != "evidence.finalize"
+        or summary.get("summary") != "Run evidence validation failed"
+        or summary.get("hint")
+        != "Inspect the sanitized invalid-summary diagnostics"
+    ):
+        errors.append(
+            "invalid-summary diagnostic pair: evidence-invalid fallback text "
+            "must use the stable internal values"
+        )
+        return
+
+    if (
+        candidate_metadata is None
+        or diagnostics_metadata is None
+        or not stat.S_ISREG(candidate_metadata.st_mode)
+        or not stat.S_ISREG(diagnostics_metadata.st_mode)
+    ):
+        errors.append(
+            "invalid-summary diagnostic pair: evidence-invalid fallback requires "
+            "two regular diagnostic files"
+        )
+        return
+
+    try:
+        candidate, _candidate_bytes = _read_json_bounded(
+            root / candidate_relative,
+            expected_metadata=candidate_metadata,
+        )
+        diagnostics, _diagnostics_bytes = _read_json_bounded(
+            root / diagnostics_relative,
+            expected_metadata=diagnostics_metadata,
+        )
+    except ValueError:
+        errors.append(
+            "invalid-summary diagnostic pair: files must be bounded strict JSON"
+        )
+        return
+
+    if not isinstance(candidate, dict):
+        errors.append(
+            "invalid-summary diagnostic pair: candidate must be an invalid "
+            "summary object"
+        )
+        return
+
+    candidate_errors = list(validate_summary(candidate))
+    registrations = _registrations_for_run(index, root.name)
+    if len(registrations) == 1:
+        execution, _entry = registrations[0]
+        if _comparability_tuple(candidate) != execution.get(
+            "comparabilityTuple"
+        ):
+            candidate_errors.append(
+                "$.comparabilityTuple: context disagrees with the registered "
+                "execution"
+            )
+    if not candidate_errors:
+        errors.append(
+            "invalid-summary diagnostic pair: candidate must fail summary validation"
+        )
+        return
+
+    expected_diagnostics = _sanitize_validation_errors(
+        candidate_errors,
+        roots=_sanitization_roots(root),
+        secrets=secrets,
+    )
+    if diagnostics != {"errors": expected_diagnostics}:
+        errors.append(
+            "invalid-summary diagnostic pair: diagnostics must exactly match the "
+            "canonical candidate validation errors"
+        )
+
+
 @_rooted_attempt_read
 def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     """Validate a complete attempt bundle, including containment and redaction."""
@@ -558,6 +682,10 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
         _validate_finalize_receipt_for_bundle(
             root, snapshot, summary_metadata, summary, errors
         )
+
+    _validate_invalid_summary_diagnostic_pair(
+        root, snapshot, summary, scanned_index, secrets, errors
+    )
 
     if isinstance(summary, dict) and (
         _valid_datetime(summary.get("startedAt"))

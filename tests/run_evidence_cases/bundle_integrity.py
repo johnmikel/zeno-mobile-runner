@@ -13,7 +13,7 @@ from .support import *  # noqa: F401,F403
 
 
 class BundleIntegrityTests(CommandTestCase):
-    def make_bundle(self):
+    def make_bundle(self, *, command_status=0):
         report = self.root / "reports" / "run.html"
         report.parent.mkdir()
         report.write_text("<html>sanitized report</html>", encoding="utf-8")
@@ -34,7 +34,7 @@ class BundleIntegrityTests(CommandTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return run_evidence._finalize_attempt(
-            self.root, "passed", command_status=0
+            self.root, "passed", command_status=command_status
         )
 
     def tamper_json(self, path, original, mutate):
@@ -45,6 +45,193 @@ class BundleIntegrityTests(CommandTestCase):
             return run_evidence.validate_bundle(self.root, secrets=[])
         finally:
             path.write_text(json.dumps(original), encoding="utf-8")
+
+    def test_evidence_invalid_fallback_requires_both_diagnostic_files(self):
+        summary = self.make_bundle(command_status=True)
+        self.assertEqual(summary["errorCode"], "runner.evidence_invalid")
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
+
+        candidate_path = self.root / "run-summary.invalid.json"
+        diagnostics_path = self.root / "run-summary.invalid.errors.json"
+        original_candidate = candidate_path.read_bytes()
+        original_diagnostics = diagnostics_path.read_bytes()
+        cases = (
+            ("missing candidate", False, True),
+            ("missing diagnostics", True, False),
+            ("missing pair", False, False),
+        )
+        for label, keep_candidate, keep_diagnostics in cases:
+            with self.subTest(label=label):
+                candidate_path.write_bytes(original_candidate)
+                diagnostics_path.write_bytes(original_diagnostics)
+                if not keep_candidate:
+                    candidate_path.unlink()
+                if not keep_diagnostics:
+                    diagnostics_path.unlink()
+                errors = run_evidence.validate_bundle(self.root, secrets=[])
+                self.assertTrue(
+                    any("invalid-summary diagnostic pair" in error for error in errors),
+                    errors,
+                )
+
+    def test_evidence_invalid_semantic_marker_cannot_bypass_pair_with_custom_text(self):
+        summary = self.make_bundle(command_status=True)
+        summary.update(
+            summary="Custom evidence failure",
+            hint="Custom recovery guidance",
+        )
+        (self.root / "run-summary.json").write_text(
+            json.dumps(summary), encoding="utf-8"
+        )
+        (self.root / "run-summary.invalid.json").unlink()
+        (self.root / "run-summary.invalid.errors.json").unlink()
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertTrue(
+            any("invalid-summary diagnostic pair" in error for error in errors),
+            errors,
+        )
+
+    def test_evidence_invalid_code_cannot_bypass_pair_with_alternate_phase(self):
+        summary = self.make_bundle(command_status=True)
+        summary["phase"] = "scenario.execute"
+        (self.root / "run-summary.json").write_text(
+            json.dumps(summary), encoding="utf-8"
+        )
+        (self.root / "run-summary.invalid.json").unlink()
+        (self.root / "run-summary.invalid.errors.json").unlink()
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertTrue(
+            any("invalid-summary diagnostic pair" in error for error in errors),
+            errors,
+        )
+
+    def test_tuple_mismatch_fallback_accepts_its_synthetic_diagnostic(self):
+        context_path = self.root / "run-context.json"
+        context = self.read_json(context_path)
+        context["runtimeVersion"] = "18.6"
+        context_path.write_text(json.dumps(context), encoding="utf-8")
+
+        summary = run_evidence._finalize_attempt(self.root, "passed")
+        self.assertEqual(summary["errorCode"], "runner.evidence_invalid")
+        diagnostics = self.read_json(
+            self.root / "run-summary.invalid.errors.json"
+        )
+        self.assertEqual(
+            diagnostics,
+            {
+                "errors": [
+                    "$.comparabilityTuple: context disagrees with the "
+                    "registered execution"
+                ]
+            },
+        )
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertFalse(
+            any("invalid-summary diagnostic pair" in error for error in errors),
+            errors,
+        )
+
+    def test_evidence_invalid_fallback_diagnostics_match_invalid_candidate(self):
+        summary = self.make_bundle(command_status=True)
+        candidate_path = self.root / "run-summary.invalid.json"
+        diagnostics_path = self.root / "run-summary.invalid.errors.json"
+        original_candidate = candidate_path.read_bytes()
+        original_diagnostics = diagnostics_path.read_bytes()
+        cases = (
+            (
+                "candidate is valid",
+                json.dumps(summary).encode("utf-8"),
+                original_diagnostics,
+            ),
+            (
+                "diagnostics are fabricated",
+                original_candidate,
+                json.dumps({"errors": ["$: fabricated diagnostic"]}).encode(
+                    "utf-8"
+                ),
+            ),
+            (
+                "diagnostics are not canonical",
+                original_candidate,
+                json.dumps({"errors": ["z", "", "z", "a"]}).encode("utf-8"),
+            ),
+        )
+        for label, candidate, diagnostics in cases:
+            with self.subTest(label=label):
+                candidate_path.write_bytes(candidate)
+                diagnostics_path.write_bytes(diagnostics)
+                errors = run_evidence.validate_bundle(self.root, secrets=[])
+                self.assertTrue(
+                    any("invalid-summary diagnostic pair" in error for error in errors),
+                    errors,
+                )
+
+    def test_ordinary_summary_rejects_orphan_invalid_summary_artifacts(self):
+        self.make_bundle()
+        candidate_path = self.root / "run-summary.invalid.json"
+        diagnostics_path = self.root / "run-summary.invalid.errors.json"
+        candidate = json.dumps({"not": "a summary"}).encode("utf-8")
+        diagnostics = json.dumps({"errors": ["$: must be an object"]}).encode(
+            "utf-8"
+        )
+        cases = (
+            ("candidate only", True, False),
+            ("diagnostics only", False, True),
+            ("orphan pair", True, True),
+        )
+        for label, include_candidate, include_diagnostics in cases:
+            with self.subTest(label=label):
+                candidate_path.unlink(missing_ok=True)
+                diagnostics_path.unlink(missing_ok=True)
+                if include_candidate:
+                    candidate_path.write_bytes(candidate)
+                if include_diagnostics:
+                    diagnostics_path.write_bytes(diagnostics)
+                errors = run_evidence.validate_bundle(self.root, secrets=[])
+                self.assertTrue(
+                    any("invalid-summary diagnostic pair" in error for error in errors),
+                    errors,
+                )
+
+    def test_truncated_command_stream_requires_the_utf8_adjusted_head_tail_budget(self):
+        self.make_bundle()
+        metadata_path = next((self.root / "commands").glob("*.json"))
+        metadata = self.read_json(metadata_path)
+        stdout = metadata["stdout"]
+        stdout_path = self.root / stdout["path"]
+        stdout.update(
+            originalBytes=run_evidence.constants._LOG_LIMIT + 1,
+            sanitizedBytes=run_evidence.constants._LOG_LIMIT + 1,
+            truncated=True,
+        )
+        minimum = run_evidence.constants._LOG_LIMIT - 6
+        cases = (
+            ("minimum accepted", minimum, False),
+            ("one byte below minimum", minimum - 1, True),
+            ("empty truncated log", 0, True),
+        )
+        for label, stored_bytes, rejected in cases:
+            with self.subTest(label=label):
+                stdout_path.write_bytes(b"x" * stored_bytes)
+                stdout["storedBytes"] = stored_bytes
+                metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+                errors = run_evidence.validate_bundle(self.root, secrets=[])
+                if rejected:
+                    self.assertTrue(
+                        any(
+                            "truncated stream must retain" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+                else:
+                    self.assertEqual(errors, [])
 
     @staticmethod
     def deep_document(total_bytes, depth=2_000):

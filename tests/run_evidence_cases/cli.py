@@ -1,6 +1,7 @@
 """CLI and aggregate-summary cases."""
 
 import io
+import tracemalloc
 from contextlib import redirect_stdout
 
 from .support import *  # noqa: F401,F403
@@ -70,6 +71,146 @@ class CliAndAggregateTests(StorageTestCase):
             ValueError, "--context-json exceeds"
         ):
             run_evidence.cli._parse_json_argument(exact, "--context-json")
+
+    def test_bounded_json_writer_is_canonical_native_and_budgeted(self):
+        value = {
+            "z": [None, True, False, 1, -0.0, "é\n\"\\"],
+            "a": {"nested": "value"},
+        }
+        expected = run_evidence._json_bytes(value)
+        self.assertEqual(
+            run_evidence.bounded_io._json_bytes_bounded(
+                value, maximum=len(expected)
+            ),
+            expected,
+        )
+        self.assertEqual(
+            run_evidence.bounded_io._decode_json_bytes(expected), value
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            run_evidence.bounded_io._json_bytes_bounded(
+                value, maximum=len(expected) - 1
+            )
+
+        invalid = (
+            {"value": (1, 2)},
+            {"value": type("CustomList", (list,), {})([1])},
+            {1: "non-string key"},
+        )
+        for candidate in invalid:
+            with self.subTest(candidate=candidate), self.assertRaisesRegex(
+                ValueError, "native JSON|keys must be strings"
+            ):
+                run_evidence.bounded_io._json_bytes_bounded(candidate)
+
+    def test_bounded_json_writer_stops_escaped_and_shared_expansion(self):
+        escaped = {"value": '"\\\n' * 400_000}
+        shared = ["leaf"]
+        for _index in range(20):
+            shared = [shared, shared]
+
+        with mock.patch.object(
+            run_evidence.safe_io,
+            "_json_bytes",
+            side_effect=AssertionError("legacy full JSON dump was used"),
+        ):
+            for candidate in (escaped, shared):
+                with self.subTest(
+                    candidate_type=type(candidate)
+                ), self.assertRaisesRegex(ValueError, "exceeds 1024 bytes"):
+                    run_evidence.bounded_io._json_bytes_bounded(
+                        candidate, maximum=1024
+                    )
+
+    def test_bounded_json_writer_stops_scanning_plain_strings_at_budget(self):
+        pattern = run_evidence.bounded_io._JSON_ESCAPE_RE
+        scanned_lengths = []
+
+        class InstrumentedPattern:
+            @staticmethod
+            def finditer(value):
+                scanned_lengths.append(len(value))
+                return pattern.finditer(value)
+
+        with mock.patch.object(
+            run_evidence.bounded_io,
+            "_JSON_ESCAPE_RE",
+            InstrumentedPattern(),
+        ), self.assertRaisesRegex(ValueError, "exceeds 1024 bytes"):
+            run_evidence.bounded_io._json_bytes_bounded(
+                "x" * 10_000_000, maximum=1024
+            )
+
+        self.assertTrue(scanned_lengths)
+        self.assertLessEqual(
+            sum(scanned_lengths),
+            run_evidence.bounded_io._JSON_TEXT_CHUNK_CHARACTERS,
+        )
+
+    def test_bounded_json_writer_depth_round_trips_with_strict_reader(self):
+        exact = None
+        for _index in range(256):
+            exact = [exact]
+        encoded = run_evidence.bounded_io._json_bytes_bounded(
+            exact, maximum=1024
+        )
+        self.assertEqual(
+            run_evidence.bounded_io._decode_json_bytes(encoded), exact
+        )
+
+        too_deep = [exact]
+        with self.assertRaisesRegex(
+            ValueError, "nesting exceeds supported depth"
+        ):
+            run_evidence.bounded_io._json_bytes_bounded(
+                too_deep, maximum=1024
+            )
+
+    def test_bounded_json_writer_admits_before_integer_sort_or_flat_graph_growth(self):
+        huge_integer = 1 << 2_000_000
+        previous_digit_limit = (
+            sys.get_int_max_str_digits()
+            if hasattr(sys, "get_int_max_str_digits")
+            else None
+        )
+        if hasattr(sys, "set_int_max_str_digits"):
+            sys.set_int_max_str_digits(0)
+        try:
+            with self.assertRaisesRegex(ValueError, "exceeds 1024 bytes"):
+                run_evidence.bounded_io._json_bytes_bounded(
+                    huge_integer, maximum=1024
+                )
+        finally:
+            if previous_digit_limit is not None:
+                sys.set_int_max_str_digits(previous_digit_limit)
+
+        flat = [[] for _index in range(300_000)]
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            with self.assertRaisesRegex(ValueError, "exceeds 1024 bytes"):
+                run_evidence.bounded_io._json_bytes_bounded(
+                    flat, maximum=1024
+                )
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertLess(peak, 1024 * 1024)
+
+        many_keys = {f"key-{index:06d}": 0 for index in range(300_000)}
+        with mock.patch(
+            "builtins.sorted",
+            side_effect=AssertionError("oversized key set was sorted"),
+        ) as sorter, self.assertRaisesRegex(ValueError, "exceeds 1024 bytes"):
+            run_evidence.bounded_io._json_bytes_bounded(
+                many_keys, maximum=1024
+            )
+        self.assertEqual(sorter.call_count, 0)
+
+        cycle = []
+        cycle.append(cycle)
+        with self.assertRaisesRegex(ValueError, "circular JSON"):
+            run_evidence.bounded_io._json_bytes_bounded(cycle, maximum=1024)
 
     def test_cli_init_context_event_finalize_and_validate_exit_contract(self):
         root = self.attempt_root("run-1")

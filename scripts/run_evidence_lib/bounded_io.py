@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import stat
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,6 +20,17 @@ class _EntryLimitExceeded(ValueError):
 
 
 _MAX_JSON_NESTING_DEPTH = 256
+_JSON_TEXT_CHUNK_CHARACTERS = 16 * 1024
+_JSON_ESCAPE_RE = re.compile(r'[\x00-\x1f"\\]')
+_JSON_SHORT_ESCAPES = {
+    '"': b'\\"',
+    "\\": b"\\\\",
+    "\b": b"\\b",
+    "\f": b"\\f",
+    "\n": b"\\n",
+    "\r": b"\\r",
+    "\t": b"\\t",
+}
 
 
 def _reject_duplicate_object_pairs(
@@ -39,46 +51,69 @@ def _reject_non_finite_constant(_value: str) -> Any:
 
 
 def _validate_json_nesting(
-    value: Any, maximum: int = _MAX_JSON_NESTING_DEPTH
+    value: Any,
+    maximum: int = _MAX_JSON_NESTING_DEPTH,
+    *,
+    maximum_work: int | None = None,
 ) -> None:
-    """Validate JSON depth iteratively with memory bounded by nesting depth."""
+    """Validate native JSON using memory proportional only to active depth."""
 
     if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum < 1:
         raise ValueError("JSON nesting limit must be a positive integer")
-    current = value
-    depth = 0
-    parents: list[tuple[Iterator[Any], int]] = []
-    while True:
-        children: Iterator[Any] | None = None
-        if isinstance(current, float) and not math.isfinite(current):
-            raise ValueError("non-finite JSON number")
-        if isinstance(current, list):
-            children = iter(current)
-        elif isinstance(current, dict):
+    if maximum_work is not None and (
+        not isinstance(maximum_work, int)
+        or isinstance(maximum_work, bool)
+        or maximum_work < 1
+    ):
+        raise ValueError("JSON work limit must be a positive integer")
+    active: set[int] = set()
+    work = 0
+    stack: list[tuple[str, Any, int]] = [("enter", value, 0)]
+    while stack:
+        action, current, depth = stack.pop()
+        if action == "exit":
+            active.remove(current)
+            continue
+        if action == "next":
+            iterator, identity = current
+            try:
+                child = next(iterator)
+            except StopIteration:
+                continue
+            work += 1
+            if maximum_work is not None and work > maximum_work:
+                raise ValueError("JSON graph exceeds supported work")
+            if depth >= maximum:
+                raise ValueError("nesting exceeds supported depth")
+            stack.append(("next", (iterator, identity), depth))
+            stack.append(("enter", child, depth + 1))
+            continue
+
+        value_type = type(current)
+        if current is None or value_type in (bool, int, str):
+            continue
+        if value_type is float:
+            if not math.isfinite(current):
+                raise ValueError("non-finite JSON number")
+            continue
+        if value_type not in (list, dict):
+            raise ValueError("JSON value must use native JSON types")
+        identity = id(current)
+        if identity in active:
+            raise ValueError("circular JSON container reference")
+        active.add(identity)
+        if value_type is dict:
+            for key in current:
+                work += 1
+                if maximum_work is not None and work > maximum_work:
+                    raise ValueError("JSON graph exceeds supported work")
+                if type(key) is not str:
+                    raise ValueError("JSON object keys must be strings")
             children = iter(current.values())
-        if children is not None:
-            try:
-                child = next(children)
-            except StopIteration:
-                pass
-            else:
-                if depth >= maximum:
-                    raise ValueError("nesting exceeds supported depth")
-                parents.append((children, depth))
-                current = child
-                depth += 1
-                continue
-        while parents:
-            siblings, parent_depth = parents[-1]
-            try:
-                current = next(siblings)
-            except StopIteration:
-                parents.pop()
-                continue
-            depth = parent_depth + 1
-            break
         else:
-            return
+            children = iter(current)
+        stack.append(("exit", identity, depth))
+        stack.append(("next", (children, identity), depth))
 
 
 def _decode_json_bytes(content: bytes) -> Any:
@@ -94,8 +129,209 @@ def _decode_json_bytes(content: bytes) -> Any:
         raise ValueError("nesting exceeds supported depth") from exc
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(str(exc)) from exc
-    _validate_json_nesting(value)
+    _validate_json_nesting(value, maximum_work=max(1, len(content) + 1))
     return value
+
+
+class _BoundedCanonicalJSONWriter:
+    """Emit canonical UTF-8 JSON while retaining at most the admitted bytes."""
+
+    def __init__(self, maximum: int, label: str) -> None:
+        self._maximum = maximum
+        self._label = label
+        self._content = bytearray()
+
+    @property
+    def remaining(self) -> int:
+        return self._maximum - len(self._content)
+
+    def _raise_limit(self) -> None:
+        raise ValueError(f"{self._label} exceeds {self._maximum} bytes")
+
+    def _write(self, content: bytes) -> None:
+        if len(self._content) + len(content) > self._maximum:
+            self._raise_limit()
+        self._content.extend(content)
+
+    def _write_text_span(self, value: str, start: int, end: int) -> None:
+        while start < end:
+            chunk_end = min(end, start + _JSON_TEXT_CHUNK_CHARACTERS)
+            try:
+                encoded = value[start:chunk_end].encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("JSON string is not valid UTF-8") from exc
+            self._write(encoded)
+            start = chunk_end
+
+    def _write_string(self, value: str) -> None:
+        self._write(b'"')
+        chunk_start = 0
+        while chunk_start < len(value):
+            chunk_end = min(
+                len(value),
+                chunk_start
+                + min(
+                    _JSON_TEXT_CHUNK_CHARACTERS,
+                    max(1, self.remaining + 1),
+                ),
+            )
+            chunk = value[chunk_start:chunk_end]
+            cursor = 0
+            for match in _JSON_ESCAPE_RE.finditer(chunk):
+                self._write_text_span(chunk, cursor, match.start())
+                character = match.group(0)
+                escaped = _JSON_SHORT_ESCAPES.get(character)
+                if escaped is None:
+                    escaped = f"\\u{ord(character):04x}".encode("ascii")
+                self._write(escaped)
+                cursor = match.end()
+            self._write_text_span(chunk, cursor, len(chunk))
+            chunk_start = chunk_end
+        self._write(b'"')
+
+    def _string_size_bounded(self, value: str, maximum: int) -> int:
+        total = 2
+        if total > maximum:
+            return maximum + 1
+        chunk_start = 0
+        while chunk_start < len(value):
+            chunk_end = min(
+                len(value),
+                chunk_start
+                + min(
+                    _JSON_TEXT_CHUNK_CHARACTERS,
+                    max(1, maximum - total + 1),
+                ),
+            )
+            chunk = value[chunk_start:chunk_end]
+            cursor = 0
+            for match in _JSON_ESCAPE_RE.finditer(chunk):
+                try:
+                    total += len(chunk[cursor : match.start()].encode("utf-8"))
+                except UnicodeEncodeError as exc:
+                    raise ValueError("JSON string is not valid UTF-8") from exc
+                if total > maximum:
+                    return maximum + 1
+                total += 2 if match.group(0) in _JSON_SHORT_ESCAPES else 6
+                if total > maximum:
+                    return maximum + 1
+                cursor = match.end()
+            try:
+                total += len(chunk[cursor:].encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ValueError("JSON string is not valid UTF-8") from exc
+            if total > maximum:
+                return maximum + 1
+            chunk_start = chunk_end
+        return total
+
+    def _preflight_dict_sort(self, mapping: dict[str, Any]) -> None:
+        minimum = 1  # Closing brace.
+        for index, key in enumerate(mapping):
+            if type(key) is not str:
+                raise ValueError("JSON object keys must be strings")
+            key_size = self._string_size_bounded(
+                key, max(0, self.remaining - minimum)
+            )
+            minimum += key_size + 2  # Colon plus the smallest JSON value.
+            if index:
+                minimum += 1
+            if minimum > self.remaining:
+                self._raise_limit()
+
+    def encode(self, value: Any) -> bytes:
+        active: set[int] = set()
+        stack: list[tuple[str, Any, int]] = [("value", value, 0)]
+        while stack:
+            action, current, depth = stack.pop()
+            if action == "exit":
+                active.remove(current)
+                continue
+            if action == "list-next":
+                iterator, first = current
+                try:
+                    child = next(iterator)
+                except StopIteration:
+                    self._write(b"]")
+                    continue
+                if not first:
+                    self._write(b",")
+                if depth >= _MAX_JSON_NESTING_DEPTH:
+                    raise ValueError("nesting exceeds supported depth")
+                stack.append(("list-next", (iterator, False), depth))
+                stack.append(("value", child, depth + 1))
+                continue
+            if action == "dict-next":
+                iterator, mapping, first = current
+                try:
+                    key = next(iterator)
+                except StopIteration:
+                    self._write(b"}")
+                    continue
+                if not first:
+                    self._write(b",")
+                self._write_string(key)
+                self._write(b":")
+                if depth >= _MAX_JSON_NESTING_DEPTH:
+                    raise ValueError("nesting exceeds supported depth")
+                stack.append(
+                    ("dict-next", (iterator, mapping, False), depth)
+                )
+                stack.append(("value", mapping[key], depth + 1))
+                continue
+
+            value_type = type(current)
+            if current is None:
+                self._write(b"null")
+            elif value_type is bool:
+                self._write(b"true" if current else b"false")
+            elif value_type is int:
+                bit_length = current.bit_length()
+                minimum_digits = (
+                    1
+                    if bit_length == 0
+                    else ((bit_length - 1) * 30102) // 100000 + 1
+                )
+                if minimum_digits + (1 if current < 0 else 0) > self.remaining:
+                    self._raise_limit()
+                try:
+                    encoded_integer = str(current).encode("ascii")
+                except ValueError as exc:
+                    raise ValueError("JSON integer is too large") from exc
+                self._write(encoded_integer)
+            elif value_type is float:
+                if not math.isfinite(current):
+                    raise ValueError("non-finite JSON number")
+                self._write(repr(current).encode("ascii"))
+            elif value_type is str:
+                self._write_string(current)
+            elif value_type is list:
+                identity = id(current)
+                if identity in active:
+                    raise ValueError("circular JSON container reference")
+                active.add(identity)
+                self._write(b"[")
+                stack.append(("exit", identity, depth))
+                stack.append(("list-next", (iter(current), True), depth))
+            elif value_type is dict:
+                identity = id(current)
+                if identity in active:
+                    raise ValueError("circular JSON container reference")
+                active.add(identity)
+                self._write(b"{")
+                self._preflight_dict_sort(current)
+                stack.append(("exit", identity, depth))
+                stack.append(
+                    (
+                        "dict-next",
+                        (iter(sorted(current)), current, True),
+                        depth,
+                    )
+                )
+            else:
+                raise ValueError("JSON value must use native JSON types")
+        self._write(b"\n")
+        return bytes(self._content)
 
 
 def _json_bytes_bounded(
@@ -109,14 +345,7 @@ def _json_bytes_bounded(
     limit = _limits.MAX_STRUCTURED_JSON_BYTES if maximum is None else maximum
     if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
         raise ValueError("structured JSON limit must be a non-negative integer")
-    _validate_json_nesting(value)
-    try:
-        content = safe_io._json_bytes(value)
-    except RecursionError as exc:
-        raise ValueError("nesting exceeds supported depth") from exc
-    if len(content) > limit:
-        raise ValueError(f"{label} exceeds {limit} bytes")
-    return content
+    return _BoundedCanonicalJSONWriter(limit, label).encode(value)
 
 
 def _jsonl_line_bytes_bounded(
@@ -130,11 +359,16 @@ def _jsonl_line_bytes_bounded(
     limit = _limits.MAX_JSONL_LINE_BYTES if maximum is None else maximum
     if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
         raise ValueError("JSONL line limit must be a non-negative integer")
-    content = _json_bytes_bounded(
-        value,
-        maximum=limit + 1,
-        label=label,
-    )
+    try:
+        content = _json_bytes_bounded(
+            value,
+            maximum=limit + 1,
+            label=label,
+        )
+    except ValueError as exc:
+        if str(exc) == f"{label} exceeds {limit + 1} bytes":
+            raise ValueError(f"{label} exceeds {limit} bytes") from exc
+        raise
     if not content.endswith(b"\n"):
         raise RuntimeError("canonical JSON encoding must end with a newline")
     if len(content) - 1 > limit:

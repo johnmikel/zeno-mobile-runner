@@ -68,6 +68,46 @@ class AttemptIndexTests(StorageTestCase):
             ):
                 run_evidence.register_attempt(self.index_path, root, context)
 
+    def test_retry_registration_rejects_every_comparability_tuple_category(self):
+        first_root = self.create_attempt_root("run-1")
+        run_evidence.register_attempt(self.index_path, first_root, valid_context())
+        cases = (
+            ("candidateRevision", "candidateRevision", "d" * 40),
+            ("fixtureId", "fixtureId", "fixture-2"),
+            ("fixtureVersion", "fixtureVersion", "2"),
+            ("scenarioDigest", "scenarioDigest", "sha256:" + "d" * 64),
+            ("appBuildDigest", "appBuildDigest", "sha256:" + "e" * 64),
+            ("platform", "platform", "android"),
+            ("deviceClass", "deviceClass", "pixel-9"),
+            ("runtimeVersion", "runtimeVersion", "36"),
+            ("host.os", "host.os", "linux"),
+            ("host.arch", "host.arch", "x86_64"),
+            ("host.class", "host.class", "self-hosted-linux"),
+            ("runnerVersion", "runnerVersion", "0.2.18"),
+            ("protocolVersion", "protocolVersion", "2026-07-12"),
+            ("timingMode", "timingMode", "warm-session"),
+            ("toolchain", "toolchain.zig", "0.17.0"),
+            ("toolchain.membership", "toolchain.swift", "6.0"),
+        )
+        self.assertEqual(
+            {label for label, _path, _value in cases},
+            set(run_evidence.COMPARABILITY_FIELDS) | {"toolchain.membership"},
+        )
+        for index, (label, path, value) in enumerate(cases, 1):
+            context = valid_context(runId=f"retry-{index}", attempt=2)
+            target = context
+            parts = path.split(".")
+            for part in parts[:-1]:
+                target = target[part]
+            target[parts[-1]] = value
+            root = self.create_attempt_root(context["runId"])
+            index_before = self.index_path.read_bytes()
+            with self.subTest(category=label), self.assertRaisesRegex(
+                ValueError, "comparability tuple differs"
+            ):
+                run_evidence.register_attempt(self.index_path, root, context)
+            self.assertEqual(self.index_path.read_bytes(), index_before)
+
     def test_new_execution_must_start_at_attempt_one(self):
         root = self.create_attempt_root("other-run")
         context = valid_context(
@@ -226,6 +266,32 @@ class LifecycleTests(StorageTestCase):
             run_evidence.update_context(root, {"runtimeVersion": "18.6"})
         with self.assertRaises(ValueError):
             run_evidence.update_context(root, {"notAllowed": "x"})
+
+    def test_public_app_digest_resolution_updates_index_and_final_key(self):
+        root = self.initialize(valid_context(appBuildDigest=None))
+        initial_claims = run_evidence.comparability(
+            self.read_json(root / "run-context.json")
+        )
+        self.assertFalse(initial_claims["certificationEligible"])
+        self.assertIn("$.appBuildDigest", initial_claims["ineligibilityReasons"])
+
+        updated = run_evidence.update_context(
+            root, {"appBuildDigest": APP_DIGEST}
+        )
+        expected_claims = run_evidence.comparability(updated)
+        self.assertTrue(expected_claims["certificationEligible"])
+        self.assertEqual(expected_claims["ineligibilityReasons"], [])
+        self.assertEqual(
+            self.read_json(self.index_path)["executions"][0][
+                "comparabilityTuple"
+            ]["appBuildDigest"],
+            APP_DIGEST,
+        )
+
+        summary = run_evidence._finalize_attempt(root, "passed")
+        self.assertEqual(summary["comparabilityKey"], expected_claims["comparabilityKey"])
+        self.assertTrue(summary["certificationEligible"])
+        self.assertEqual(summary["ineligibilityReasons"], [])
 
     def test_identical_context_patch_returns_current_stored_context(self):
         root = self.initialize(valid_context(runtimeVersion=None))

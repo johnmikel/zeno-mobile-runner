@@ -235,6 +235,12 @@ class ClassificationTests(unittest.TestCase):
                     ("runner_failure", "runner.unclassified"),
                 )
 
+    def test_cleanup_failure_exactly_outranks_cancellation(self):
+        self.assertEqual(
+            run_evidence.classify(["run.cancelled", "runner.cleanup_failed"]),
+            ("runner_failure", "runner.cleanup_failed"),
+        )
+
 
 class ValidationTests(unittest.TestCase):
     def assertPathError(self, errors, path):

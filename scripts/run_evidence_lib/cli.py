@@ -94,6 +94,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--outcome", required=True, choices=("success", "failure", "cancelled")
     )
     external_parser.add_argument("--failure-code", required=True)
+    external_parser.add_argument(
+        "--remediation",
+        required=True,
+        help=(
+            "sanitized recovery guidance "
+            f"(maximum {MAX_EXTERNAL_REMEDIATION_BYTES} UTF-8 bytes)"
+        ),
+    )
 
     finalize_parser = subparsers.add_parser("finalize")
     finalize_parser.add_argument("--root", required=True, type=Path)
@@ -187,6 +195,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             args.name,
             args.outcome,
             args.failure_code,
+            args.remediation,
         )
     if args.action == "finalize":
         recovered_transactions = []

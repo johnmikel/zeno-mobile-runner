@@ -27,6 +27,7 @@ from typing import Any
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
+from .sanitization import _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
@@ -557,6 +558,7 @@ def _record_external_during_lifecycle(
     name: str,
     outcome: str,
     failure_code: str,
+    remediation: str,
 ) -> int:
     root = Path(root)
     _validate_command_name(name)
@@ -572,6 +574,23 @@ def _record_external_during_lifecycle(
         raise ValueError("cancelled external outcome requires run.cancelled")
     if outcome == "failure" and failure_code == "run.cancelled":
         raise ValueError("failed external outcome cannot use run.cancelled")
+    if not isinstance(remediation, str) or not remediation.strip():
+        raise ValueError("external remediation must be a non-empty string")
+    sanitized_remediation = sanitize_text(
+        remediation,
+        roots=_sanitization_roots(root),
+        secrets=_collect_secret_values(),
+    )
+    if not sanitized_remediation.strip():
+        raise ValueError("external remediation must be non-empty after sanitization")
+    remediation_bytes = _utf8_byte_length(sanitized_remediation)
+    if remediation_bytes is None:
+        raise ValueError("external remediation must contain valid UTF-8")
+    if remediation_bytes > MAX_EXTERNAL_REMEDIATION_BYTES:
+        raise ValueError(
+            "external remediation exceeds maximum "
+            f"({MAX_EXTERNAL_REMEDIATION_BYTES} UTF-8 bytes)"
+        )
     if _evidence_exists(root / "run-summary.json"):
         raise ValueError("cannot record an external command after finalization")
     commands_root = root / "commands"
@@ -589,6 +608,7 @@ def _record_external_during_lifecycle(
     ).encode("utf-8")
     stderr_content = (
         f"synthetic outcome: {outcome}. This record does not claim hosted log capture.\n"
+        f"remediation: {sanitized_remediation}\n"
     ).encode("utf-8")
     _atomic_write_bytes(root / stdout_relative, stdout_content)
     _atomic_write_bytes(root / stderr_relative, stderr_content)
@@ -600,6 +620,7 @@ def _record_external_during_lifecycle(
         "name": name,
         "failureCode": failure_code,
         "outcome": outcome,
+        "remediation": sanitized_remediation,
         "exitStatus": None,
         "signal": None,
         "stdout": _stream_record(
@@ -628,7 +649,7 @@ def _record_external_during_lifecycle(
     if outcome != "success":
         event_metadata.update(
             errorCode=failure_code,
-            summary=f"External command {name} reported {outcome}",
+            summary=sanitized_remediation,
         )
     _append_event_during_lifecycle(root, phase, event_status, **event_metadata)
     return {"success": 0, "failure": 1, "cancelled": 130}[outcome]
@@ -641,12 +662,13 @@ def _record_external(
     name: str,
     outcome: str,
     failure_code: str,
+    remediation: str,
 ) -> int:
     root = Path(root)
     _recover_pending_transactions(_publication_root_for_attempt(root))
     with _exclusive_lock(root / ".lifecycle.lock"):
         return _record_external_during_lifecycle(
-            root, phase, name, outcome, failure_code
+            root, phase, name, outcome, failure_code, remediation
         )
 
 __all__ = (

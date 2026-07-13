@@ -74,6 +74,7 @@ class BundleValidationTests(CommandTestCase):
                 "exitStatus": 0,
                 "signal": None,
                 "outcome": large,
+                "remediation": large,
             }
         )
         self.assertEqual(
@@ -85,6 +86,7 @@ class BundleValidationTests(CommandTestCase):
                 "exitStatus": 0,
                 "signal": None,
                 "outcome": None,
+                "remediation": None,
             },
         )
 
@@ -198,6 +200,7 @@ class BundleValidationTests(CommandTestCase):
             "external-build",
             "success",
             "infra.hosted_runner",
+            "No remediation is required",
         )
         run_evidence._finalize_attempt(self.root, "passed", command_status=None)
         metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
@@ -210,6 +213,79 @@ class BundleValidationTests(CommandTestCase):
         self.assertTrue(any("outcome" in error for error in errors), errors)
         self.assertTrue(any("limitation" in error for error in errors), errors)
         self.assertTrue(any("exitStatus" in error for error in errors), errors)
+
+    def test_external_metadata_and_event_remediation_tampering_is_rejected(self):
+        report = self.root / "reports" / "run.html"
+        report.parent.mkdir()
+        report.write_text("<html>sanitized report</html>", encoding="utf-8")
+        remediation = "Retry the hosted build"
+        run_evidence._record_external(
+            self.root,
+            "app.build",
+            "external-build",
+            "failure",
+            "infra.hosted_runner",
+            remediation,
+        )
+        run_evidence._finalize_attempt(
+            self.root,
+            "failed",
+            phase="app.build",
+            error_code="infra.hosted_runner",
+            summary_text=remediation,
+            hint="Inspect hosted logs",
+            command_status=None,
+        )
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
+        metadata_path = next((self.root / "commands").glob("*.json"))
+        original_metadata = metadata_path.read_bytes()
+
+        mutations = (
+            (lambda value: value.pop("remediation"), "remediation"),
+            (
+                lambda value: value.update(
+                    remediation="x"
+                    * (run_evidence.MAX_EXTERNAL_REMEDIATION_BYTES + 1)
+                ),
+                "maximum",
+            ),
+            (lambda value: value.update(remediation=7), "remediation"),
+            (
+                lambda value: value.update(remediation="\udcff"),
+                "Unicode scalar",
+            ),
+            (
+                lambda value: value.update(
+                    outcome="cancelled", failureCode="infra.hosted_runner"
+                ),
+                "run.cancelled",
+            ),
+            (
+                lambda value: value.update(
+                    outcome="failure", failureCode="run.cancelled"
+                ),
+                "run.cancelled",
+            ),
+        )
+        for mutate, expected in mutations:
+            metadata = json.loads(original_metadata)
+            mutate(metadata)
+            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            with self.subTest(expected=expected):
+                errors = run_evidence.validate_bundle(self.root, secrets=[])
+                self.assertTrue(any(expected in error for error in errors), errors)
+        metadata_path.write_bytes(original_metadata)
+
+        events_path = self.root / "bootstrap-events.jsonl"
+        events = self.read_events(self.root)
+        command_event = next(event for event in events if "command" in event)
+        command_event["summary"] = "Different remediation"
+        events_path.write_text(
+            "".join(json.dumps(event) + "\n" for event in events),
+            encoding="utf-8",
+        )
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+        self.assertTrue(any("summary" in error and "remediation" in error for error in errors), errors)
 
     def test_rejects_symlinked_command_logs(self):
         self.make_bundle()

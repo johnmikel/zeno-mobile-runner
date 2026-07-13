@@ -11,7 +11,7 @@ from typing import Any
 from . import bounded_io
 from . import constants as _limits
 from .journal import _ATOMIC_WRITE_TEMP_RE
-from .sanitization import _sanitization_roots
+from .sanitization import _sanitization_roots, _utf8_byte_length
 
 
 _PUBLIC_DENY_SUBSTRINGS = (
@@ -114,6 +114,9 @@ def _scan_semantic_text(
         if isinstance(secret, str) and secret
     ):
         errors.append(f"{relative}: contains a current known secret value")
+    if _utf8_byte_length(text) is None:
+        errors.append(f"{relative}: contains non-Unicode scalar text")
+        return
     scanner = _RawSemanticScanner(roots={}, secrets=[])
     encoded = text.encode("utf-8")
     for offset in range(0, len(encoded), _limits._BUNDLE_SCAN_CHUNK_BYTES):
@@ -177,7 +180,9 @@ class _RawSemanticScanner:
             {
                 value.encode("utf-8")
                 for value in secrets
-                if isinstance(value, str) and value
+                if isinstance(value, str)
+                and value
+                and _utf8_byte_length(value) is not None
             },
             key=lambda value: (-len(value), value),
         )
@@ -186,7 +191,9 @@ class _RawSemanticScanner:
             *(
                 value.encode("utf-8")
                 for value in roots.values()
-                if isinstance(value, str) and value
+                if isinstance(value, str)
+                and value
+                and _utf8_byte_length(value) is not None
             ),
             *(term.encode("ascii") for term in _PUBLIC_DENY_SUBSTRINGS),
             b"ren" + b"tly",

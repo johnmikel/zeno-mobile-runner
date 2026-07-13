@@ -25,6 +25,7 @@ from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
+from .sanitization import _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
@@ -142,8 +143,31 @@ def _validate_command_metadata(
         if exit_status is None and signal_number is None:
             errors.append(f"{label}: subprocess record needs exitStatus or signal")
     elif metadata.get("source") == "github-action":
-        if metadata.get("outcome") not in ("success", "failure", "cancelled"):
+        outcome = metadata.get("outcome")
+        if outcome not in ("success", "failure", "cancelled"):
             errors.append(f"{label}.outcome: must declare the external outcome")
+        remediation = metadata.get("remediation")
+        remediation_bytes = _utf8_byte_length(remediation)
+        if not isinstance(remediation, str) or not remediation.strip():
+            errors.append(f"{label}.remediation: must be a non-empty string")
+        elif remediation_bytes is None:
+            errors.append(
+                f"{label}.remediation: must contain only Unicode scalar values"
+            )
+        elif remediation_bytes > MAX_EXTERNAL_REMEDIATION_BYTES:
+            errors.append(
+                f"{label}.remediation: exceeds maximum "
+                f"({MAX_EXTERNAL_REMEDIATION_BYTES} UTF-8 bytes)"
+            )
+        failure_code = metadata.get("failureCode")
+        if outcome == "cancelled" and failure_code != "run.cancelled":
+            errors.append(
+                f"{label}.failureCode: cancelled outcome requires run.cancelled"
+            )
+        if outcome == "failure" and failure_code == "run.cancelled":
+            errors.append(
+                f"{label}.failureCode: failed outcome cannot use run.cancelled"
+            )
         if not isinstance(metadata.get("limitation"), str) or not metadata.get(
             "limitation"
         ):
@@ -220,6 +244,8 @@ def _validate_command_metadata(
 def _command_link_projection(metadata: dict) -> dict:
     """Retain only constant-size fields needed after metadata validation."""
 
+    remediation = metadata.get("remediation")
+    remediation_bytes = _utf8_byte_length(remediation)
     return {
         "source": (
             metadata.get("source")
@@ -247,6 +273,14 @@ def _command_link_projection(metadata: dict) -> dict:
         "outcome": (
             metadata.get("outcome")
             if metadata.get("outcome") in ("success", "failure", "cancelled")
+            else None
+        ),
+        "remediation": (
+            remediation
+            if isinstance(remediation, str)
+            and bool(remediation.strip())
+            and remediation_bytes is not None
+            and remediation_bytes <= MAX_EXTERNAL_REMEDIATION_BYTES
             else None
         ),
     }
@@ -333,6 +367,12 @@ def _validate_command_event_link(
             errors.append(f"{label}: passed command event must omit errorCode")
     elif event.get("errorCode") != metadata.get("failureCode"):
         errors.append(f"{label}: failureCode disagrees with command metadata")
+    if (
+        metadata.get("source") == "github-action"
+        and expected_status in ("failed", "cancelled")
+        and event.get("summary") != metadata.get("remediation")
+    ):
+        errors.append(f"{label}.summary: must match external remediation")
     return _command_event_owns_summary(event, metadata, summary)
 
 

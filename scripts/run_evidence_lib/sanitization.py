@@ -30,6 +30,17 @@ _SCHEME_CHARACTERS = frozenset(
 )
 
 
+def _utf8_byte_length(value: Any) -> int | None:
+    """Return strict UTF-8 size, or None for non-strings and lone surrogates."""
+
+    if not isinstance(value, str):
+        return None
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        return None
+
+
 def _credential_scheme_start(value: str, marker: int) -> int | None:
     start = marker
     while start > 0 and value[start - 1] in _SCHEME_CHARACTERS:

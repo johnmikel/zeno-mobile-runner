@@ -1357,6 +1357,18 @@ class CommandCaptureTests(CommandTestCase):
 
 
 class ExternalCaptureTests(CommandTestCase):
+    def _external_root(self, suffix):
+        context = valid_context(
+            runId=f"external-{suffix}",
+            executionId=f"external-execution-{suffix}",
+        )
+        root = self.attempt_root(context["runId"])
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        report = root / "reports" / "run.html"
+        report.parent.mkdir()
+        report.write_text("<html>sanitized report</html>", encoding="utf-8")
+        return root
+
     def test_external_rejects_unknown_or_outcome_mismatched_codes_before_writes(self):
         cases = (
             ("failure", "unknown.failure"),
@@ -1380,6 +1392,7 @@ class ExternalCaptureTests(CommandTestCase):
                         "invalid-external",
                         outcome,
                         failure_code,
+                        "Retry the hosted action",
                     )
                 self.assertEqual(
                     (root / "bootstrap-events.jsonl").read_bytes(), events_before
@@ -1396,12 +1409,14 @@ class ExternalCaptureTests(CommandTestCase):
                 "successful-fallback",
                 "success",
                 "app.assertion_failed",
+                "No remediation is required",
             ),
             0,
         )
 
-    def test_external_records_honest_synthetic_metadata_and_bounded_logs(self):
-        result = self.cli(
+    def test_external_requires_remediation_and_sanitizes_metadata_and_logs(self):
+        events_before = (self.root / "bootstrap-events.jsonl").read_bytes()
+        missing = self.cli(
             "external",
             "--root",
             self.root,
@@ -1414,7 +1429,35 @@ class ExternalCaptureTests(CommandTestCase):
             "--failure-code",
             "infra.hosted_runner",
         )
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(missing.returncode, 2)
+        self.assertEqual(self.command_metadata(), [])
+        self.assertEqual(
+            (self.root / "bootstrap-events.jsonl").read_bytes(), events_before
+        )
+
+        secret = "external-remediation-secret"
+        remediation = (
+            f"Retry with {secret} after inspecting {self.root}/build and "
+            f"{REPOSITORY_ROOT}/scripts and {Path.home()}/.cache and "
+            "https://alice:password@example.test/job"
+        )
+        result = self.cli(
+            "external",
+            "--root",
+            self.root,
+            "--phase",
+            "app.build",
+            "--name",
+            "hosted-build",
+            "--outcome",
+            "failure",
+            "--failure-code",
+            "infra.hosted_runner",
+            "--remediation",
+            remediation,
+            env={"EXTERNAL_TOKEN": secret},
+        )
+        self.assertEqual(result.returncode, 1)
         metadata = self.command_metadata()[0]
         self.assertEqual(metadata["source"], "github-action")
         self.assertEqual(metadata["outcome"], "failure")
@@ -1422,7 +1465,146 @@ class ExternalCaptureTests(CommandTestCase):
         self.assertIsNone(metadata["signal"])
         stdout = (self.root / metadata["stdout"]["path"]).read_text(encoding="utf-8")
         stderr = (self.root / metadata["stderr"]["path"]).read_text(encoding="utf-8")
+        self.assertEqual(metadata["remediation"], self.read_events(self.root)[-1]["summary"])
+        self.assertIn(metadata["remediation"], stderr)
+        self.assertNotIn(metadata["remediation"], stdout)
+        persisted = json.dumps(metadata) + stdout + stderr
+        self.assertNotIn(secret, persisted)
+        self.assertNotIn("alice:password", persisted)
+        self.assertNotIn(str(self.root), persisted)
+        self.assertNotIn(str(REPOSITORY_ROOT), persisted)
+        self.assertNotIn(str(Path.home()), persisted)
+        self.assertIn("<redacted>", persisted)
+        self.assertIn("${RUN_ROOT}", persisted)
+        self.assertIn("${WORKSPACE}", persisted)
+        self.assertIn("${HOME}", persisted)
+        self.assertIn("https://example.test/job", persisted)
         self.assertIn("synthetic", stdout + stderr)
         self.assertIn("not captured", stdout + stderr)
-        self.assertLess(len(stdout) + len(stderr), 4096)
+        self.assertLessEqual(
+            len(stderr.encode("utf-8")),
+            run_evidence.MAX_EXTERNAL_REMEDIATION_BYTES + 256,
+        )
         self.assertEqual(self.read_events(self.root)[-1]["status"], "failed")
+
+    def test_external_remediation_is_bounded_before_any_write(self):
+        self.assertEqual(run_evidence.MAX_EXTERNAL_REMEDIATION_BYTES, 4096)
+        for index, remediation in enumerate(
+            ("", "   ", 7, "x" * 4097, "é" * 2049),
+            1,
+        ):
+            root = self._external_root(f"invalid-remediation-{index}")
+            events_before = (root / "bootstrap-events.jsonl").read_bytes()
+            commands_before = tuple((root / "commands").iterdir())
+            with self.subTest(remediation=repr(remediation)):
+                with self.assertRaises(ValueError):
+                    run_evidence._record_external(
+                        root,
+                        "app.build",
+                        "hosted-build",
+                        "failure",
+                        "infra.hosted_runner",
+                        remediation,
+                    )
+                self.assertEqual(
+                    (root / "bootstrap-events.jsonl").read_bytes(), events_before
+                )
+                self.assertEqual(tuple((root / "commands").iterdir()), commands_before)
+
+        surrogate_root = self._external_root("invalid-remediation-surrogate")
+        events_before = (surrogate_root / "bootstrap-events.jsonl").read_bytes()
+        with self.assertRaisesRegex(ValueError, "valid UTF-8"):
+            run_evidence._record_external(
+                surrogate_root,
+                "app.build",
+                "hosted-build",
+                "failure",
+                "infra.hosted_runner",
+                "\udcff",
+            )
+        self.assertEqual(
+            (surrogate_root / "bootstrap-events.jsonl").read_bytes(), events_before
+        )
+        self.assertEqual(tuple((surrogate_root / "commands").iterdir()), ())
+
+        for label, remediation in (
+            ("ascii-exact", "x" * 4096),
+            ("utf8-exact", "é" * 2048),
+        ):
+            root = self._external_root(label)
+            with self.subTest(label=label):
+                self.assertEqual(
+                    len(remediation.encode("utf-8")),
+                    run_evidence.MAX_EXTERNAL_REMEDIATION_BYTES,
+                )
+                self.assertEqual(
+                    run_evidence._record_external(
+                        root,
+                        "app.build",
+                        "hosted-build",
+                        "success",
+                        "infra.hosted_runner",
+                        remediation,
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    self.read_json(next((root / "commands").glob("*.json")))[
+                        "remediation"
+                    ],
+                    remediation,
+                )
+
+    def test_external_success_failure_and_cancelled_are_complete_valid_records(self):
+        cases = (
+            ("success", "infra.hosted_runner", 0, "passed"),
+            ("failure", "infra.hosted_runner", 1, "failed"),
+            ("cancelled", "run.cancelled", 130, "cancelled"),
+        )
+        for outcome, failure_code, return_code, final_status in cases:
+            root = self._external_root(outcome)
+            remediation = f"Remediation for {outcome}"
+            with self.subTest(outcome=outcome):
+                self.assertEqual(
+                    run_evidence._record_external(
+                        root,
+                        "app.build",
+                        f"hosted-{outcome}",
+                        outcome,
+                        failure_code,
+                        remediation,
+                    ),
+                    return_code,
+                )
+                metadata_path = next((root / "commands").glob("*.json"))
+                metadata = self.read_json(metadata_path)
+                self.assertEqual(metadata["remediation"], remediation)
+                self.assertEqual(metadata["outcome"], outcome)
+                terminal_command_event = self.read_events(root)[-1]
+                self.assertEqual(terminal_command_event["status"], final_status)
+                if outcome == "success":
+                    self.assertNotIn("summary", terminal_command_event)
+                    run_evidence._finalize_attempt(
+                        root, "passed", command_status=None
+                    )
+                elif outcome == "failure":
+                    self.assertEqual(terminal_command_event["summary"], remediation)
+                    run_evidence._finalize_attempt(
+                        root,
+                        "failed",
+                        phase="app.build",
+                        error_code=failure_code,
+                        summary_text=remediation,
+                        hint="Retry the hosted action",
+                        command_status=None,
+                    )
+                else:
+                    self.assertEqual(terminal_command_event["summary"], remediation)
+                    run_evidence._finalize_attempt(
+                        root,
+                        "cancelled",
+                        summary_text=remediation,
+                        hint="Retry the hosted action",
+                        command_status=None,
+                    )
+                self.assertEqual(run_evidence.validate_bundle(root, secrets=[]), [])

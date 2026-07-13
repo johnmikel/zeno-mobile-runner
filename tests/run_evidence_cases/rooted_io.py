@@ -52,6 +52,7 @@ class RootedIOContainmentTests(CommandTestCase):
                 "unsupported-external",
                 "success",
                 "runner.unclassified",
+                "No remediation is required",
             ),
             lambda: run_evidence._run_command(
                 self.root,

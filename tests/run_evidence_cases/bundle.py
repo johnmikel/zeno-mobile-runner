@@ -4,6 +4,7 @@ try:
     import resource
 except ImportError:  # pragma: no cover - non-POSIX portability
     resource = None
+import shutil
 import tracemalloc
 
 from .support import *  # noqa: F401,F403
@@ -285,6 +286,64 @@ class BundleValidationTests(CommandTestCase):
         )
         errors = run_evidence.validate_bundle(self.root, secrets=[])
         self.assertTrue(any("deny pattern" in error for error in errors), errors)
+
+    def test_private_control_tree_blocks_publication_without_inspection_or_mutation(
+        self,
+    ):
+        self.make_bundle()
+        control = self.root / ".evidence-control"
+        control.mkdir(mode=0o700)
+        sentinel = control / "private-state"
+        sentinel.write_bytes(b"do-not-inspect-or-change\n")
+        before_directory = os.lstat(control)
+        before_file = os.lstat(sentinel)
+
+        errors = run_evidence.validate_bundle(
+            self.root,
+            secrets=["do-not-inspect-or-change"],
+        )
+
+        self.assertEqual(
+            errors,
+            ["$: private evidence control state prevents publication"],
+        )
+        self.assertEqual(sentinel.read_bytes(), b"do-not-inspect-or-change\n")
+        after_directory = os.lstat(control)
+        after_file = os.lstat(sentinel)
+        self.assertEqual(
+            (after_directory.st_dev, after_directory.st_ino),
+            (before_directory.st_dev, before_directory.st_ino),
+        )
+        self.assertEqual(
+            (after_file.st_dev, after_file.st_ino),
+            (before_file.st_dev, before_file.st_ino),
+        )
+
+    def test_any_private_control_entry_type_blocks_publication(self):
+        self.make_bundle()
+        for entry_type in ("file", "symlink"):
+            with self.subTest(entry_type=entry_type):
+                with tempfile.TemporaryDirectory() as temporary:
+                    publication_root = Path(temporary) / "evidence"
+                    attempts = publication_root / "attempts"
+                    attempts.mkdir(parents=True)
+                    root = attempts / self.root.name
+                    shutil.copytree(self.root, root)
+                    control = root / ".evidence-control"
+                    if entry_type == "file":
+                        control.write_bytes(b"private\n")
+                    else:
+                        outside = Path(temporary) / "outside"
+                        outside.mkdir()
+                        control.symlink_to(outside, target_is_directory=True)
+
+                    errors = run_evidence.validate_bundle(root, secrets=[])
+
+                    self.assertEqual(
+                        errors,
+                        ["$: private evidence control state prevents publication"],
+                    )
+                    self.assertTrue(os.path.lexists(control))
 
     def test_canonical_url_redaction_passes_bundle_credential_scan(self):
         self.make_bundle()

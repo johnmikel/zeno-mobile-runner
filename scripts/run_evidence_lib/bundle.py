@@ -742,6 +742,9 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     if not _evidence_is_dir(root):
         errors.append("$: attempt root must be a directory")
         return _finish_errors(errors)
+    if _evidence_exists(root / ".evidence-control"):
+        errors.append("$: private evidence control state prevents publication")
+        return _finish_errors(errors)
     try:
         _unused_roots, secrets = _normalize_scan_inputs(
             roots={}, secrets=secrets

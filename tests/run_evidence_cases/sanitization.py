@@ -83,3 +83,85 @@ class SanitizationTests(unittest.TestCase):
         self.assertEqual(sanitized[3], "--password=<redacted>")
         self.assertEqual(sanitized[5], "visible")
         self.assertNotIn("user:pass", sanitized[6])
+
+
+class PersistenceSanitizationTests(CommandTestCase):
+    def test_invalid_summary_diagnostics_are_sanitized_deduplicated_and_bounded(self):
+        report = self.root / "reports" / "run.html"
+        report.parent.mkdir()
+        report.write_text("<html>sanitized report</html>", encoding="utf-8")
+        secret = "invalid-summary-diagnostic-secret"
+        unsafe = (
+            f"secret={secret} workspace={REPOSITORY_ROOT}/src "
+            f"run={self.root}/commands home={Path.home()}/.cache "
+            "url=https://alice:password@example.test/diagnostic"
+        )
+        original_validate = run_evidence.summaries.validate_summary
+
+        def injected_validation(summary):
+            if summary.get("errorCode") == "runner.evidence_invalid":
+                return original_validate(summary)
+            return (
+                [unsafe, unsafe, "!" * 10_000, "\udcff", 7, ""]
+                + [f"synthetic diagnostic {index}" for index in range(300)]
+            )
+
+        with mock.patch.dict(
+            os.environ, {"DIAGNOSTIC_TOKEN": secret}, clear=False
+        ), mock.patch.object(
+            run_evidence.summaries,
+            "validate_summary",
+            side_effect=injected_validation,
+        ):
+            summary = run_evidence._finalize_attempt(
+                self.root,
+                "failed",
+                phase="scenario.execute",
+                error_code="runner.unclassified",
+                summary_text=unsafe,
+                hint=unsafe,
+                command_status=None,
+            )
+
+        diagnostics = self.read_json(
+            self.root / "run-summary.invalid.errors.json"
+        )["errors"]
+        self.assertEqual(diagnostics, sorted(set(diagnostics)))
+        self.assertLessEqual(len(diagnostics), 256)
+        self.assertTrue(
+            all(len(value.encode("utf-8")) <= 4096 for value in diagnostics)
+        )
+        self.assertTrue(any("truncated" in value for value in diagnostics))
+        self.assertIn(
+            "$: validation returned a non-Unicode scalar diagnostic",
+            diagnostics,
+        )
+        self.assertIn("$: validation returned an empty diagnostic", diagnostics)
+        self.assertIn("7", diagnostics)
+        persisted = "".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                self.root / "bootstrap-events.jsonl",
+                self.root / "run-summary.json",
+                self.root / "run-summary.invalid.json",
+                self.root / "run-summary.invalid.errors.json",
+            )
+        )
+        for raw in (
+            secret,
+            str(REPOSITORY_ROOT),
+            str(self.root),
+            str(Path.home()),
+            "alice:password",
+        ):
+            self.assertNotIn(raw, persisted)
+        for replacement in (
+            "<redacted>",
+            "${WORKSPACE}",
+            "${RUN_ROOT}",
+            "${HOME}",
+            "https://example.test/diagnostic",
+        ):
+            self.assertIn(replacement, persisted)
+        self.assertEqual(summary["errorCode"], "runner.evidence_invalid")
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[secret]), [])

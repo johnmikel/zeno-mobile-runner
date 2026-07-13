@@ -25,9 +25,52 @@ from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .contracts import _comparability_tuple
 from .sanitization import *  # noqa: F401,F403
+from .sanitization import _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
+
+_MAX_INVALID_SUMMARY_DIAGNOSTICS = 256
+_MAX_INVALID_SUMMARY_DIAGNOSTIC_BYTES = 4096
+_DIAGNOSTIC_TRUNCATION_SUFFIX = "... <truncated>"
+
+
+def _bound_validation_diagnostic(value: Any) -> str:
+    text = value if isinstance(value, str) else str(value)
+    byte_length = _utf8_byte_length(text)
+    if byte_length is None:
+        return "$: validation returned a non-Unicode scalar diagnostic"
+    if not text:
+        return "$: validation returned an empty diagnostic"
+    if byte_length <= _MAX_INVALID_SUMMARY_DIAGNOSTIC_BYTES:
+        return text
+    suffix = _DIAGNOSTIC_TRUNCATION_SUFFIX.encode("utf-8")
+    prefix_limit = _MAX_INVALID_SUMMARY_DIAGNOSTIC_BYTES - len(suffix)
+    prefix = text.encode("utf-8")[:prefix_limit].decode("utf-8", errors="ignore")
+    return prefix + _DIAGNOSTIC_TRUNCATION_SUFFIX
+
+
+def _sanitize_validation_errors(
+    errors: list[Any], *, roots: dict[str, str], secrets: list[str]
+) -> list[str]:
+    sanitized = sorted(
+        {
+            _bound_validation_diagnostic(
+                sanitize_text(error, roots=roots, secrets=secrets)
+            )
+            for error in errors
+        }
+    )
+    if len(sanitized) <= _MAX_INVALID_SUMMARY_DIAGNOSTICS:
+        return sanitized
+    overflow = (
+        "$: validation diagnostics exceed maximum "
+        f"({_MAX_INVALID_SUMMARY_DIAGNOSTICS})"
+    )
+    return sorted(
+        set(sanitized[: _MAX_INVALID_SUMMARY_DIAGNOSTICS - 1] + [overflow])
+    )
+
 
 def _duration_ms(started_at: Any, finished_at: str) -> int:
     if not _valid_datetime(started_at):
@@ -367,14 +410,14 @@ def _finalize_attempt(
                     )
                     validation_errors = validate_summary(candidate)
                     if tuple_mismatch:
-                        validation_errors = sorted(
-                            set(
-                                validation_errors
-                                + [
-                                    "$.comparabilityTuple: context disagrees with the registered execution"
-                                ]
-                            )
-                        )
+                        validation_errors = validation_errors + [
+                            "$.comparabilityTuple: context disagrees with the registered execution"
+                        ]
+                    validation_errors = _sanitize_validation_errors(
+                        validation_errors,
+                        roots=roots,
+                        secrets=secrets,
+                    )
                     if validation_errors:
                         terminal = _fallback_summary(
                             root,

@@ -31,6 +31,25 @@ _CREDENTIAL_TOKEN_DECISION_RE = re.compile(r"[/@?#\s\x00\"<>|]")
 _SCHEME_CHARACTERS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+.-"
 )
+_HARD_TOKEN_DELIMITERS = frozenset(" \t\r\n\v\f\x00\"<>|")
+_ROOT_PREDECESSOR_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+)
+_ROOT_FOLLOW_CHARACTERS = _HARD_TOKEN_DELIMITERS | frozenset("/\\")
+
+
+def _kmp_failure_table(pattern: str) -> tuple[int, ...]:
+    """Build the prefix table used for linear literal root matching."""
+
+    table = [0] * len(pattern)
+    matched = 0
+    for index in range(1, len(pattern)):
+        while matched and pattern[index] != pattern[matched]:
+            matched = table[matched - 1]
+        if pattern[index] == pattern[matched]:
+            matched += 1
+            table[index] = matched
+    return tuple(table)
 
 
 def _utf8_byte_length(value: Any) -> int | None:
@@ -123,7 +142,7 @@ def _replace_root(value: str, root: str, replacement: str) -> str:
         pattern = re.compile(
             r"(?<![A-Za-z0-9_.-])"
             + re.escape(candidate)
-            + r"(?=$|[/\\\s\x00\"'<>|,;])"
+            + r"(?=$|[/\\\s\x00\"<>|])"
         )
         value = pattern.sub(lambda _match: replacement, value)
     return value
@@ -147,7 +166,6 @@ def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> s
         text = _replace_root(text, str(roots.get(key, "")), replacement)
     text = _FILE_URL_RE.sub("<absolute-path>", text)
     text = _WINDOWS_ABSOLUTE_RE.sub("<absolute-path>", text)
-    text = _POSIX_NETWORK_ABSOLUTE_RE.sub("<absolute-path>", text)
     text = _POSIX_ABSOLUTE_RE.sub("<absolute-path>", text)
     return text
 
@@ -163,9 +181,9 @@ class StreamingSanitizer:
     flushing their safe prefix.
     """
 
-    _DELIMITERS = " \t\r\n\x00\"'<>|,;"
+    _DELIMITERS = " \t\r\n\v\f\x00\"<>|"
     _CREDENTIAL_DECISION_RE = _CREDENTIAL_TOKEN_DECISION_RE
-    _TOKEN_DELIMITER_RE = re.compile(r"[\s\x00\"'<>|,;]")
+    _TOKEN_DELIMITER_RE = re.compile(r"[\s\x00\"<>|]")
     _SCHEME_CONTINUATION_RE = re.compile(r"[A-Za-z0-9+.-]*\Z")
     _TRAILING_SCHEME_CHARS_RE = re.compile(r"[A-Za-z0-9+.-]+\Z")
 
@@ -173,6 +191,32 @@ class StreamingSanitizer:
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._roots = roots
         self._secrets = secrets
+        known_roots: list[tuple[str, int, str, tuple[int, ...]]] = []
+        for priority, (key, replacement) in enumerate(
+            (
+                ("workspace", "${WORKSPACE}"),
+                ("run_root", "${RUN_ROOT}"),
+                ("home", "${HOME}"),
+            )
+        ):
+            root = str(roots.get(key, ""))
+            candidates = {root.rstrip("/\\")}
+            if "\\" in root:
+                candidates.add(root.replace("\\", "/").rstrip("/"))
+            for candidate in sorted(
+                candidates, key=lambda item: (-len(item), item)
+            ):
+                if candidate:
+                    known_roots.append(
+                        (
+                            candidate,
+                            priority,
+                            replacement,
+                            _kmp_failure_table(candidate),
+                        )
+                    )
+        self._known_roots = tuple(known_roots)
+        self._root_scan_work = 0
         configured_width = max(
             (
                 len(value)
@@ -208,46 +252,42 @@ class StreamingSanitizer:
 
     def _open_known_roots(self) -> list[tuple[int, int, str]]:
         matches: list[tuple[int, int, str]] = []
-        last_delimiter = max(
-            (self._pending.rfind(delimiter) for delimiter in self._DELIMITERS),
-            default=-1,
-        )
-        for priority, (key, replacement) in enumerate(
-            (
-                ("workspace", "${WORKSPACE}"),
-                ("run_root", "${RUN_ROOT}"),
-                ("home", "${HOME}"),
-            )
-        ):
-            root = str(self._roots.get(key, ""))
-            candidates = {root.rstrip("/\\")}
-            if "\\" in root:
-                candidates.add(root.replace("\\", "/").rstrip("/"))
-            for candidate in sorted(candidates, key=len, reverse=True):
-                if not candidate:
+        self._root_scan_work = 0
+        last_delimiter = -1
+        for index, character in enumerate(self._pending):
+            self._root_scan_work += 1
+            if character in _HARD_TOKEN_DELIMITERS:
+                last_delimiter = index
+
+        for candidate, priority, replacement, failure in self._known_roots:
+            matched = 0
+            for index, character in enumerate(self._pending):
+                while matched and character != candidate[matched]:
+                    self._root_scan_work += 1
+                    matched = failure[matched - 1]
+                self._root_scan_work += 1
+                if character != candidate[matched]:
                     continue
-                start = self._pending.find(candidate)
-                while start >= 0:
-                    before_ok = start == 0 or self._pending[start - 1] not in (
-                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                        "abcdefghijklmnopqrstuvwxyz"
-                        "0123456789_.-"
-                    )
-                    end = start + len(candidate)
-                    after_ok = end == len(self._pending) or self._pending[
-                        end
-                    ] in "/\\ \t\r\n\x00\"'<>|,;"
-                    if (
-                        before_ok
-                        and after_ok
-                        and last_delimiter < end
-                    ):
-                        matches.append((start, priority, replacement))
-                        # Only the earliest still-open occurrence can win the
-                        # caller's minimum; scanning the remainder turns a
-                        # repeated root token into quadratic work.
-                        break
-                    start = self._pending.find(candidate, start + 1)
+                matched += 1
+                if matched != len(candidate):
+                    continue
+
+                start = index + 1 - len(candidate)
+                end = index + 1
+                before_ok = (
+                    start == 0
+                    or self._pending[start - 1]
+                    not in _ROOT_PREDECESSOR_CHARACTERS
+                )
+                after_ok = (
+                    end == len(self._pending)
+                    or self._pending[end] in _ROOT_FOLLOW_CHARACTERS
+                )
+                self._root_scan_work += 2
+                if before_ok and after_ok and last_delimiter < end:
+                    matches.append((start, priority, replacement))
+                    break
+                matched = failure[matched - 1]
         return matches
 
     def _open_absolute_path(self) -> tuple[int, str] | None:
@@ -260,7 +300,6 @@ class StreamingSanitizer:
             (
                 _FILE_URL_RE,
                 _WINDOWS_ABSOLUTE_RE,
-                _POSIX_NETWORK_ABSOLUTE_RE,
                 _POSIX_ABSOLUTE_RE,
             ),
             start=3,

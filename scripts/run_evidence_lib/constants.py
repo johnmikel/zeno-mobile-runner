@@ -154,18 +154,15 @@ _CREDENTIAL_URL_RE = re.compile(
     r"[^/@?#\s\x00\"<>|]+@"
 )
 _FILE_URL_RE = re.compile(
-    r"file:(?://[^/\s\x00\"'<>|,;]*/|/)"
-    r"(?:[^\s\x00\"'<>|,;]+)",
+    r"(?<![A-Za-z0-9+.-])file:(?://[^/\s\x00\"<>|]*/|/)"
+    r"[^\s\x00\"<>|]*",
     re.IGNORECASE,
 )
-_POSIX_NETWORK_ABSOLUTE_RE = re.compile(
-    r"(?<![A-Za-z0-9_}$/:<])//(?:[^\s\x00\"'<>|,;]+)"
-)
 _POSIX_ABSOLUTE_RE = re.compile(
-    r"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"'<>|,;]+)"
+    r"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"<>|]+)"
 )
 _WINDOWS_ABSOLUTE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"'<>|,;]+"
+    r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"<>|]+"
 )
 _SENSITIVE_NAME_SEGMENTS = {
     "TOKEN",
@@ -217,7 +214,6 @@ __all__ = (
     "_SCHEME_RE",
     "_CREDENTIAL_URL_RE",
     "_FILE_URL_RE",
-    "_POSIX_NETWORK_ABSOLUTE_RE",
     "_POSIX_ABSOLUTE_RE",
     "_WINDOWS_ABSOLUTE_RE",
     "_SENSITIVE_NAME_SEGMENTS",

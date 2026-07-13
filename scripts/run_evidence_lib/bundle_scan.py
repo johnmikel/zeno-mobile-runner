@@ -47,27 +47,21 @@ _PUBLIC_BOUNDARY_DENY_RE = re.compile(
 )
 
 _FILE_URL_BYTES_RE = re.compile(
-    rb"file:(?://[^/\s\x00\"'<>|,;]*/|/)"
-    rb"(?:[^\s\x00\"'<>|,;]+)",
+    rb"(?<![A-Za-z0-9+.-])file:(?://[^/\s\x00\"<>|]*/|/)"
+    rb"[^\s\x00\"<>|]*",
     re.IGNORECASE,
 )
 _WINDOWS_ABSOLUTE_BYTES_RE = re.compile(
-    rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"'<>|,;]+"
+    rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"<>|]+"
 )
 _POSIX_ABSOLUTE_BYTES_RE = re.compile(
-    rb"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"'<>|,;]+)"
-)
-_POSIX_NETWORK_ABSOLUTE_BYTES_RE = re.compile(
-    rb"(?<![A-Za-z0-9_}$/:<])//(?:[^\s\x00\"'<>|,;]+)"
+    rb"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"<>|]+)"
 )
 _WINDOWS_START_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)"
 )
 _POSIX_START_BYTES_RE = re.compile(
-    rb"(?<![A-Za-z0-9_}$/<])/(?!/)[^\s\x00\"'<>|,;]"
-)
-_POSIX_NETWORK_START_BYTES_RE = re.compile(
-    rb"(?<![A-Za-z0-9_}$/:<])//[^\s\x00\"'<>|,;]"
+    rb"(?<![A-Za-z0-9_}$/<])/(?!/)[^\s\x00\"<>|]"
 )
 _TOKEN_FRAGMENT_RE = re.compile(rb"[^\s\x00\"<>|]+")
 _TOKEN_DELIMITER_BYTES = frozenset(b" \t\r\n\v\f\x00\"<>|")
@@ -426,6 +420,7 @@ class _RawSemanticScanner:
             window,
             absolute_start=absolute_start,
             new_start=new_start,
+            needs_predecessor=True,
         )
         self._mark_regex(
             "absolute_path",
@@ -438,14 +433,6 @@ class _RawSemanticScanner:
         self._mark_regex(
             "absolute_path",
             _POSIX_ABSOLUTE_BYTES_RE,
-            window,
-            absolute_start=absolute_start,
-            new_start=new_start,
-            needs_predecessor=True,
-        )
-        self._mark_regex(
-            "absolute_path",
-            _POSIX_NETWORK_ABSOLUTE_BYTES_RE,
             window,
             absolute_start=absolute_start,
             new_start=new_start,
@@ -487,7 +474,12 @@ class _RawSemanticScanner:
             needed = 3 - len(self._token_prefix)
             self._token_prefix += fragment[:needed]
         prefix = self._token_prefix
-        if self._posix_prefix_allowed and prefix.startswith(b"/"):
+        if (
+            self._posix_prefix_allowed
+            and len(prefix) >= 2
+            and prefix.startswith(b"/")
+            and not prefix.startswith(b"//")
+        ):
             self._token_sensitive = True
             self._flags.add("absolute_path")
         elif prefix.startswith(b"\\\\"):
@@ -572,7 +564,6 @@ class _RawSemanticScanner:
         if not self._token_sensitive and (
             _WINDOWS_START_BYTES_RE.search(combined)
             or _POSIX_START_BYTES_RE.search(combined)
-            or _POSIX_NETWORK_START_BYTES_RE.search(combined)
         ):
             self._token_sensitive = True
         self._token_length += len(fragment)

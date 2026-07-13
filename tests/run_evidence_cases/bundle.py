@@ -126,13 +126,13 @@ class BundleValidationTests(CommandTestCase):
         )
         self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 
-    def test_bundle_scan_rejects_file_uri_network_path_and_userinfo_subdelimiters(self):
+    def test_bundle_scan_rejects_file_uri_unc_path_and_userinfo_subdelimiters(self):
         self.make_bundle()
         report = self.root / "reports" / "run.html"
         unsafe_values = [
             "file://localhost/etc/private.conf",
             "file:/var/private/data.db",
-            "//server/share/private.txt",
+            "\\\\server\\share\\private.txt",
         ]
         unsafe_values.extend(
             "https://user"
@@ -153,6 +153,42 @@ class BundleValidationTests(CommandTestCase):
                     ),
                     errors,
                 )
+
+    def test_bundle_scan_accepts_protocol_relative_urls_and_embedded_file_names(self):
+        self.make_bundle()
+        report = self.root / "reports" / "run.html"
+        safe_values = (
+            "//cdn.example.test/assets/app.js",
+            "profile:///public/resource",
+            "xfile:///public/resource",
+            "my-file://authority/public/resource",
+        )
+
+        report.write_text("\n".join(safe_values), encoding="utf-8")
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
+
+        raw = "\n".join(safe_values).encode("ascii")
+        for split in range(len(raw) + 1):
+            scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                roots={}, secrets=[]
+            )
+            scanner.feed(raw[:split])
+            scanner.feed(raw[split:])
+            with self.subTest(split=split):
+                self.assertNotIn("absolute_path", scanner.finish())
+
+        scanner = run_evidence.bundle_scan._RawSemanticScanner(
+            roots={}, secrets=[]
+        )
+        embedded = b"file:///"
+        first_chunk = (
+            b"x"
+            + embedded
+            + b"a" * (scanner.carry_bytes - len(embedded))
+        )
+        scanner.feed(first_chunk)
+        scanner.feed(b"b")
+        self.assertNotIn("absolute_path", scanner.finish())
 
     def test_raw_bundle_scanner_tracks_userinfo_subdelimiters_across_every_split(self):
         for delimiter in b"!$&'()*+,;=":

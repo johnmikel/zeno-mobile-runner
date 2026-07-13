@@ -521,32 +521,24 @@ class CommandCaptureTests(CommandTestCase):
                 self.assertNotIn(payload[:1024], actual)
                 self.assertNotIn(b":password@example.test", actual)
 
-    def test_open_known_root_scan_keeps_only_the_earliest_candidate(self):
-        sanitizer = run_evidence.StreamingSanitizer(
-            roots={"workspace": "/root", "run_root": "", "home": ""},
-            secrets=[],
-        )
-        sanitizer._pending = "/root/" * 512
-        original_pattern = sanitizer._TOKEN_DELIMITER_RE
+    def test_open_known_root_scan_is_linear_on_overlapping_invalid_matches(self):
+        root = "/a" * 64 + "/a"
 
-        class CountingPattern:
-            def __init__(self):
-                self.searches = 0
+        def scan(repetitions):
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots={"workspace": root, "run_root": "", "home": ""},
+                secrets=[],
+            )
+            sanitizer._pending = (root + "x") * repetitions
+            self.assertEqual(sanitizer._open_known_roots(), [])
+            return len(sanitizer._pending), sanitizer._root_scan_work
 
-            def search(self, *args, **kwargs):
-                self.searches += 1
-                return original_pattern.search(*args, **kwargs)
+        small_length, small_work = scan(32)
+        large_length, large_work = scan(64)
 
-        counter = CountingPattern()
-        with mock.patch.object(
-            run_evidence.StreamingSanitizer,
-            "_TOKEN_DELIMITER_RE",
-            counter,
-        ):
-            matches = sanitizer._open_known_roots()
-
-        self.assertEqual(matches, [(0, 0, "${WORKSPACE}")])
-        self.assertLessEqual(counter.searches, 3)
+        self.assertLessEqual(small_work, small_length * 4 + len(root) * 2)
+        self.assertLessEqual(large_work, large_length * 4 + len(root) * 2)
+        self.assertLessEqual(large_work, small_work * 2 + len(root) * 2)
 
     def test_streaming_sanitizer_redacts_overlong_credential_token_wholesale(self):
         carry = run_evidence._SANITIZATION_CARRY
@@ -619,12 +611,12 @@ class CommandCaptureTests(CommandTestCase):
             with self.subTest(userinfo_subdelimiter=userinfo_subdelimiter):
                 self.assertEqual(actual, b"<redacted>")
 
-    def test_file_uri_and_forward_slash_network_paths_are_redacted_streaming(self):
+    def test_file_uri_and_unc_paths_are_redacted_streaming(self):
         roots = {"workspace": "", "run_root": "", "home": ""}
         short_paths = (
             b"file://localhost/etc/private.conf",
             b"file:/var/private/data.db",
-            b"//server/share/private.txt",
+            b"\\\\server\\share\\private.txt",
         )
         expected = b"<absolute-path>\n" * len(short_paths)
         raw = b"\n".join(short_paths) + b"\n"
@@ -650,7 +642,7 @@ class CommandCaptureTests(CommandTestCase):
         for prefix in (
             b"file://localhost/etc/",
             b"file:/var/private/",
-            b"//server/share/",
+            b"\\\\server\\share\\",
         ):
             sanitizer = run_evidence.StreamingSanitizer(
                 roots=roots, secrets=[]
@@ -667,6 +659,99 @@ class CommandCaptureTests(CommandTestCase):
                 self.assertEqual(bytes(actual), b"<absolute-path>\nsafe-tail")
                 self.assertNotIn(prefix, actual)
                 self.assertNotIn(payload[:1024], actual)
+
+    def test_file_uri_scheme_boundary_and_path_punctuation_are_exact(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        safe = (
+            b"profile:///public/resource",
+            b"xfile:///public/resource",
+            b"my-file://authority/public/resource",
+        )
+        explicit_file_uris = (
+            b"file:/",
+            b"file:///",
+            b"file://authority/",
+        )
+        punctuation = b"private!$&'()*+,;=:@?query#fragment"
+        sensitive = explicit_file_uris + (
+            b"file:/" + punctuation,
+            b"file:///" + punctuation,
+            b"file://authority/" + punctuation,
+            b"/" + punctuation,
+            b"C:\\private\\" + punctuation,
+        )
+
+        for value in safe:
+            with self.subTest(safe=value):
+                self.assertEqual(
+                    run_evidence.sanitize_text(
+                        value.decode("ascii"), roots=roots, secrets=[]
+                    ).encode("ascii"),
+                    value,
+                )
+
+        for value in sensitive:
+            with self.subTest(sensitive=value):
+                sanitized = run_evidence.sanitize_text(
+                    value.decode("ascii"), roots=roots, secrets=[]
+                ).encode("ascii")
+                self.assertEqual(sanitized, b"<absolute-path>")
+                scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                    roots={}, secrets=[]
+                )
+                scanner.feed(sanitized)
+                self.assertNotIn("absolute_path", scanner.finish())
+
+        raw = b"\n".join((*safe, *sensitive)) + b"\n"
+        expected = b"\n".join(
+            (*safe, *(b"<absolute-path>" for _value in sensitive))
+        ) + b"\n"
+        for split in range(len(raw) + 1):
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=[]
+            )
+            actual = sanitizer.feed(raw[:split])
+            actual += sanitizer.feed(raw[split:])
+            actual += sanitizer.finish()
+            with self.subTest(split=split):
+                self.assertEqual(actual, expected)
+
+    def test_overlong_punctuation_paths_redact_through_whitespace_boundaries(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        carry = run_evidence._SANITIZATION_CARRY
+        segment = b"private!$&'()*+,;=:@?query#fragment/"
+        payload = segment * ((carry * 2) // len(segment) + 2)
+
+        for prefix in (
+            b"file:/",
+            b"file:///",
+            b"file://authority/",
+            b"/",
+            b"C:\\private\\",
+        ):
+            for delimiter in (b"\v", b"\f"):
+                sanitizer = run_evidence.StreamingSanitizer(
+                    roots=roots, secrets=[]
+                )
+                output = bytearray()
+                value = prefix + payload
+                for offset in range(0, len(value), carry // 3):
+                    output.extend(
+                        sanitizer.feed(value[offset : offset + carry // 3])
+                    )
+                    self.assertLessEqual(len(sanitizer._pending), carry * 2)
+                output.extend(sanitizer.feed(delimiter + b"safe-tail"))
+                output.extend(sanitizer.finish())
+                with self.subTest(prefix=prefix, delimiter=delimiter):
+                    self.assertEqual(
+                        bytes(output),
+                        b"<absolute-path>" + delimiter + b"safe-tail",
+                    )
+                    scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                        roots={}, secrets=[]
+                    )
+                    scanner.feed(bytes(output))
+                    self.assertNotIn("absolute_path", scanner.finish())
 
     def test_digit_heavy_unbounded_schemes_are_redacted_without_credential_leaks(self):
         carry = run_evidence._SANITIZATION_CARRY
@@ -746,14 +831,13 @@ class CommandCaptureTests(CommandTestCase):
             b"\t",
             b"\r",
             b"\n",
+            b"\v",
+            b"\f",
             b"\x00",
             b'"',
-            b"'",
             b"<",
             b">",
             b"|",
-            b",",
-            b";",
         ):
             sanitizer = run_evidence.StreamingSanitizer(
                 roots=roots, secrets=[]

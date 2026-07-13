@@ -745,6 +745,219 @@ else:
                         self.index_path, root, context
                     )
 
+    def test_init_rejects_hostile_run_ids_before_any_publication_mutation(self):
+        hostile_codepoints = (
+            0x00,
+            0x09,
+            0x0A,
+            0x1F,
+            0x7F,
+            0xD800,
+            0xDCFF,
+            0xDFFF,
+        )
+        for codepoint in hostile_codepoints:
+            with self.subTest(codepoint=f"U+{codepoint:04X}"):
+                publication, index_path = self.new_publication()
+                run_id = "hostile-" + chr(codepoint) + "-id"
+                root = publication / "attempts" / run_id
+                context = valid_context(
+                    runId=run_id,
+                    executionId=f"hostile-{codepoint:04x}-execution",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError, "attempt root must be attempts/<runId>"
+                ):
+                    run_evidence._initialize_attempt(
+                        index_path, root, context
+                    )
+
+                self.assertEqual(tuple(publication.iterdir()), ())
+
+    def test_run_id_utf8_byte_limit_is_exact_and_recovery_safe(self):
+        publication, index_path = self.new_publication()
+        run_id = "r" * run_evidence.MAX_RUN_SEGMENT_BYTES
+        root = publication / "attempts" / run_id
+        context = valid_context(
+            runId=run_id,
+            executionId="run-id-byte-boundary-execution",
+        )
+
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._initialize_attempt(index_path, root, context)
+        recovered = run_evidence._initialize_attempt(index_path, root, context)
+
+        self.assertEqual(recovered["runId"], run_id)
+        self.assertEqual(self.transaction_files(publication), [])
+        self.assertTrue(
+            run_evidence.contracts._safe_run_segment("é" * 64)
+        )
+
+        for oversized_run_id in (
+            "r" * (run_evidence.MAX_RUN_SEGMENT_BYTES + 1),
+            "é" * 65,
+        ):
+            with self.subTest(encoded_bytes=len(oversized_run_id.encode("utf-8"))):
+                oversized_publication, oversized_index = self.new_publication()
+                oversized_root = (
+                    oversized_publication / "attempts" / oversized_run_id
+                )
+                oversized_context = valid_context(
+                    runId=oversized_run_id,
+                    executionId="oversized-run-id-execution",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError, "attempt root must be attempts/<runId>"
+                ):
+                    run_evidence._initialize_attempt(
+                        oversized_index,
+                        oversized_root,
+                        oversized_context,
+                    )
+
+                self.assertEqual(tuple(oversized_publication.iterdir()), ())
+
+    def test_recovery_rejects_prepared_legacy_control_run_ids_before_mutation(self):
+        for codepoint in (0x1F, 0x7F):
+            with self.subTest(codepoint=f"U+{codepoint:04X}"):
+                publication, index_path = self.new_publication()
+                safe_run_id = f"legacy-source-{codepoint:04x}"
+                hostile_run_id = safe_run_id + chr(codepoint)
+                safe_root = publication / "attempts" / safe_run_id
+                safe_context = valid_context(
+                    runId=safe_run_id,
+                    executionId=f"legacy-{codepoint:04x}-execution",
+                )
+                with self.checkpoint_failure("prepared", -1):
+                    with self.assertRaises(OSError):
+                        run_evidence._initialize_attempt(
+                            index_path, safe_root, safe_context
+                        )
+
+                journal_path = self.transaction_files(publication)[0]
+                journal = self.read_json(journal_path)
+                safe_attempt = f"attempts/{safe_run_id}"
+                hostile_attempt = f"attempts/{hostile_run_id}"
+                journal["attemptRoot"] = hostile_attempt
+                journal["requiredDirectories"] = [
+                    hostile_attempt + relative[len(safe_attempt):]
+                    if relative == safe_attempt
+                    or relative.startswith(safe_attempt + "/")
+                    else relative
+                    for relative in journal["requiredDirectories"]
+                ]
+                hostile_request = dict(safe_context)
+                hostile_request["runId"] = hostile_run_id
+                journal["requestFingerprint"] = (
+                    "sha256:"
+                    + hashlib.sha256(
+                        run_evidence._json_bytes(
+                            {
+                                "schemaVersion": 1,
+                                "operation": "init",
+                                "attemptRoot": hostile_attempt,
+                                "request": hostile_request,
+                            }
+                        )
+                    ).hexdigest()
+                )
+                for target in journal["targets"]:
+                    safe_path = target["path"]
+                    target["path"] = (
+                        hostile_attempt + safe_path[len(safe_attempt):]
+                        if safe_path == safe_attempt
+                        or safe_path.startswith(safe_attempt + "/")
+                        else safe_path
+                    )
+                    value = None
+                    if safe_path.endswith("/run-context.json"):
+                        value = json.loads(
+                            base64.b64decode(
+                                target["contentBase64"], validate=True
+                            )
+                        )
+                        value["runId"] = hostile_run_id
+                    elif safe_path == "attempt-index.json":
+                        value = json.loads(
+                            base64.b64decode(
+                                target["contentBase64"], validate=True
+                            )
+                        )
+                        registrations = [
+                            attempt
+                            for execution in value["executions"]
+                            for attempt in execution["attempts"]
+                            if attempt["runId"] == safe_run_id
+                        ]
+                        self.assertEqual(len(registrations), 1)
+                        registrations[0]["runId"] = hostile_run_id
+                        registrations[0]["summary"] = (
+                            hostile_attempt + "/run-summary.json"
+                        )
+                    if value is not None:
+                        content = run_evidence._json_bytes(value)
+                        target["contentBase64"] = base64.b64encode(
+                            content
+                        ).decode("ascii")
+                        target["sha256"] = (
+                            "sha256:" + hashlib.sha256(content).hexdigest()
+                        )
+
+                journal_content = run_evidence._json_bytes(journal)
+                hostile_journal_path = journal_path.with_name(
+                    f"init-{hostile_run_id}-"
+                    f"{hashlib.sha256(journal_content).hexdigest()[:16]}.json"
+                )
+                journal_path.unlink()
+                hostile_journal_path.write_bytes(journal_content)
+                hostile_journal_path.chmod(0o600)
+
+                before = {
+                    path.relative_to(publication).as_posix(): (
+                        path.is_dir(),
+                        path.read_bytes() if path.is_file() else None,
+                    )
+                    for path in sorted(publication.rglob("*"))
+                }
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "transaction attemptRoot must be attempts/<runId>",
+                ):
+                    run_evidence._recover_pending_transactions(publication)
+                after = {
+                    path.relative_to(publication).as_posix(): (
+                        path.is_dir(),
+                        path.read_bytes() if path.is_file() else None,
+                    )
+                    for path in sorted(publication.rglob("*"))
+                }
+                self.assertEqual(after, before)
+
+    def test_valid_run_id_character_boundaries_survive_prepared_recovery(self):
+        publication, index_path = self.new_publication()
+        run_id = "boundary-" + "".join(
+            chr(codepoint)
+            for codepoint in (0x20, 0x7E, 0x80, 0xE000, 0x10000)
+        )
+        root = publication / "attempts" / run_id
+        context = valid_context(
+            runId=run_id,
+            executionId="boundary-execution",
+        )
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._initialize_attempt(index_path, root, context)
+
+        recovered = run_evidence._initialize_attempt(
+            index_path, root, context
+        )
+
+        self.assertEqual(recovered["runId"], run_id)
+        self.assertEqual(self.transaction_files(publication), [])
+
     def test_two_sibling_context_resolution_rolls_forward_every_target(self):
         fault_points = [("prepared", -1), *(('target', index) for index in range(3))]
         for case_number, (stage, position) in enumerate(fault_points, 1):
@@ -2478,6 +2691,55 @@ class TransactionResourceLimitTests(StorageTestCase):
             context_target["content"],
         )
         self.assertFalse(journal_path.exists())
+
+    def _assert_final_target_change_preserves_wal(self, checkpoint_operation):
+        context = valid_context(
+            runId=f"final-target-race-{checkpoint_operation}",
+            executionId=f"final-target-race-{checkpoint_operation}-execution",
+        )
+        root = self.attempt_root(context["runId"])
+        forged_content = []
+
+        def checkpoint(operation, phase, path):
+            if forged_content or operation != checkpoint_operation:
+                return
+            if phase != "before_unlink":
+                return
+            path = Path(path)
+            if path.parent.name != ".transactions" or path.suffix != ".json":
+                return
+            target = root / "run-context.json"
+            before = target.stat()
+            original = target.read_bytes()
+            forged = bytes((original[0] ^ 1,)) + original[1:]
+            target.write_bytes(forged)
+            os.utime(
+                target,
+                ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000),
+            )
+            self.assertEqual(len(forged), len(original))
+            forged_content.append(forged)
+
+        with mock.patch.object(
+            run_evidence.safe_io,
+            "_rooted_io_checkpoint",
+            side_effect=checkpoint,
+        ), self.assertRaisesRegex(
+            run_evidence.RootedIOError,
+            "transaction target changed before commit",
+        ):
+            run_evidence._initialize_attempt(self.index_path, root, context)
+
+        self.assertEqual(len(forged_content), 1)
+        self.assertEqual((root / "run-context.json").read_bytes(), forged_content[0])
+        journals = tuple((self.publication_root / ".transactions").glob("*.json"))
+        self.assertEqual(len(journals), 1)
+
+    def test_final_target_change_at_journal_commit_checkpoint_preserves_wal(self):
+        self._assert_final_target_change_preserves_wal("journal")
+
+    def test_final_target_change_at_safe_unlink_checkpoint_preserves_wal(self):
+        self._assert_final_target_change_preserves_wal("unlink")
 
     def test_recovered_result_rejects_size_mismatch_before_reading(self):
         root, transaction = self.capture_init_transaction("bounded-result")

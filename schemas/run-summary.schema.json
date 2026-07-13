@@ -37,7 +37,12 @@
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "runId": { "type": "string", "minLength": 1 },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?!\\.{1,2}$)(?![A-Za-z][A-Za-z0-9+.-]*:)[^/\\\\\\u0000-\\u001F\\u007F\\uD800-\\uDFFF]+$"
+    },
     "executionId": { "type": "string", "minLength": 1 },
     "fixtureId": { "type": "string", "minLength": 1 },
     "fixtureVersion": { "type": "string", "minLength": 1 },
@@ -221,6 +226,8 @@
                 "enum": [
                   "runner.unclassified",
                   "runner.child_timeout",
+                  "runner.command_supervisor_lost",
+                  "runner.capture_failed",
                   "runner.cleanup_failed",
                   "runner.driver_protocol",
                   "runner.ios_shim.build_failed",

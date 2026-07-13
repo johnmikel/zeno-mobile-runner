@@ -72,6 +72,50 @@ class CliAndAggregateTests(StorageTestCase):
         ):
             run_evidence.cli._parse_json_argument(exact, "--context-json")
 
+    def test_json_integer_and_float_tokens_have_exact_work_bounds(self):
+        integer_limit = run_evidence.MAX_JSON_INTEGER_DIGITS
+        float_limit = run_evidence.MAX_JSON_FLOAT_CHARACTERS
+        set_digit_limit = getattr(sys, "set_int_max_str_digits", None)
+        get_digit_limit = getattr(sys, "get_int_max_str_digits", None)
+        previous_digit_limit = get_digit_limit() if get_digit_limit else None
+        if set_digit_limit is not None:
+            set_digit_limit(0)
+        try:
+            exact_integer = "9" * integer_limit
+            parsed = run_evidence.bounded_io._decode_json_bytes(
+                ('{"value":' + exact_integer + "}").encode("ascii")
+            )
+            self.assertIs(type(parsed["value"]), int)
+            with self.assertRaisesRegex(
+                ValueError,
+                rf"JSON integer exceeds {integer_limit} digits",
+            ):
+                run_evidence.bounded_io._decode_json_bytes(
+                    ('{"value":' + ("9" * (integer_limit + 1)) + "}").encode(
+                        "ascii"
+                    )
+                )
+            negative = run_evidence.bounded_io._decode_json_bytes(
+                ('{"value":-' + exact_integer + "}").encode("ascii")
+            )
+            self.assertLess(negative["value"], 0)
+        finally:
+            if set_digit_limit is not None:
+                set_digit_limit(previous_digit_limit)
+
+        exact_float = "0." + ("1" * (float_limit - 2))
+        parsed = run_evidence.bounded_io._decode_json_bytes(
+            ('{"value":' + exact_float + "}").encode("ascii")
+        )
+        self.assertIs(type(parsed["value"]), float)
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"JSON float exceeds {float_limit} characters",
+        ):
+            run_evidence.bounded_io._decode_json_bytes(
+                ('{"value":' + exact_float + "1}").encode("ascii")
+            )
+
     def test_bounded_json_writer_is_canonical_native_and_budgeted(self):
         value = {
             "z": [None, True, False, 1, -0.0, "é\n\"\\"],
@@ -285,6 +329,57 @@ class CliAndAggregateTests(StorageTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn(secret, result.stderr)
         self.assertNotIn(str(self.publication_root), result.stderr)
+
+    def test_cli_diagnostic_fails_closed_when_secret_snapshot_is_oversized(self):
+        root = self.attempt_root("missing-secret-overflow")
+        secrets = {
+            f"ZMR_TEST_TOKEN_{index}": f"secret-value-{index:03d}"
+            for index in range(run_evidence.MAX_SANITIZATION_SECRET_COUNT + 1)
+        }
+
+        result = self.cli(
+            "validate-bundle",
+            "--root",
+            root,
+            env=secrets,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "error: diagnostic unavailable\n")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn(str(MODULE_PATH), result.stderr)
+        self.assertNotIn(str(REPOSITORY_ROOT), result.stderr)
+        self.assertNotIn(str(root), result.stderr)
+        for secret in secrets.values():
+            self.assertNotIn(secret, result.stderr)
+
+    def test_cli_diagnostic_fails_closed_when_root_snapshot_is_oversized(self):
+        secret = "oversized-root-parser-secret"
+        root = self.attempt_root("missing-root-overflow")
+        oversized_workspace = "/" + (
+            "w" * run_evidence.MAX_SANITIZATION_ROOT_TOTAL_BYTES
+        )
+
+        result = self.cli(
+            secret,
+            "--root",
+            root,
+            env={
+                "GITHUB_WORKSPACE": oversized_workspace,
+                "ZMR_TEST_TOKEN": secret,
+            },
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "error: diagnostic unavailable\n")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn(str(MODULE_PATH), result.stderr)
+        self.assertNotIn(str(REPOSITORY_ROOT), result.stderr)
+        self.assertNotIn(str(root), result.stderr)
+        self.assertNotIn(oversized_workspace, result.stderr)
+        self.assertNotIn(secret, result.stderr)
 
     def test_finalize_trace_retry_before_atomic_commit_creates_one_terminal_result(self):
         root = self.attempt_root("finalize-artifact-retry")

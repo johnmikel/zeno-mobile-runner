@@ -142,6 +142,60 @@ def _validate_command_metadata(
         errors.append(f"{label}.failureCode: must be a non-empty string")
     elif metadata["failureCode"] not in ERROR_CLASSIFICATION:
         errors.append(f"{label}.failureCode: must be a known error code")
+    configured_failure_code = metadata.get(
+        "configuredFailureCode", metadata.get("failureCode")
+    )
+    if (
+        not isinstance(configured_failure_code, str)
+        or configured_failure_code not in ERROR_CLASSIFICATION
+    ):
+        errors.append(
+            f"{label}.configuredFailureCode: must be a known error code"
+        )
+    elif configured_failure_code in SUPERVISOR_ONLY_FAILURE_CODES:
+        errors.append(
+            f"{label}.configuredFailureCode: must not use a supervisor-only code"
+        )
+    capture_complete = metadata.get("captureComplete", True)
+    if not isinstance(capture_complete, bool):
+        errors.append(f"{label}.captureComplete: must be a boolean")
+    supervisor_failure = metadata.get("supervisorFailure", False)
+    if not isinstance(supervisor_failure, bool):
+        errors.append(f"{label}.supervisorFailure: must be a boolean")
+    elif (
+        supervisor_failure
+        and metadata.get("failureCode") not in SUPERVISOR_FAILURE_CODES
+    ):
+        errors.append(
+            f"{label}.failureCode: supervisorFailure requires a runner failure code"
+        )
+    if (
+        metadata.get("failureCode") in SUPERVISOR_ONLY_FAILURE_CODES
+        and supervisor_failure is not True
+    ):
+        errors.append(
+            f"{label}.supervisorFailure: runner supervision code requires true"
+        )
+    if capture_complete is False and supervisor_failure is not True:
+        errors.append(
+            f"{label}.captureComplete: incomplete capture requires supervisorFailure"
+        )
+    if (
+        supervisor_failure is False
+        and isinstance(metadata.get("failureCode"), str)
+        and isinstance(configured_failure_code, str)
+        and metadata.get("failureCode") != configured_failure_code
+    ):
+        errors.append(
+            f"{label}.configuredFailureCode: must equal failureCode without a supervisor failure"
+        )
+    if (
+        metadata.get("failureCode") == "runner.capture_failed"
+        and capture_complete is not False
+    ):
+        errors.append(
+            f"{label}.captureComplete: runner.capture_failed requires false"
+        )
     if metadata.get("phase") not in PHASES:
         errors.append(f"{label}.phase: must be a declared phase")
     try:
@@ -163,9 +217,17 @@ def _validate_command_metadata(
     if exit_status is not None and signal_number is not None:
         errors.append(f"{label}: exitStatus and signal cannot both be set")
     if metadata.get("source") == "subprocess":
-        if exit_status is None and signal_number is None:
+        if (
+            supervisor_failure is not True
+            and exit_status is None
+            and signal_number is None
+        ):
             errors.append(f"{label}: subprocess record needs exitStatus or signal")
     elif metadata.get("source") == "github-action":
+        if supervisor_failure is True:
+            errors.append(
+                f"{label}.supervisorFailure: only subprocess records may set true"
+            )
         outcome = metadata.get("outcome")
         if outcome not in ("success", "failure", "cancelled"):
             errors.append(f"{label}.outcome: must declare the external outcome")
@@ -291,16 +353,36 @@ def _command_link_projection(metadata: dict) -> dict:
 
     remediation = metadata.get("remediation")
     remediation_bytes = _utf8_byte_length(remediation)
+    failure_code = (
+        metadata.get("failureCode")
+        if isinstance(metadata.get("failureCode"), str)
+        and metadata.get("failureCode") in ERROR_CLASSIFICATION
+        else None
+    )
+    configured_failure_code = metadata.get(
+        "configuredFailureCode", metadata.get("failureCode")
+    )
     return {
         "source": (
             metadata.get("source")
             if metadata.get("source") in ("subprocess", "github-action")
             else None
         ),
-        "failureCode": (
-            metadata.get("failureCode")
-            if isinstance(metadata.get("failureCode"), str)
-            and metadata.get("failureCode") in ERROR_CLASSIFICATION
+        "failureCode": failure_code,
+        "configuredFailureCode": (
+            configured_failure_code
+            if isinstance(configured_failure_code, str)
+            and configured_failure_code in ERROR_CLASSIFICATION
+            else None
+        ),
+        "captureComplete": (
+            metadata.get("captureComplete", True)
+            if isinstance(metadata.get("captureComplete", True), bool)
+            else None
+        ),
+        "supervisorFailure": (
+            metadata.get("supervisorFailure", False)
+            if isinstance(metadata.get("supervisorFailure", False), bool)
             else None
         ),
         "phase": metadata.get("phase") if metadata.get("phase") in PHASES else None,
@@ -421,7 +503,11 @@ def _validate_command_event_link(
     expected_status = None
     expected_command_status = None
     if metadata.get("source") == "subprocess":
-        if metadata.get("signal") is not None:
+        if metadata.get("supervisorFailure") is True:
+            expected_status = "failed"
+            if _is_integer(metadata.get("exitStatus")):
+                expected_command_status = metadata.get("exitStatus")
+        elif metadata.get("signal") is not None:
             expected_status = "cancelled"
         elif _is_integer(metadata.get("exitStatus")):
             expected_command_status = metadata.get("exitStatus")

@@ -93,6 +93,9 @@ class BundleValidationTests(CommandTestCase):
             {
                 "source": None,
                 "failureCode": None,
+                "configuredFailureCode": None,
+                "captureComplete": True,
+                "supervisorFailure": False,
                 "phase": None,
                 "exitStatus": 0,
                 "signal": None,
@@ -100,6 +103,175 @@ class BundleValidationTests(CommandTestCase):
                 "remediation": None,
             },
         )
+
+    def test_supervisor_failure_metadata_and_event_link_are_honest(self):
+        self.make_bundle()
+        metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
+        metadata = self.read_json(metadata_path)
+        metadata.update(
+            failureCode="runner.command_supervisor_lost",
+            configuredFailureCode="app.assertion_failed",
+            captureComplete=False,
+            supervisorFailure=True,
+            exitStatus=None,
+            signal=signal.SIGTERM,
+        )
+        metadata_errors = []
+        with run_evidence.safe_io._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            run_evidence.bundle._validate_command_metadata(
+                self.root,
+                metadata_path,
+                metadata,
+                metadata_errors,
+            )
+        self.assertEqual(metadata_errors, [])
+
+        metadata["failureCode"] = "runner.capture_failed"
+        metadata_errors = []
+        with run_evidence.safe_io._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            run_evidence.bundle._validate_command_metadata(
+                self.root,
+                metadata_path,
+                metadata,
+                metadata_errors,
+            )
+        self.assertEqual(metadata_errors, [])
+
+        reference = metadata_path.relative_to(self.root).as_posix()
+        event = {
+            "phase": metadata["phase"],
+            "status": "failed",
+            "errorCode": "runner.capture_failed",
+            "summary": "Runner supervision failed",
+            "command": reference,
+            "artifact": reference,
+        }
+        link_errors = []
+        with run_evidence.safe_io._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            run_evidence.bundle._validate_command_event_link(
+                self.root,
+                1,
+                event,
+                {reference: run_evidence.bundle._command_link_projection(metadata)},
+                {reference: 0},
+                None,
+                link_errors,
+            )
+        self.assertEqual(link_errors, [])
+
+        metadata["signal"] = None
+        metadata_errors = []
+        with run_evidence.safe_io._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            run_evidence.bundle._validate_command_metadata(
+                self.root,
+                metadata_path,
+                metadata,
+                metadata_errors,
+            )
+        self.assertEqual(metadata_errors, [])
+
+    def test_supervisor_failure_fields_reject_invalid_types_and_codes(self):
+        self.make_bundle()
+        metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
+        metadata = self.read_json(metadata_path)
+        metadata.update(
+            failureCode="app.assertion_failed",
+            configuredFailureCode="unknown.code",
+            captureComplete="yes",
+            supervisorFailure=True,
+            exitStatus=None,
+            signal=None,
+        )
+        errors = []
+        with run_evidence.safe_io._rooted_io(
+            self.publication_root, mutation=False
+        ):
+            run_evidence.bundle._validate_command_metadata(
+                self.root,
+                metadata_path,
+                metadata,
+                errors,
+            )
+        joined = "\n".join(errors)
+        self.assertIn("configuredFailureCode", joined)
+        self.assertIn("captureComplete", joined)
+        self.assertIn("supervisorFailure", joined)
+        self.assertIn("runner failure code", joined)
+
+    def test_supervisor_failure_fields_enforce_capture_and_code_invariants(self):
+        self.make_bundle()
+        metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
+        base = self.read_json(metadata_path)
+        cases = (
+            (
+                "incomplete-without-supervisor",
+                {"captureComplete": False, "supervisorFailure": False},
+                "incomplete capture requires supervisorFailure",
+            ),
+            (
+                "reserved-code-without-supervisor",
+                {
+                    "failureCode": "runner.capture_failed",
+                    "configuredFailureCode": "runner.capture_failed",
+                    "captureComplete": False,
+                    "supervisorFailure": False,
+                },
+                "runner supervision code requires true",
+            ),
+            (
+                "capture-failure-claims-complete",
+                {
+                    "failureCode": "runner.capture_failed",
+                    "configuredFailureCode": "app.assertion_failed",
+                    "captureComplete": True,
+                    "supervisorFailure": True,
+                },
+                "runner.capture_failed requires false",
+            ),
+            (
+                "configured-code-is-supervisor-only",
+                {
+                    "failureCode": "runner.capture_failed",
+                    "configuredFailureCode": "runner.capture_failed",
+                    "captureComplete": False,
+                    "supervisorFailure": True,
+                },
+                "must not use a supervisor-only code",
+            ),
+            (
+                "configured-code-diverges-without-supervisor",
+                {
+                    "configuredFailureCode": "config.invalid",
+                    "supervisorFailure": False,
+                },
+                "must equal failureCode without a supervisor failure",
+            ),
+        )
+        for label, changes, diagnostic in cases:
+            with self.subTest(label=label):
+                metadata = dict(base)
+                metadata.update(changes)
+                errors = []
+                with run_evidence.safe_io._rooted_io(
+                    self.publication_root, mutation=False
+                ):
+                    run_evidence.bundle._validate_command_metadata(
+                        self.root,
+                        metadata_path,
+                        metadata,
+                        errors,
+                    )
+                self.assertTrue(
+                    any(diagnostic in error for error in errors), errors
+                )
 
     def test_valid_bundle_checks_summary_events_and_command_records(self):
         self.make_bundle()
@@ -372,11 +544,13 @@ class BundleValidationTests(CommandTestCase):
         del metadata["outcome"]
         del metadata["limitation"]
         metadata["exitStatus"] = 0
+        metadata["supervisorFailure"] = True
         metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
         errors = run_evidence.validate_bundle(self.root, secrets=[])
         self.assertTrue(any("outcome" in error for error in errors), errors)
         self.assertTrue(any("limitation" in error for error in errors), errors)
         self.assertTrue(any("exitStatus" in error for error in errors), errors)
+        self.assertTrue(any("supervisorFailure" in error for error in errors), errors)
 
     def test_external_metadata_and_event_remediation_tampering_is_rejected(self):
         report = self.root / "reports" / "run.html"

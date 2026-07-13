@@ -312,6 +312,9 @@ def validate_summary(summary: dict) -> list[str]:
         _error(errors, "$.schemaVersion", "must equal 1")
     for field in ("runId", "executionId", "fixtureId", "fixtureVersion"):
         _require_nonempty_string(summary.get(field), "$." + field, errors)
+    run_id = summary.get("runId")
+    if isinstance(run_id, str) and run_id and not _safe_run_segment(run_id):
+        _error(errors, "$.runId", "must be a safe bounded path segment")
 
     revision = summary.get("candidateRevision")
     if revision is not None and (
@@ -487,14 +490,26 @@ def validate_summary(summary: dict) -> list[str]:
     return _finish_errors(errors)
 
 def _safe_run_segment(value: Any) -> bool:
-    return (
-        isinstance(value, str)
-        and bool(value)
-        and value not in (".", "..")
-        and "/" not in value
-        and "\\" not in value
-        and not _SCHEME_RE.match(value)
-    )
+    if (
+        not isinstance(value, str)
+        or not value
+        or value in (".", "..")
+        or "/" in value
+        or "\\" in value
+        or _SCHEME_RE.match(value)
+        or any(
+            ord(character) < 0x20
+            or ord(character) == 0x7F
+            or 0xD800 <= ord(character) <= 0xDFFF
+            for character in value
+        )
+    ):
+        return False
+    try:
+        encoded = str.encode(value, "utf-8")
+    except UnicodeEncodeError:
+        return False
+    return len(encoded) <= MAX_RUN_SEGMENT_BYTES
 
 
 def _validate_context_identity(context: Any) -> None:

@@ -1,5 +1,6 @@
 """Descriptor-rooted evidence I/O containment cases."""
 
+import errno
 import io
 import shutil
 
@@ -151,6 +152,232 @@ class RootedIOContainmentTests(CommandTestCase):
             os.umask(previous_umask)
         self.assertEqual(observed_modes, [0o600])
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_atomic_write_rejects_named_temporary_inode_replacement(self):
+        target = self.publication_root / "temp-binding-probe.json"
+        original = b"trusted-existing-target\n"
+        replacement = b"attacker-controlled-replacement\n"
+        target.write_bytes(original)
+        swapped_temporary = []
+
+        def checkpoint(operation, phase, path):
+            if (
+                operation != "atomic_write"
+                or phase != "before_replace"
+                or Path(path) != target
+            ):
+                return
+            temporary = next(target.parent.glob(f".{target.name}.*.tmp"))
+            temporary.unlink()
+            temporary.write_bytes(replacement)
+            swapped_temporary.append(temporary)
+
+        with run_evidence._rooted_io(self.publication_root):
+            with mock.patch.object(
+                run_evidence.safe_io,
+                "_rooted_io_checkpoint",
+                side_effect=checkpoint,
+            ):
+                with self.assertRaisesRegex(
+                    run_evidence.safe_io.RootedIOError,
+                    _CONTAINMENT_DIAGNOSTIC,
+                ):
+                    run_evidence._atomic_write_bytes(target, b"trusted-update\n")
+
+        self.assertEqual(target.read_bytes(), original)
+        self.assertEqual(len(swapped_temporary), 1)
+        self.assertEqual(swapped_temporary[0].read_bytes(), replacement)
+
+    def test_atomic_write_rejects_in_place_temporary_content_replacement(self):
+        target = self.publication_root / "temp-content-probe.json"
+        original = b"trusted-existing-target\n"
+        target.write_bytes(original)
+        modified_temporary = []
+
+        def checkpoint(operation, phase, path):
+            if (
+                operation != "atomic_write"
+                or phase != "before_replace"
+                or Path(path) != target
+            ):
+                return
+            temporary = next(target.parent.glob(f".{target.name}.*.tmp"))
+            before = temporary.stat()
+            temporary.write_bytes(b"hostile-update\n")
+            os.utime(
+                temporary,
+                ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000),
+            )
+            self.assertEqual(temporary.stat().st_size, before.st_size)
+            inode = before.st_ino
+            self.assertEqual(temporary.stat().st_ino, inode)
+            modified_temporary.append(temporary)
+
+        with run_evidence._rooted_io(self.publication_root):
+            with mock.patch.object(
+                run_evidence.safe_io,
+                "_rooted_io_checkpoint",
+                side_effect=checkpoint,
+            ):
+                with self.assertRaisesRegex(
+                    run_evidence.safe_io.RootedIOError,
+                    _CONTAINMENT_DIAGNOSTIC,
+                ):
+                    run_evidence._atomic_write_bytes(target, b"trusted-update\n")
+
+        self.assertEqual(target.read_bytes(), original)
+        self.assertEqual(len(modified_temporary), 1)
+        self.assertFalse(modified_temporary[0].exists())
+
+    def test_atomic_write_rejects_same_inode_substitution_at_replace(self):
+        target = self.publication_root / "temp-replace-content-probe.json"
+        original = b"trusted-existing-target\n"
+        trusted_update = b"trusted-update\n"
+        hostile_update = b"hostile-update\n"
+        self.assertEqual(len(trusted_update), len(hostile_update))
+        target.write_bytes(original)
+        real_replace = os.replace
+
+        def substitute_then_replace(
+            source,
+            destination,
+            *,
+            src_dir_fd=None,
+            dst_dir_fd=None,
+        ):
+            before = os.stat(
+                source,
+                dir_fd=src_dir_fd,
+                follow_symlinks=False,
+            )
+            descriptor = os.open(
+                source,
+                os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=src_dir_fd,
+            )
+            try:
+                os.write(descriptor, hostile_update)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.utime(
+                source,
+                ns=(before.st_atime_ns, before.st_mtime_ns),
+                dir_fd=src_dir_fd,
+                follow_symlinks=False,
+            )
+            return real_replace(
+                source,
+                destination,
+                src_dir_fd=src_dir_fd,
+                dst_dir_fd=dst_dir_fd,
+            )
+
+        with run_evidence._rooted_io(self.publication_root):
+            with mock.patch.object(
+                run_evidence.safe_io.os,
+                "replace",
+                side_effect=substitute_then_replace,
+            ):
+                with self.assertRaisesRegex(
+                    run_evidence.safe_io.RootedIOError,
+                    _CONTAINMENT_DIAGNOSTIC,
+                ):
+                    run_evidence._atomic_write_bytes(target, trusted_update)
+
+        self.assertEqual(target.read_bytes(), hostile_update)
+
+    def test_atomic_write_rejects_same_inode_substitution_after_digest(self):
+        target = self.publication_root / "post-digest-content-probe.json"
+        original = b"trusted-existing-target\n"
+        trusted_update = b"trusted-update\n"
+        hostile_update = b"hostile-update\n"
+        self.assertEqual(len(trusted_update), len(hostile_update))
+        target.write_bytes(original)
+
+        def checkpoint(operation, phase, path):
+            if (
+                operation != "atomic_write"
+                or phase != "after_content_verify"
+                or Path(path) != target
+            ):
+                return
+            before = target.stat()
+            descriptor = os.open(
+                target,
+                os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            try:
+                os.write(descriptor, hostile_update)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.utime(
+                target,
+                ns=(before.st_atime_ns, before.st_mtime_ns),
+                follow_symlinks=False,
+            )
+            self.assertEqual(target.stat().st_ino, before.st_ino)
+
+        with run_evidence._rooted_io(self.publication_root):
+            with mock.patch.object(
+                run_evidence.safe_io,
+                "_rooted_io_checkpoint",
+                side_effect=checkpoint,
+            ):
+                with self.assertRaisesRegex(
+                    run_evidence.safe_io.RootedIOError,
+                    _CONTAINMENT_DIAGNOSTIC,
+                ):
+                    run_evidence._atomic_write_bytes(target, trusted_update)
+
+        self.assertEqual(target.read_bytes(), hostile_update)
+
+    def test_atomic_write_cleans_own_temp_after_early_write_failure(self):
+        target = self.publication_root / "early-write-failure.json"
+        original = b"trusted-existing-target\n"
+        target.write_bytes(original)
+
+        with run_evidence._rooted_io(self.publication_root):
+            with mock.patch.object(
+                run_evidence.safe_io.os,
+                "write",
+                side_effect=OSError(errno.ENOSPC, "injected disk full"),
+            ):
+                with self.assertRaisesRegex(
+                    run_evidence.safe_io.RootedIOError,
+                    _CONTAINMENT_DIAGNOSTIC,
+                ):
+                    run_evidence._atomic_write_bytes(target, b"trusted-update\n")
+
+        self.assertEqual(target.read_bytes(), original)
+        self.assertEqual(
+            list(target.parent.glob(f".{target.name}.*.tmp")),
+            [],
+        )
+
+    def test_atomic_write_cleans_own_temp_after_early_fsync_failure(self):
+        target = self.publication_root / "early-fsync-failure.json"
+        original = b"trusted-existing-target\n"
+        target.write_bytes(original)
+
+        with run_evidence._rooted_io(self.publication_root):
+            with mock.patch.object(
+                run_evidence.safe_io.os,
+                "fsync",
+                side_effect=OSError(errno.ENOSPC, "injected fsync failure"),
+            ):
+                with self.assertRaisesRegex(
+                    run_evidence.safe_io.RootedIOError,
+                    _CONTAINMENT_DIAGNOSTIC,
+                ):
+                    run_evidence._atomic_write_bytes(target, b"trusted-update\n")
+
+        self.assertEqual(target.read_bytes(), original)
+        self.assertEqual(
+            list(target.parent.glob(f".{target.name}.*.tmp")),
+            [],
+        )
 
     def _swap_directory(self, directory, target_path, *, mirror_temporary):
         directory = Path(directory)

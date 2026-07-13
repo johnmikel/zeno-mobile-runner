@@ -849,6 +849,22 @@ def _existing_target_matches(path: Path, target: dict) -> bool:
     ) == target["sha256"]
 
 
+def _transaction_target_commit_binding(
+    metadata: os.stat_result,
+) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 def _preflight_pending_transactions(
     publication_root: Path,
     pending: list[tuple],
@@ -948,31 +964,53 @@ def _apply_transaction(
             raise ValueError("transaction target failed hash verification")
         _transaction_checkpoint("target", index)
 
+    final_target_bindings = []
     for target in transaction["targets"]:
         path = _contained_transaction_path(
             publication_root, target["path"], "transaction final target"
         )
+        metadata = _evidence_stat(path)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("transaction final target is not a safe file")
         if _stream_target_sha256(
             path,
             maximum=_transaction_target_limit(target["path"]),
             expected_size=len(target["content"]),
+            expected_metadata=metadata,
         ) != target["sha256"]:
             raise ValueError("transaction final hash verification failed")
+        final_target_bindings.append(
+            (path, _transaction_target_commit_binding(metadata))
+        )
     _safe_io_owner._rooted_io_checkpoint(
         "journal", "before_unlink", journal_path
     )
-    for parent, expected_identity in target_parent_identities.items():
-        current = _evidence_stat(parent)
-        if (
-            not stat.S_ISDIR(current.st_mode)
-            or (current.st_dev, current.st_ino) != expected_identity
-        ):
-            raise RootedIOError(
-                f"{ROOTED_IO_CONTAINMENT_ERROR}: transaction target parent changed before commit"
-            )
+
+    def revalidate_commit_bindings() -> None:
+        for parent, expected_identity in target_parent_identities.items():
+            current = _evidence_stat(parent)
+            if (
+                not stat.S_ISDIR(current.st_mode)
+                or (current.st_dev, current.st_ino) != expected_identity
+            ):
+                raise RootedIOError(
+                    f"{ROOTED_IO_CONTAINMENT_ERROR}: transaction target parent changed before commit"
+                )
+        for path, expected_binding in final_target_bindings:
+            current = _evidence_stat(path)
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or _transaction_target_commit_binding(current)
+                != expected_binding
+            ):
+                raise RootedIOError(
+                    f"{ROOTED_IO_CONTAINMENT_ERROR}: transaction target changed before commit"
+                )
+
     _evidence_unlink(
         journal_path,
         expected_identity=(journal_metadata.st_dev, journal_metadata.st_ino),
+        pre_unlink=revalidate_commit_bindings,
     )
     _fsync_directory(journal_path.parent)
     _transaction_checkpoint("committed", -1)

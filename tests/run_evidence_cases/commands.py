@@ -14,6 +14,21 @@ except ImportError:  # pragma: no cover - non-POSIX portability
 
 
 class CommandCaptureTests(CommandTestCase):
+    class _ImmediateChild:
+        pid = 424242
+
+        def __init__(self):
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+
+        @staticmethod
+        def poll():
+            return 0
+
+        @staticmethod
+        def wait():
+            return 0
+
     def test_subprocess_metadata_is_bounded_before_event_or_spawn(self):
         events_path = self.root / "bootstrap-events.jsonl"
         events_before = events_path.read_bytes()
@@ -39,6 +54,291 @@ class CommandCaptureTests(CommandTestCase):
         self.assertEqual(popen.call_count, 0)
         self.assertEqual(events_path.read_bytes(), events_before)
         self.assertEqual(sorted((self.root / "commands").iterdir()), commands_before)
+
+    def test_subprocess_metadata_preflight_reserves_largest_failure_shape(self):
+        captured = {}
+
+        def reject_after_capture(candidate, *, label):
+            self.assertEqual(label, "command metadata")
+            captured.update(candidate)
+            raise ValueError("stop after metadata preflight")
+
+        with mock.patch.object(
+            run_evidence.commands.bounded_io,
+            "_json_bytes_bounded",
+            side_effect=reject_after_capture,
+        ), mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            wraps=subprocess.Popen,
+        ) as popen, self.assertRaisesRegex(
+            ValueError, "stop after metadata preflight"
+        ):
+            run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "bounded-command",
+                "config.invalid",
+                [sys.executable, "-c", "pass"],
+            )
+
+        self.assertEqual(
+            captured["failureCode"], "runner.command_supervisor_lost"
+        )
+        self.assertEqual(captured["configuredFailureCode"], "config.invalid")
+        self.assertIs(captured["captureComplete"], False)
+        self.assertIs(captured["supervisorFailure"], False)
+        self.assertEqual(popen.call_count, 0)
+
+    def test_command_argv_uses_one_owned_native_list_snapshot(self):
+        class HostileArgv(list):
+            def __init__(self, values):
+                super().__init__(values)
+                self.override_iterations = 0
+
+            def __iter__(self):
+                self.override_iterations += 1
+                return iter(["iteration-override"])
+
+        original = HostileArgv(
+            [sys.executable, "-c", "pass", "native-argument"]
+        )
+        spawned = []
+        sanitized_inputs = []
+        sanitize_argv = run_evidence.commands._sanitize_argv
+
+        def fake_popen(argv, **_options):
+            spawned.append(argv)
+            return self._ImmediateChild()
+
+        def observe_sanitization(argv, **options):
+            sanitized_inputs.append(argv)
+            return sanitize_argv(argv, **options)
+
+        with mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            side_effect=fake_popen,
+        ), mock.patch.object(
+            run_evidence.commands,
+            "_sanitize_argv",
+            side_effect=observe_sanitization,
+        ):
+            return_code = run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "owned-argv",
+                "runner.unclassified",
+                original,
+                stdout_stream=io.BytesIO(),
+                stderr_stream=io.BytesIO(),
+            )
+
+        self.assertEqual(return_code, 0)
+        self.assertEqual(original.override_iterations, 0)
+        self.assertEqual(len(spawned), 1)
+        self.assertIs(spawned[0], sanitized_inputs[0])
+        self.assertIs(type(spawned[0]), list)
+        self.assertTrue(all(type(value) is str for value in spawned[0]))
+        self.assertEqual(
+            spawned[0],
+            [sys.executable, "-c", "pass", "native-argument"],
+        )
+        self.assertEqual(self.command_metadata()[-1]["argv"][-1], "native-argument")
+
+    def test_command_argv_exact_limits_are_admitted(self):
+        count_limited = run_evidence.commands._own_command_argv(["x"] * 256)
+        byte_limited = run_evidence.commands._own_command_argv(
+            ["x" * (16 * 1024)] * 4
+        )
+
+        self.assertEqual(len(count_limited), 256)
+        self.assertTrue(all(type(value) is str for value in count_limited))
+        self.assertEqual(len(byte_limited), 4)
+        self.assertEqual(
+            sum(len(value.encode("utf-8")) for value in byte_limited),
+            64 * 1024,
+        )
+
+    def test_command_argv_terms_are_copied_without_subclass_overrides(self):
+        class HostileText(str):
+            calls = 0
+
+            def __str__(self):
+                type(self).calls += 1
+                return "string-override"
+
+            def __len__(self):
+                type(self).calls += 1
+                return str.__len__(self)
+
+            def encode(self, *_args, **_kwargs):
+                type(self).calls += 1
+                return b"encode-override"
+
+        argument = HostileText("native-argument")
+        spawned = []
+
+        def fake_popen(argv, **_options):
+            spawned.append(argv)
+            return self._ImmediateChild()
+
+        with mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            side_effect=fake_popen,
+        ):
+            return_code = run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "owned-terms",
+                "runner.unclassified",
+                [sys.executable, "-c", "pass", argument],
+                stdout_stream=io.BytesIO(),
+                stderr_stream=io.BytesIO(),
+            )
+
+        self.assertEqual(return_code, 0)
+        self.assertEqual(HostileText.calls, 0)
+        self.assertIs(type(spawned[0]), list)
+        self.assertTrue(all(type(value) is str for value in spawned[0]))
+        self.assertEqual(spawned[0][-1], "native-argument")
+        self.assertEqual(self.command_metadata()[-1]["argv"][-1], "native-argument")
+
+    def test_invalid_command_argv_is_rejected_before_event_spawn_or_artifact(self):
+        oversized_term = "x" * (16 * 1024 + 1)
+        invalid_cases = {
+            "embedded-nul": [sys.executable, "bad\x00argument"],
+            "invalid-utf8": [sys.executable, "\ud800"],
+            "too-many-terms": [sys.executable] + ["x"] * 256,
+            "oversized-term": [sys.executable, oversized_term],
+            "oversized-aggregate": [sys.executable] + ["x" * (16 * 1024)] * 4,
+        }
+
+        for label, argv in invalid_cases.items():
+            with self.subTest(label=label):
+                events_path = self.root / "bootstrap-events.jsonl"
+                events_before = events_path.read_bytes()
+                commands_before = sorted((self.root / "commands").iterdir())
+                with mock.patch.object(
+                    run_evidence.commands.subprocess,
+                    "Popen",
+                    side_effect=ValueError("spawn was reached"),
+                ) as popen, self.assertRaises(ValueError):
+                    run_evidence._run_command(
+                        self.root,
+                        "scenario.execute",
+                        "invalid-argv",
+                        "runner.unclassified",
+                        argv,
+                        stdout_stream=io.BytesIO(),
+                        stderr_stream=io.BytesIO(),
+                    )
+
+                self.assertEqual(popen.call_count, 0)
+                self.assertEqual(events_path.read_bytes(), events_before)
+                self.assertEqual(
+                    sorted((self.root / "commands").iterdir()), commands_before
+                )
+
+    def test_command_scalars_are_owned_before_validation_and_use(self):
+        class HostileScalar(str):
+            calls = 0
+
+            def __str__(self):
+                type(self).calls += 1
+                return "string-override"
+
+            def __format__(self, _format_spec):
+                type(self).calls += 1
+                return "format-override"
+
+            def __len__(self):
+                type(self).calls += 1
+                return str.__len__(self)
+
+            def __hash__(self):
+                type(self).calls += 1
+                return str.__hash__(self)
+
+            def encode(self, *_args, **_kwargs):
+                type(self).calls += 1
+                return b"encode-override"
+
+        phase = HostileScalar("scenario.execute")
+        name = HostileScalar("owned-scalars")
+        failure_code = HostileScalar("runner.unclassified")
+
+        with mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            return_value=self._ImmediateChild(),
+        ) as popen:
+            return_code = run_evidence._run_command(
+                self.root,
+                phase,
+                name,
+                failure_code,
+                [sys.executable, "-c", "pass"],
+                stdout_stream=io.BytesIO(),
+                stderr_stream=io.BytesIO(),
+            )
+
+        self.assertEqual(return_code, 0)
+        self.assertEqual(HostileScalar.calls, 0)
+        self.assertEqual(popen.call_count, 1)
+        metadata = self.command_metadata()[-1]
+        self.assertEqual(metadata["phase"], "scenario.execute")
+        self.assertEqual(metadata["name"], "owned-scalars")
+        self.assertEqual(metadata["failureCode"], "runner.unclassified")
+        self.assertIn("owned-scalars", metadata["stdout"]["path"])
+
+    def test_rejected_hostile_command_scalars_have_no_side_effects(self):
+        class HostileScalar(str):
+            def __str__(self):
+                return "scenario.execute"
+
+            def __format__(self, _format_spec):
+                return "format-override"
+
+            def __hash__(self):
+                return str.__hash__("runner.unclassified")
+
+            def __eq__(self, _other):
+                return True
+
+        invalid_cases = (
+            (HostileScalar("not-a-phase"), "safe", "runner.unclassified"),
+            ("scenario.execute", HostileScalar("../unsafe"), "runner.unclassified"),
+            ("scenario.execute", "safe", HostileScalar("not-a-code")),
+        )
+        for phase, name, failure_code in invalid_cases:
+            values = (
+                str.__str__(phase),
+                str.__str__(name),
+                str.__str__(failure_code),
+            )
+            with self.subTest(value=values):
+                events_path = self.root / "bootstrap-events.jsonl"
+                events_before = events_path.read_bytes()
+                commands_before = sorted((self.root / "commands").iterdir())
+                with mock.patch.object(
+                    run_evidence.commands.subprocess,
+                    "Popen",
+                    side_effect=AssertionError("spawn was reached"),
+                ) as popen, self.assertRaises(ValueError):
+                    run_evidence._run_command(
+                        self.root,
+                        phase,
+                        name,
+                        failure_code,
+                        [sys.executable, "-c", "pass"],
+                    )
+                self.assertEqual(popen.call_count, 0)
+                self.assertEqual(events_path.read_bytes(), events_before)
+                self.assertEqual(
+                    sorted((self.root / "commands").iterdir()), commands_before
+                )
 
     def test_subprocess_reserves_terminal_event_before_spawn_or_write(self):
         events_path = self.root / "bootstrap-events.jsonl"
@@ -188,6 +488,684 @@ class CommandCaptureTests(CommandTestCase):
             except ProcessLookupError:
                 pass
 
+    @staticmethod
+    def _process_group_is_running(process_group):
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _wait_for_process_group_to_stop(self, process_group, timeout):
+        deadline = time.monotonic() + timeout
+        while (
+            self._process_group_is_running(process_group)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        return not self._process_group_is_running(process_group)
+
+    def _force_cleanup_spawned_children(self, children, readers=()):
+        for child in children:
+            if (
+                child.poll() is None
+                and os.name == "posix"
+                and hasattr(os, "killpg")
+            ):
+                try:
+                    owned_group = (
+                        child.pid == os.getpgid(child.pid)
+                        and child.pid == os.getsid(child.pid)
+                        and child.pid > 1
+                        and child.pid != os.getpgrp()
+                    )
+                    if owned_group:
+                        os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if child.poll() is None:
+                try:
+                    child.kill()
+                except ProcessLookupError:
+                    pass
+        for child in children:
+            try:
+                child.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+        for reader in readers:
+            if reader.ident is not None:
+                reader.join(timeout=3)
+        for child in children:
+            for pipe in (child.stdout, child.stderr):
+                if pipe is not None and not pipe.closed:
+                    pipe.close()
+
+    def _assert_single_command_terminal(
+        self,
+        *,
+        name,
+        status,
+        exit_status,
+        signal_number=None,
+        failure_code=None,
+        configured_failure_code=None,
+        capture_complete=True,
+        supervisor_failure=False,
+        secret=None,
+    ):
+        metadata_files = sorted((self.root / "commands").glob("*.json"))
+        self.assertEqual(len(metadata_files), 1)
+        metadata = json.loads(metadata_files[0].read_text(encoding="utf-8"))
+        self.assertEqual(metadata["name"], name)
+        self.assertEqual(metadata["exitStatus"], exit_status)
+        self.assertEqual(metadata["signal"], signal_number)
+        self.assertEqual(
+            metadata.get("configuredFailureCode", metadata["failureCode"]),
+            configured_failure_code or metadata["failureCode"],
+        )
+        self.assertEqual(metadata.get("captureComplete", True), capture_complete)
+        self.assertEqual(
+            metadata.get("supervisorFailure", False), supervisor_failure
+        )
+        command_files = sorted((self.root / "commands").iterdir())
+        self.assertEqual(len(command_files), 3)
+        self.assertEqual(
+            {path.suffix for path in command_files},
+            {".json", ".log"},
+        )
+
+        metadata_relative = metadata_files[0].relative_to(self.root).as_posix()
+        events = self.read_events(self.root)
+        owners = [
+            event
+            for event in events
+            if event.get("command") == metadata_relative
+        ]
+        self.assertEqual(len(owners), 1)
+        terminal = owners[0]
+        self.assertEqual(terminal["status"], status)
+        expected_command_status = (
+            exit_status if isinstance(exit_status, int) else None
+        )
+        self.assertEqual(terminal.get("commandStatus"), expected_command_status)
+        self.assertEqual(
+            [event["status"] for event in events[-2:]],
+            ["started", status],
+        )
+        if failure_code is not None:
+            self.assertEqual(metadata["failureCode"], failure_code)
+            self.assertEqual(terminal["errorCode"], failure_code)
+        if secret is not None:
+            persisted = (self.root / "bootstrap-events.jsonl").read_bytes()
+            persisted += b"".join(path.read_bytes() for path in command_files)
+            self.assertNotIn(secret.encode("utf-8"), persisted)
+            self.assertIn("<redacted>", terminal["summary"])
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def _assert_reader_start_failure_is_cleaned(self, failed_start):
+        secret = f"reader-start-secret-{failed_start}"
+        children = []
+        readers = []
+        real_popen = subprocess.Popen
+        real_thread = threading.Thread
+        real_start = real_thread.start
+        start_count = 0
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def observe_thread(*args, **kwargs):
+            reader = real_thread(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        def fail_selected_start(reader):
+            nonlocal start_count
+            start_count += 1
+            if start_count == failed_start:
+                raise RuntimeError(f"reader start failed: {secret}")
+            return real_start(reader)
+
+        environment = {
+            "ZMR_EVIDENCE_SECRET_NAMES": "TASK3_READER_SECRET",
+            "TASK3_READER_SECRET": secret,
+        }
+        try:
+            with mock.patch.dict(os.environ, environment, clear=False), mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), mock.patch.object(
+                run_evidence.commands.threading,
+                "Thread",
+                side_effect=observe_thread,
+            ), mock.patch.object(
+                real_thread,
+                "start",
+                autospec=True,
+                side_effect=fail_selected_start,
+            ), self.assertRaisesRegex(RuntimeError, "reader start failed"):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    f"reader-start-{failed_start}",
+                    "runner.unclassified",
+                    [sys.executable, "-c", "import time;time.sleep(60)"],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].poll())
+            self.assertTrue(children[0].stdout.closed)
+            self.assertTrue(children[0].stderr.closed)
+            self.assertTrue(all(not reader.is_alive() for reader in readers))
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self._assert_single_command_terminal(
+                name=f"reader-start-{failed_start}",
+                status="failed",
+                exit_status=None,
+                signal_number=signal.SIGTERM,
+                failure_code="runner.command_supervisor_lost",
+                configured_failure_code="runner.unclassified",
+                capture_complete=False,
+                supervisor_failure=True,
+                secret=secret,
+            )
+        finally:
+            self._force_cleanup_spawned_children(children, readers)
+
+    def test_first_reader_start_failure_cleans_group_and_persists_failure(self):
+        self._assert_reader_start_failure_is_cleaned(1)
+
+    def test_second_reader_start_failure_cleans_group_and_persists_failure(self):
+        self._assert_reader_start_failure_is_cleaned(2)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_wait_failure_cleans_group_and_persists_failure(self):
+        children = []
+        readers = []
+        real_popen = subprocess.Popen
+        real_thread = threading.Thread
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def observe_thread(*args, **kwargs):
+            reader = real_thread(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        try:
+            with mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), mock.patch.object(
+                run_evidence.commands.threading,
+                "Thread",
+                side_effect=observe_thread,
+            ), mock.patch.object(
+                run_evidence.commands._ChildSignalController,
+                "wait_for_completion",
+                autospec=True,
+                side_effect=RuntimeError("wait failed"),
+            ), self.assertRaisesRegex(RuntimeError, "wait failed"):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "wait-failure",
+                    "runner.unclassified",
+                    [sys.executable, "-c", "import time;time.sleep(60)"],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].poll())
+            self.assertTrue(children[0].stdout.closed)
+            self.assertTrue(children[0].stderr.closed)
+            self.assertTrue(all(not reader.is_alive() for reader in readers))
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self._assert_single_command_terminal(
+                name="wait-failure",
+                status="failed",
+                exit_status=None,
+                signal_number=signal.SIGTERM,
+                failure_code="runner.command_supervisor_lost",
+                configured_failure_code="runner.unclassified",
+                capture_complete=True,
+                supervisor_failure=True,
+            )
+        finally:
+            self._force_cleanup_spawned_children(children, readers)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_killpg_errors_attempt_term_and_kill_then_fail_closed(self):
+        children = []
+        readers = []
+        attempted_signals = []
+        real_popen = subprocess.Popen
+        real_thread = threading.Thread
+        real_killpg = os.killpg
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def observe_thread(*args, **kwargs):
+            reader = real_thread(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        def deny_destructive_group_signal(process_group, signal_number):
+            if signal_number == 0:
+                return real_killpg(process_group, signal_number)
+            attempted_signals.append(signal_number)
+            raise PermissionError("killpg denied")
+
+        try:
+            with mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), mock.patch.object(
+                run_evidence.commands.threading,
+                "Thread",
+                side_effect=observe_thread,
+            ), mock.patch.object(
+                run_evidence.commands._ChildSignalController,
+                "wait_for_completion",
+                autospec=True,
+                side_effect=RuntimeError("wait failed"),
+            ), mock.patch.object(
+                run_evidence.commands.os,
+                "killpg",
+                side_effect=deny_destructive_group_signal,
+            ), mock.patch.object(
+                run_evidence.commands,
+                "_CHILD_SIGNAL_GRACE_SECONDS",
+                0.05,
+            ), self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "killpg-failure",
+                    "runner.unclassified",
+                    [sys.executable, "-c", "import time;time.sleep(60)"],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            self.assertEqual(
+                attempted_signals,
+                [signal.SIGTERM, signal.SIGKILL],
+            )
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].poll())
+            self.assertTrue(children[0].stdout.closed)
+            self.assertTrue(children[0].stderr.closed)
+            self.assertTrue(all(not reader.is_alive() for reader in readers))
+            self._assert_single_command_terminal(
+                name="killpg-failure",
+                status="failed",
+                exit_status=None,
+                signal_number=signal.SIGKILL,
+                failure_code="runner.cleanup_failed",
+                configured_failure_code="runner.unclassified",
+                capture_complete=True,
+                supervisor_failure=True,
+            )
+        finally:
+            self._force_cleanup_spawned_children(children, readers)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_drain_exception_closes_pipes_and_persists_failure(self):
+        children = []
+        readers = []
+        real_popen = subprocess.Popen
+        real_thread = threading.Thread
+        real_drain = run_evidence.commands._PipeCapture.drain
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def observe_thread(*args, **kwargs):
+            reader = real_thread(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        def fail_stdout_drain(capture, pipe):
+            if children and pipe is children[0].stdout:
+                raise RuntimeError("stdout drain failed")
+            return real_drain(capture, pipe)
+
+        try:
+            with mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), mock.patch.object(
+                run_evidence.commands.threading,
+                "Thread",
+                side_effect=observe_thread,
+            ), mock.patch.object(
+                run_evidence.commands._PipeCapture,
+                "drain",
+                autospec=True,
+                side_effect=fail_stdout_drain,
+            ), mock.patch.object(
+                threading,
+                "excepthook",
+                side_effect=lambda _args: None,
+            ), self.assertRaisesRegex(RuntimeError, "stdout drain failed"):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "drain-failure",
+                    "runner.unclassified",
+                    [sys.executable, "-c", "import time;time.sleep(.1)"],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            self.assertEqual(len(children), 1)
+            self.assertTrue(children[0].stdout.closed)
+            self.assertTrue(children[0].stderr.closed)
+            self.assertTrue(all(not reader.is_alive() for reader in readers))
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self._assert_single_command_terminal(
+                name="drain-failure",
+                status="failed",
+                exit_status=None,
+                signal_number=signal.SIGTERM,
+                failure_code="runner.command_supervisor_lost",
+                configured_failure_code="runner.unclassified",
+                capture_complete=False,
+                supervisor_failure=True,
+            )
+        finally:
+            self._force_cleanup_spawned_children(children, readers)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_success_quiesces_fd_closing_descendant_process_group(self):
+        pid_file = self.publication_root / "foreground-descendant.pid"
+        children = []
+        readers = []
+        real_popen = subprocess.Popen
+        real_thread = threading.Thread
+        descendant_script = "import time;time.sleep(60)"
+        leader_script = (
+            "import subprocess,sys\n"
+            "descendant=subprocess.Popen("
+            "[sys.executable,'-c',sys.argv[2]],"
+            "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+            "stderr=subprocess.DEVNULL,close_fds=True)\n"
+            "with open(sys.argv[1],'w',encoding='ascii') as handle:\n"
+            " handle.write(str(descendant.pid))\n"
+        )
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def observe_thread(*args, **kwargs):
+            reader = real_thread(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        descendant_pid = None
+        try:
+            with mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), mock.patch.object(
+                run_evidence.commands.threading,
+                "Thread",
+                side_effect=observe_thread,
+            ):
+                return_code = run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "foreground-quiescence",
+                    "runner.unclassified",
+                    [
+                        sys.executable,
+                        "-c",
+                        leader_script,
+                        str(pid_file),
+                        descendant_script,
+                    ],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            descendant_pid = int(pid_file.read_text(encoding="ascii"))
+            self.assertEqual(return_code, 0)
+            self.assertEqual(self._wait_for_processes_to_stop([descendant_pid], 1), [])
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self.assertTrue(children[0].stdout.closed)
+            self.assertTrue(children[0].stderr.closed)
+            self.assertTrue(all(not reader.is_alive() for reader in readers))
+            self._assert_single_command_terminal(
+                name="foreground-quiescence",
+                status="passed",
+                exit_status=0,
+            )
+        finally:
+            cleanup_pids = [] if descendant_pid is None else [descendant_pid]
+            if children:
+                cleanup_pids.extend(self._descendant_pids(children[0].pid))
+            self._kill_processes(cleanup_pids)
+            self._force_cleanup_spawned_children(children, readers)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_leader_exit_quiesces_descendant_that_keeps_pipes_open(self):
+        pid_file = self.publication_root / "inherited-pipe-descendant.pid"
+        children = []
+        readers = []
+        outcome = {}
+        real_popen = subprocess.Popen
+        real_thread = threading.Thread
+        descendant_script = "import time;time.sleep(60)"
+        leader_script = (
+            "import subprocess,sys\n"
+            "descendant=subprocess.Popen([sys.executable,'-c',sys.argv[2]])\n"
+            "with open(sys.argv[1],'w',encoding='ascii') as handle:\n"
+            " handle.write(str(descendant.pid))\n"
+        )
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def observe_thread(*args, **kwargs):
+            reader = real_thread(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        def invoke():
+            try:
+                with mock.patch.object(
+                    run_evidence.commands.subprocess,
+                    "Popen",
+                    side_effect=observe_popen,
+                ), mock.patch.object(
+                    run_evidence.commands.threading,
+                    "Thread",
+                    side_effect=observe_thread,
+                ):
+                    outcome["returnCode"] = run_evidence._run_command(
+                        self.root,
+                        "scenario.execute",
+                        "inherited-pipe-quiescence",
+                        "runner.unclassified",
+                        [
+                            sys.executable,
+                            "-c",
+                            leader_script,
+                            str(pid_file),
+                            descendant_script,
+                        ],
+                        stdout_stream=io.BytesIO(),
+                        stderr_stream=io.BytesIO(),
+                    )
+            except BaseException as exc:
+                outcome["error"] = exc
+
+        worker = real_thread(target=invoke)
+        worker.start()
+        descendant_pid = None
+        timed_out = False
+        try:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and not pid_file.exists():
+                time.sleep(0.02)
+            descendant_pid = int(pid_file.read_text(encoding="ascii"))
+            worker.join(timeout=1)
+            timed_out = worker.is_alive()
+            if timed_out and self._process_is_running(descendant_pid):
+                os.kill(descendant_pid, signal.SIGKILL)
+                worker.join(timeout=3)
+
+            self.assertFalse(timed_out, "runner waited for descendant pipe EOF")
+            self.assertNotIn("error", outcome)
+            self.assertEqual(outcome.get("returnCode"), 0)
+            self.assertEqual(self._wait_for_processes_to_stop([descendant_pid], 1), [])
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self.assertTrue(children[0].stdout.closed)
+            self.assertTrue(children[0].stderr.closed)
+            self.assertTrue(all(not reader.is_alive() for reader in readers))
+            self._assert_single_command_terminal(
+                name="inherited-pipe-quiescence",
+                status="passed",
+                exit_status=0,
+            )
+        finally:
+            if descendant_pid is not None:
+                self._kill_processes([descendant_pid])
+            if worker.is_alive():
+                worker.join(timeout=3)
+            self._force_cleanup_spawned_children(children, readers)
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_sigkill_escalation_is_a_durable_cleanup_failure(self):
+        pid_file = self.publication_root / "foreground-stubborn.pid"
+        ready_file = self.publication_root / "foreground-stubborn.ready"
+        children = []
+        real_popen = subprocess.Popen
+        descendant_script = (
+            "import signal,sys,time\n"
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+            "with open(sys.argv[1],'w',encoding='ascii') as handle:\n"
+            " handle.write('ready')\n"
+            "while True: time.sleep(1)\n"
+        )
+        leader_script = (
+            "import os,subprocess,sys,time\n"
+            "descendant=subprocess.Popen("
+            "[sys.executable,'-c',sys.argv[3],sys.argv[2]],"
+            "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+            "stderr=subprocess.DEVNULL,close_fds=True)\n"
+            "while not os.path.exists(sys.argv[2]): time.sleep(.01)\n"
+            "with open(sys.argv[1],'w',encoding='ascii') as handle:\n"
+            " handle.write(str(descendant.pid))\n"
+        )
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        descendant_pid = None
+        try:
+            with mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), self.assertRaisesRegex(RuntimeError, "SIGKILL"):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "foreground-escalation",
+                    "runner.unclassified",
+                    [
+                        sys.executable,
+                        "-c",
+                        leader_script,
+                        str(pid_file),
+                        str(ready_file),
+                        descendant_script,
+                    ],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            descendant_pid = int(pid_file.read_text(encoding="ascii"))
+            self.assertEqual(self._wait_for_processes_to_stop([descendant_pid], 1), [])
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self._assert_single_command_terminal(
+                name="foreground-escalation",
+                status="failed",
+                exit_status=0,
+                failure_code="runner.cleanup_failed",
+                configured_failure_code="runner.unclassified",
+                capture_complete=True,
+                supervisor_failure=True,
+            )
+        finally:
+            cleanup_pids = [] if descendant_pid is None else [descendant_pid]
+            if children:
+                cleanup_pids.extend(self._descendant_pids(children[0].pid))
+            self._kill_processes(cleanup_pids)
+            self._force_cleanup_spawned_children(children)
+
     def _assert_wrapper_signal_cleans_descendants(self, signal_number):
         pid_file = self.publication_root / f"signal-{signal_number}-pids.json"
         child_signal_file = self.publication_root / f"signal-{signal_number}-child.txt"
@@ -205,6 +1183,7 @@ class CommandCaptureTests(CommandTestCase):
             "def record(number,_frame):\n"
             " with open(sys.argv[1],'a',encoding='ascii') as handle:\n"
             "  handle.write(str(number)+'\\n')\n"
+            " raise SystemExit(128+number)\n"
             "signal.signal(signal.SIGINT,record)\n"
             "signal.signal(signal.SIGTERM,record)\n"
             "with open(sys.argv[2],'w',encoding='ascii') as handle:\n"
@@ -216,6 +1195,7 @@ class CommandCaptureTests(CommandTestCase):
             "def record(number,_frame):\n"
             " with open(sys.argv[3],'a',encoding='ascii') as handle:\n"
             "  handle.write(str(number)+'\\n')\n"
+            " raise SystemExit(128+number)\n"
             "signal.signal(signal.SIGINT,record)\n"
             "signal.signal(signal.SIGTERM,record)\n"
             "with open(sys.argv[6],'w',encoding='ascii') as handle:\n"
@@ -455,7 +1435,7 @@ class CommandCaptureTests(CommandTestCase):
 
             os.kill(wrapper.pid, signal.SIGTERM)
             stdout, stderr = wrapper.communicate(timeout=6)
-            self.assertEqual(wrapper.returncode, 128 + signal.SIGTERM)
+            self.assertEqual(wrapper.returncode, 2)
             self.assertEqual(self._wait_for_processes_to_stop(pids, 1), [])
             self.assertEqual(
                 int(signal_file.read_text(encoding="ascii").splitlines()[0]),
@@ -463,16 +1443,28 @@ class CommandCaptureTests(CommandTestCase):
             )
             metadata = self.command_metadata()
             self.assertEqual(len(metadata), 1)
-            self.assertIsNone(metadata[0]["exitStatus"])
-            self.assertEqual(metadata[0]["signal"], signal.SIGTERM)
+            self.assertEqual(metadata[0]["exitStatus"], 0)
+            self.assertIsNone(metadata[0]["signal"])
+            self.assertEqual(
+                metadata[0]["failureCode"], "runner.cleanup_failed"
+            )
+            self.assertEqual(
+                metadata[0]["configuredFailureCode"], "run.cancelled"
+            )
+            self.assertIs(metadata[0]["captureComplete"], True)
+            self.assertIs(metadata[0]["supervisorFailure"], True)
             events = self.read_events(self.root)
             self.assertEqual(
                 [event["status"] for event in events[-2:]],
-                ["started", "cancelled"],
+                ["started", "failed"],
             )
             self.assertEqual(
-                sum(event["status"] == "cancelled" for event in events), 1
+                sum(event["status"] == "cancelled" for event in events), 0
             )
+            self.assertEqual(
+                events[-1]["errorCode"], "runner.cleanup_failed"
+            )
+            self.assertEqual(events[-1]["commandStatus"], 0)
             self.assertIn(b"child-exiting", stdout)
             self.assertIn(b"grandchild-pipe-open", stdout)
             self.assertIn(b"child-error-exiting", stderr)
@@ -1244,9 +2236,165 @@ class CommandCaptureTests(CommandTestCase):
             (self.root / stdout_record["path"]).read_bytes(), b"captured-output"
         )
         self.assertEqual(
-            [event["status"] for event in self.read_events(self.root)[-2:]],
-            ["started", "passed"],
+            metadata[0]["failureCode"], "runner.capture_failed"
         )
+        self.assertEqual(
+            metadata[0]["configuredFailureCode"], "runner.driver_protocol"
+        )
+        self.assertIs(metadata[0]["captureComplete"], False)
+        self.assertIs(metadata[0]["supervisorFailure"], True)
+        self.assertEqual(metadata[0]["exitStatus"], 0)
+        self.assertIsNone(metadata[0]["signal"])
+        events = self.read_events(self.root)
+        self.assertEqual(
+            [event["status"] for event in events[-2:]],
+            ["started", "failed"],
+        )
+        self.assertEqual(events[-1]["errorCode"], "runner.capture_failed")
+        self.assertEqual(events[-1]["commandStatus"], 0)
+
+    def test_capture_sink_failure_after_spawn_error_is_honest(self):
+        class FailingSink:
+            def write(self, _content):
+                pass
+
+            def flush(self):
+                raise BrokenPipeError("capture result channel closed")
+
+        with mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            side_effect=OSError("injected spawn failure"),
+        ), self.assertRaisesRegex(
+            BrokenPipeError, "capture result channel closed"
+        ):
+            run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "spawn-capture-failure",
+                "runner.driver_protocol",
+                [sys.executable, "-c", "pass"],
+                capture_stdout=True,
+                stdout_stream=FailingSink(),
+                stderr_stream=io.BytesIO(),
+            )
+
+        metadata = self.command_metadata()
+        self.assertEqual(len(metadata), 1)
+        self.assertEqual(metadata[0]["failureCode"], "runner.capture_failed")
+        self.assertEqual(
+            metadata[0]["configuredFailureCode"], "runner.driver_protocol"
+        )
+        self.assertIs(metadata[0]["captureComplete"], False)
+        self.assertIs(metadata[0]["supervisorFailure"], True)
+        self.assertEqual(metadata[0]["exitStatus"], 127)
+        self.assertIsNone(metadata[0]["signal"])
+        events = self.read_events(self.root)
+        self.assertEqual(
+            [event["status"] for event in events[-2:]],
+            ["started", "failed"],
+        )
+        self.assertEqual(events[-1]["errorCode"], "runner.capture_failed")
+        self.assertEqual(events[-1]["commandStatus"], 127)
+
+    def test_runner_failure_summary_redacts_long_secret_before_bounding(self):
+        secret = "long-supervisor-secret-" + "q" * (20 * 1024) + "-tail"
+
+        class FailingSink:
+            def write(self, _content):
+                raise BrokenPipeError("capture failed: " + secret)
+
+            def flush(self):
+                pass
+
+        environment = {
+            "ZMR_EVIDENCE_SECRET_NAMES": "LONG_SUPERVISOR_SECRET",
+            "LONG_SUPERVISOR_SECRET": secret,
+        }
+        with mock.patch.dict(os.environ, environment, clear=False):
+            with self.assertRaises(BrokenPipeError):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "long-secret-capture",
+                    "runner.driver_protocol",
+                    [sys.executable, "-c", "import os;os.write(1,b'x')"],
+                    capture_stdout=True,
+                    stdout_stream=FailingSink(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+        persisted_events = (
+            self.root / "bootstrap-events.jsonl"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("long-supervisor-secret-", persisted_events)
+        self.assertNotIn(secret[: 16 * 1024], persisted_events)
+        self.assertIn("<redacted>", persisted_events)
+        self.assertEqual(
+            self.command_metadata()[-1]["failureCode"],
+            "runner.capture_failed",
+        )
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "killpg"),
+        "requires POSIX process groups",
+    )
+    def test_capture_sink_failure_stops_a_still_running_child_group(self):
+        class FailingSink:
+            def write(self, _content):
+                raise BrokenPipeError("capture sink closed")
+
+            def flush(self):
+                pass
+
+        children = []
+        real_popen = subprocess.Popen
+
+        def observe_popen(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        started = time.monotonic()
+        try:
+            with mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=observe_popen,
+            ), self.assertRaisesRegex(BrokenPipeError, "capture sink closed"):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "early-capture-failure",
+                    "runner.driver_protocol",
+                    [
+                        sys.executable,
+                        "-c",
+                        "import os,time;os.write(1,b'x');time.sleep(60)",
+                    ],
+                    capture_stdout=True,
+                    stdout_stream=FailingSink(),
+                    stderr_stream=io.BytesIO(),
+                )
+
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].poll())
+            self.assertTrue(
+                self._wait_for_process_group_to_stop(children[0].pid, 1)
+            )
+            self._assert_single_command_terminal(
+                name="early-capture-failure",
+                status="failed",
+                exit_status=None,
+                signal_number=signal.SIGTERM,
+                failure_code="runner.capture_failed",
+                configured_failure_code="runner.driver_protocol",
+                capture_complete=False,
+                supervisor_failure=True,
+            )
+        finally:
+            self._force_cleanup_spawned_children(children)
 
     def test_capture_stdout_is_forwarded_while_child_is_still_running(self):
         class SignallingBuffer:
@@ -1438,14 +2586,24 @@ class CommandCaptureTests(CommandTestCase):
     def test_unknown_failure_code_is_rejected_before_command_side_effects(self):
         events_before = (self.root / "bootstrap-events.jsonl").read_bytes()
         commands_before = sorted(path.name for path in (self.root / "commands").iterdir())
-        with self.assertRaises(ValueError):
-            run_evidence._run_command(
-                self.root,
-                "scenario.execute",
-                "unknown-code",
-                "unknown.failure",
-                [sys.executable, "-c", "pass"],
-            )
+        for failure_code in (
+            "unknown.failure",
+            "runner.command_supervisor_lost",
+            "runner.capture_failed",
+        ):
+            with self.subTest(failure_code=failure_code), mock.patch.object(
+                run_evidence.commands.subprocess,
+                "Popen",
+                side_effect=AssertionError("spawn was reached"),
+            ) as popen, self.assertRaises(ValueError):
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "invalid-code",
+                    failure_code,
+                    [sys.executable, "-c", "pass"],
+                )
+            self.assertEqual(popen.call_count, 0)
         self.assertEqual(
             (self.root / "bootstrap-events.jsonl").read_bytes(), events_before
         )
@@ -1834,6 +2992,8 @@ class ExternalCaptureTests(CommandTestCase):
     def test_external_rejects_unknown_or_outcome_mismatched_codes_before_writes(self):
         cases = (
             ("failure", "unknown.failure"),
+            ("failure", "runner.command_supervisor_lost"),
+            ("failure", "runner.capture_failed"),
             ("failure", "run.cancelled"),
             ("cancelled", "app.assertion_failed"),
         )

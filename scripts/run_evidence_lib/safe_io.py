@@ -6,6 +6,7 @@ import contextvars
 import errno
 import fnmatch
 import functools
+import hashlib
 import inspect
 import json
 import os
@@ -16,7 +17,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 if os.name == "posix":
     import fcntl
@@ -87,6 +88,37 @@ def _json_bytes(value: Any) -> bytes:
 
 def _rooted_io_checkpoint(operation: str, phase: str, path: Path) -> None:
     """No-op fault seam for deterministic containment-race tests."""
+
+
+def _regular_file_binding(metadata: os.stat_result) -> tuple[int, ...]:
+    """Return the stable metadata bound across a checked mutation seam."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _regular_file_content_binding(metadata: os.stat_result) -> tuple[int, ...]:
+    """Bind content metadata while excluding rename-updated ctime."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+    )
 
 
 class _RootedIO:
@@ -348,12 +380,15 @@ class _RootedIO:
         *,
         missing_ok: bool = False,
         expected_identity: tuple[int, int] | None = None,
+        pre_unlink: Callable[[], None] | None = None,
     ) -> None:
         parent, name, parent_relative, relative = self._parent(path)
         try:
             self._validate_directory(parent_relative, parent)
             _rooted_io_checkpoint("unlink", "before_unlink", self.path(relative))
             self._validate_directory(parent_relative, parent)
+            if pre_unlink is not None:
+                pre_unlink()
             if expected_identity is not None:
                 try:
                     visible = os.stat(
@@ -380,7 +415,10 @@ class _RootedIO:
 
     def atomic_write(self, path: Path | str, content: bytes, mode: int = 0o600) -> None:
         parent, name, parent_relative, relative = self._parent(path)
+        expected_content_digest = hashlib.sha256(content).digest()
         temporary_name = ""
+        temporary_identity: tuple[int, int] | None = None
+        temporary_binding: tuple[int, ...] | None = None
         descriptor = -1
         try:
             self._validate_directory(parent_relative, parent)
@@ -389,7 +427,7 @@ class _RootedIO:
                 try:
                     descriptor = os.open(
                         temporary_name,
-                        os.O_WRONLY
+                        os.O_RDWR
                         | os.O_CREAT
                         | os.O_EXCL
                         | os.O_NOFOLLOW
@@ -402,6 +440,11 @@ class _RootedIO:
                     continue
             if descriptor < 0:
                 raise FileExistsError("could not allocate atomic temporary")
+            opened_temporary = os.fstat(descriptor)
+            temporary_identity = (
+                opened_temporary.st_dev,
+                opened_temporary.st_ino,
+            )
             os.set_inheritable(descriptor, False)
             os.fchmod(descriptor, mode)
             view = memoryview(content)
@@ -409,10 +452,21 @@ class _RootedIO:
                 written = os.write(descriptor, view)
                 view = view[written:]
             os.fsync(descriptor)
-            os.close(descriptor)
-            descriptor = -1
+            temporary_metadata = os.fstat(descriptor)
+            temporary_binding = _regular_file_binding(temporary_metadata)
             _rooted_io_checkpoint("atomic_write", "before_replace", self.path(relative))
             self._validate_directory(parent_relative, parent)
+            visible_temporary = os.stat(
+                temporary_name,
+                dir_fd=parent,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(visible_temporary.st_mode)
+                or _regular_file_binding(visible_temporary) != temporary_binding
+                or _regular_file_binding(os.fstat(descriptor)) != temporary_binding
+            ):
+                raise self._error("atomic temporary binding changed")
             os.replace(
                 temporary_name,
                 name,
@@ -420,6 +474,46 @@ class _RootedIO:
                 dst_dir_fd=parent,
             )
             temporary_name = ""
+            post_rename_descriptor = os.fstat(descriptor)
+            post_rename_visible = os.stat(
+                name,
+                dir_fd=parent,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(post_rename_visible.st_mode)
+                or _regular_file_binding(post_rename_visible)
+                != _regular_file_binding(post_rename_descriptor)
+                or _regular_file_content_binding(post_rename_descriptor)
+                != _regular_file_content_binding(temporary_metadata)
+            ):
+                raise self._error("atomic target binding changed")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            observed_content_digest = hashlib.sha256()
+            observed_content_size = 0
+            remaining = len(content) + 1
+            while remaining:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                observed_content_digest.update(chunk)
+                observed_content_size += len(chunk)
+                remaining -= len(chunk)
+            _rooted_io_checkpoint(
+                "atomic_write", "after_content_verify", self.path(relative)
+            )
+            visible_target = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            descriptor_target = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(visible_target.st_mode)
+                or _regular_file_binding(visible_target)
+                != _regular_file_binding(descriptor_target)
+                or _regular_file_binding(descriptor_target)
+                != _regular_file_binding(post_rename_descriptor)
+                or observed_content_size != len(content)
+                or observed_content_digest.digest() != expected_content_digest
+            ):
+                raise self._error("atomic target binding changed")
             os.fsync(parent)
             self._validate_directory(parent_relative, parent)
         except RootedIOError:
@@ -427,13 +521,37 @@ class _RootedIO:
         except OSError as exc:
             raise self._error("descriptor-relative atomic write failed", exc)
         finally:
+            if temporary_name and temporary_identity is None and descriptor >= 0:
+                try:
+                    opened_temporary = os.fstat(descriptor)
+                except OSError:
+                    pass
+                else:
+                    temporary_identity = (
+                        opened_temporary.st_dev,
+                        opened_temporary.st_ino,
+                    )
             if descriptor >= 0:
                 os.close(descriptor)
             if temporary_name:
                 try:
-                    os.unlink(temporary_name, dir_fd=parent)
+                    visible_temporary = os.stat(
+                        temporary_name,
+                        dir_fd=parent,
+                        follow_symlinks=False,
+                    )
                 except FileNotFoundError:
                     pass
+                else:
+                    if (
+                        temporary_identity is not None
+                        and (
+                            visible_temporary.st_dev,
+                            visible_temporary.st_ino,
+                        )
+                        == temporary_identity
+                    ):
+                        os.unlink(temporary_name, dir_fd=parent)
             os.close(parent)
 
     @contextmanager
@@ -596,11 +714,13 @@ def _evidence_unlink(
     *,
     missing_ok: bool = False,
     expected_identity: tuple[int, int] | None = None,
+    pre_unlink: Callable[[], None] | None = None,
 ) -> None:
     _active_rooted_io().unlink(
         path,
         missing_ok=missing_ok,
         expected_identity=expected_identity,
+        pre_unlink=pre_unlink,
     )
 
 

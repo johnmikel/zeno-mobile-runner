@@ -171,6 +171,8 @@ class ClassificationTests(unittest.TestCase):
             "runner_failure": {
                 "runner.unclassified",
                 "runner.child_timeout",
+                "runner.command_supervisor_lost",
+                "runner.capture_failed",
                 "runner.cleanup_failed",
                 "runner.driver_protocol",
                 "runner.ios_shim.build_failed",
@@ -315,6 +317,51 @@ class ValidationTests(unittest.TestCase):
         self.assertPathError(
             run_evidence.validate_summary(boolean_version), "$.schemaVersion"
         )
+
+    def test_run_id_character_contract_matches_publishable_name_boundaries(self):
+        forbidden = (
+            *range(0x20),
+            0x7F,
+            *range(0xD800, 0xE000),
+        )
+        accepted_forbidden = [
+            codepoint
+            for codepoint in forbidden
+            if run_evidence._safe_run_segment(
+                "run-" + chr(codepoint) + "-id"
+            )
+        ]
+        self.assertEqual(accepted_forbidden, [])
+
+        boundary = "run-" + "".join(
+            chr(codepoint)
+            for codepoint in (0x20, 0x7E, 0x80, 0xD7FF, 0xE000)
+        )
+        self.assertTrue(run_evidence._safe_run_segment(boundary))
+
+        exact_ascii = "r" * run_evidence.MAX_RUN_SEGMENT_BYTES
+        exact_multibyte = "é" * (run_evidence.MAX_RUN_SEGMENT_BYTES // 2)
+        self.assertTrue(run_evidence._safe_run_segment(exact_ascii))
+        self.assertTrue(run_evidence._safe_run_segment(exact_multibyte))
+        self.assertFalse(run_evidence._safe_run_segment(exact_ascii + "r"))
+        self.assertFalse(run_evidence._safe_run_segment(exact_multibyte + "é"))
+
+        exact_summary = valid_summary()
+        exact_summary["runId"] = exact_ascii
+        self.assertEqual(run_evidence.validate_summary(exact_summary), [])
+
+        for unsafe_run_id in (
+            exact_ascii + "r",
+            exact_multibyte + "é",
+            "unsafe/run",
+            "unsafe\x1frun",
+        ):
+            with self.subTest(unsafe_run_id=repr(unsafe_run_id)):
+                summary = valid_summary()
+                summary["runId"] = unsafe_run_id
+                self.assertPathError(
+                    run_evidence.validate_summary(summary), "$.runId"
+                )
 
     def test_datetime_validation_matches_committed_ajv_formats_semantics(self):
         accepted = (

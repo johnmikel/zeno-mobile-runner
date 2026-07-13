@@ -127,6 +127,22 @@ test("schemas compile strictly as draft 2020-12 with date-time formats", () => {
   assert.equal(typeof validateBootstrapEvent, "function");
 });
 
+test("run summary bounds the public run id component", () => {
+  const exact = validRunSummary();
+  exact.runId = "r".repeat(128);
+  expectValid(validateRunSummary, exact, "128-character run id");
+
+  const oversized = validRunSummary();
+  oversized.runId = "r".repeat(129);
+  expectInvalid(validateRunSummary, oversized, "129-character run id");
+
+  for (const runId of [".", "..", "unsafe/run", "unsafe\\run", "x\u001fy", "file:run"]) {
+    const unsafe = validRunSummary();
+    unsafe.runId = runId;
+    expectInvalid(validateRunSummary, unsafe, "unsafe run id " + JSON.stringify(runId));
+  }
+});
+
 test("run summary accepts each terminal status contract", () => {
   expectValid(validateRunSummary, validRunSummary(), "passed summary");
 
@@ -160,6 +176,8 @@ test("failed summary classification owns an exact stable error-code enum", () =>
     runner_failure: [
       "runner.unclassified",
       "runner.child_timeout",
+      "runner.command_supervisor_lost",
+      "runner.capture_failed",
       "runner.cleanup_failed",
       "runner.driver_protocol",
       "runner.ios_shim.build_failed",

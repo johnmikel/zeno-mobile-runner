@@ -50,6 +50,34 @@ def _reject_non_finite_constant(_value: str) -> Any:
     raise ValueError("non-finite JSON number")
 
 
+def _parse_bounded_integer(token: str) -> int:
+    digits = token[1:] if token.startswith("-") else token
+    if len(digits) > _limits.MAX_JSON_INTEGER_DIGITS:
+        raise ValueError(
+            "JSON integer exceeds "
+            f"{_limits.MAX_JSON_INTEGER_DIGITS} digits"
+        )
+    try:
+        return int(token)
+    except ValueError as exc:
+        raise ValueError("invalid JSON integer") from exc
+
+
+def _parse_bounded_float(token: str) -> float:
+    if len(token) > _limits.MAX_JSON_FLOAT_CHARACTERS:
+        raise ValueError(
+            "JSON float exceeds "
+            f"{_limits.MAX_JSON_FLOAT_CHARACTERS} characters"
+        )
+    try:
+        value = float(token)
+    except ValueError as exc:
+        raise ValueError("invalid JSON float") from exc
+    if not math.isfinite(value):
+        raise ValueError("non-finite JSON number")
+    return value
+
+
 def _validate_json_nesting(
     value: Any,
     maximum: int = _MAX_JSON_NESTING_DEPTH,
@@ -124,6 +152,8 @@ def _decode_json_bytes(content: bytes) -> Any:
             content.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_object_pairs,
             parse_constant=_reject_non_finite_constant,
+            parse_int=_parse_bounded_integer,
+            parse_float=_parse_bounded_float,
         )
     except RecursionError as exc:
         raise ValueError("nesting exceeds supported depth") from exc

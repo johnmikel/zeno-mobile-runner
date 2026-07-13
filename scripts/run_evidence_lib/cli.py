@@ -34,6 +34,9 @@ from .commands import *  # noqa: F401,F403
 from .bundle import *  # noqa: F401,F403
 from .aggregate import *  # noqa: F401,F403
 
+_DIAGNOSTIC_UNAVAILABLE = "error: diagnostic unavailable"
+
+
 class _UsageError(ValueError):
     pass
 
@@ -273,11 +276,17 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 130
     except Exception as exc:
-        diagnostic = sanitize_text(
-            "error: " + str(exc),
-            roots=_sanitization_roots(root),
-            secrets=_collect_secret_values(),
-        )
+        try:
+            roots = _sanitization_roots(root)
+            secrets = _collect_secret_values()
+            diagnostic = sanitize_text(
+                "error: " + str(exc),
+                roots=roots,
+                secrets=secrets,
+            )
+        except Exception:
+            print(_DIAGNOSTIC_UNAVAILABLE, file=sys.stderr)
+            return 2
         print(diagnostic, file=sys.stderr)
         return 2
 

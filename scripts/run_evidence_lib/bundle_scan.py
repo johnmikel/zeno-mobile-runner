@@ -12,7 +12,12 @@ from typing import Any
 from . import bounded_io
 from . import constants as _limits
 from .journal import _ATOMIC_WRITE_TEMP_RE
-from .sanitization import _sanitization_roots, _utf8_byte_length
+from .sanitization import (
+    _SANITIZATION_INPUT_LIMIT_DIAGNOSTIC,
+    _normalize_bounded_sanitization_values,
+    _sanitization_roots,
+    _utf8_byte_length,
+)
 from .safe_io import _evidence_is_file, _evidence_is_symlink, _evidence_stat
 
 
@@ -52,7 +57,7 @@ _FILE_URL_BYTES_RE = re.compile(
     re.IGNORECASE,
 )
 _WINDOWS_ABSOLUTE_BYTES_RE = re.compile(
-    rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"<>|]+"
+    rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"<>|]*"
 )
 _POSIX_ABSOLUTE_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"<>|]+)"
@@ -80,14 +85,12 @@ _POSIX_DISALLOWED_PREDECESSORS = frozenset(
     )
 )
 
-_MAX_SCAN_SECRET_COUNT = 64
-_MAX_SCAN_ROOT_COUNT = 8
-_MAX_SCAN_TERM_BYTES = 128 * 1024
-_MAX_SCAN_SECRET_TOTAL_BYTES = 256 * 1024
-_MAX_SCAN_ROOT_TOTAL_BYTES = 64 * 1024
-_SCAN_INPUT_LIMIT_DIAGNOSTIC = (
-    "public-safety scan inputs exceed supported limits"
-)
+_MAX_SCAN_SECRET_COUNT = _limits.MAX_SANITIZATION_SECRET_COUNT
+_MAX_SCAN_ROOT_COUNT = _limits.MAX_SANITIZATION_ROOT_COUNT
+_MAX_SCAN_TERM_BYTES = _limits.MAX_SANITIZATION_TERM_BYTES
+_MAX_SCAN_SECRET_TOTAL_BYTES = _limits.MAX_SANITIZATION_SECRET_TOTAL_BYTES
+_MAX_SCAN_ROOT_TOTAL_BYTES = _limits.MAX_SANITIZATION_ROOT_TOTAL_BYTES
+_SCAN_INPUT_LIMIT_DIAGNOSTIC = _SANITIZATION_INPUT_LIMIT_DIAGNOSTIC
 
 
 def _normalize_bounded_scan_values(
@@ -95,28 +98,11 @@ def _normalize_bounded_scan_values(
 ) -> list[str]:
     """Return deterministic unique scalar strings within fixed scan bounds."""
 
-    if len(values) > maximum_count:
-        raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
-    normalized: dict[bytes, str] = {}
-    total_bytes = 0
-    for value in values:
-        if not isinstance(value, str) or not value:
-            continue
-        if len(value) > _MAX_SCAN_TERM_BYTES:
-            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
-        try:
-            encoded = value.encode("utf-8")
-        except UnicodeError as exc:
-            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC) from exc
-        if len(encoded) > _MAX_SCAN_TERM_BYTES:
-            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
-        if encoded in normalized:
-            continue
-        total_bytes += len(encoded)
-        if total_bytes > maximum_total_bytes:
-            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
-        normalized[encoded] = value
-    return [normalized[encoded] for encoded in sorted(normalized)]
+    return _normalize_bounded_sanitization_values(
+        values,
+        maximum_count=maximum_count,
+        maximum_total_bytes=maximum_total_bytes,
+    )
 
 
 def _normalize_scan_inputs(

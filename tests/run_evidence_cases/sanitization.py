@@ -64,6 +64,162 @@ class SanitizationTests(unittest.TestCase):
             {"token-value", "password-value", "auth-value", "custom-value"},
         )
 
+    def test_secret_collection_fails_closed_at_shared_scan_limits(self):
+        exact_count = {
+            f"API_TOKEN_{index}": f"secret-{index}" for index in range(64)
+        }
+        self.assertEqual(
+            len(run_evidence._collect_secret_values(exact_count)), 64
+        )
+
+        over_count = dict(exact_count)
+        over_count["API_TOKEN_64"] = "secret-64"
+        with self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            run_evidence._collect_secret_values(over_count)
+
+        class StopsAfterLimit(dict):
+            def items(self):
+                for index in range(65):
+                    yield f"API_TOKEN_{index}", f"secret-{index}"
+                raise AssertionError("collector read beyond the secret limit")
+
+        with self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            run_evidence._collect_secret_values(StopsAfterLimit())
+
+        with self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            run_evidence._collect_secret_values(
+                {"API_TOKEN": "s" * (128 * 1024 + 1)}
+            )
+
+        exact_multibyte = "é" * (64 * 1024)
+        self.assertLess(len(exact_multibyte), 128 * 1024)
+        self.assertEqual(len(exact_multibyte.encode("utf-8")), 128 * 1024)
+        self.assertEqual(
+            run_evidence._collect_secret_values(
+                {"API_TOKEN": exact_multibyte}
+            ),
+            [exact_multibyte],
+        )
+        with self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            run_evidence._collect_secret_values(
+                {"API_TOKEN": exact_multibyte + "é"}
+            )
+
+        exact_aggregate = {
+            "API_TOKEN_A": "a" * (128 * 1024),
+            "API_TOKEN_B": "b" * (128 * 1024),
+        }
+        self.assertEqual(
+            len(run_evidence._collect_secret_values(exact_aggregate)), 2
+        )
+        over_aggregate = dict(exact_aggregate)
+        over_aggregate["API_TOKEN_C"] = "c"
+        with self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            run_evidence._collect_secret_values(over_aggregate)
+
+    def test_sanitization_roots_fail_closed_at_shared_scan_limits(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_WORKSPACE": "w" * (32 * 1024),
+                "HOME": "h" * (32 * 1024),
+            },
+            clear=False,
+        ):
+            roots = run_evidence._sanitization_roots()
+        self.assertEqual(
+            sum(len(value.encode("utf-8")) for value in roots.values()),
+            64 * 1024,
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_WORKSPACE": "w" * (32 * 1024 + 1),
+                "HOME": "h" * (32 * 1024),
+            },
+            clear=False,
+        ), self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            run_evidence._sanitization_roots()
+
+    def test_public_sanitizers_fail_closed_on_over_limit_inputs(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        exact = [f"secret-{index}" for index in range(64)]
+        self.assertEqual(
+            run_evidence.sanitize_text(
+                "public value", roots=roots, secrets=exact
+            ),
+            "public value",
+        )
+        self.assertEqual(
+            run_evidence._sanitize_value(
+                {"value": "public value"}, roots=roots, secrets=exact
+            ),
+            {"value": "public value"},
+        )
+
+        over = exact + ["secret-64"]
+        for sanitize in (
+            lambda: run_evidence.sanitize_text(
+                "public value", roots=roots, secrets=over
+            ),
+            lambda: run_evidence._sanitize_value(
+                {"value": "public value"}, roots=roots, secrets=over
+            ),
+        ):
+            with self.subTest(sanitize=sanitize), self.assertRaisesRegex(
+                ValueError, "public-safety scan inputs exceed supported limits"
+            ):
+                sanitize()
+
+        with self.assertRaises(TypeError):
+            run_evidence.sanitize_text(
+                "public value",
+                roots=roots,
+                secrets=over,
+                _inputs_validated=True,
+            )
+
+    def test_root_only_drive_paths_are_redacted_across_every_split(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        for value in ("C:/", "p:/", "x:\\", "\\\\"):
+            raw = value.encode("ascii")
+            self.assertEqual(
+                run_evidence.sanitize_text(value, roots=roots, secrets=[]),
+                "<absolute-path>",
+            )
+            for split in range(len(raw) + 1):
+                sanitizer = run_evidence.StreamingSanitizer(
+                    roots=roots, secrets=[]
+                )
+                sanitized = (
+                    sanitizer.feed(raw[:split])
+                    + sanitizer.feed(raw[split:])
+                    + sanitizer.finish()
+                )
+                with self.subTest(value=value, split=split):
+                    self.assertEqual(sanitized, b"<absolute-path>")
+
+        ordinary_uri = "custom://host/public"
+        self.assertEqual(
+            run_evidence.sanitize_text(
+                ordinary_uri, roots=roots, secrets=[]
+            ),
+            ordinary_uri,
+        )
+
     def test_argv_redacts_credential_flags_equals_forms_and_urls(self):
         argv = [
             "tool",

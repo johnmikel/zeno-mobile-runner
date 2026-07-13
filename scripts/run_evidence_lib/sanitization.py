@@ -36,6 +36,58 @@ _ROOT_PREDECESSOR_CHARACTERS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
 )
 _ROOT_FOLLOW_CHARACTERS = _HARD_TOKEN_DELIMITERS | frozenset("/\\")
+_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC = (
+    "public-safety scan inputs exceed supported limits"
+)
+
+
+def _normalize_bounded_sanitization_values(
+    values: list[Any], *, maximum_count: int, maximum_total_bytes: int
+) -> list[str]:
+    """Return deterministic unique strings within the shared scan budget."""
+
+    if len(values) > maximum_count:
+        raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+    normalized: dict[bytes, str] = {}
+    total_bytes = 0
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        encoded_length = _utf8_byte_length(value)
+        if (
+            encoded_length is None
+            or encoded_length > MAX_SANITIZATION_TERM_BYTES
+        ):
+            raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+        encoded = value.encode("utf-8")
+        if encoded in normalized:
+            continue
+        total_bytes += encoded_length
+        if total_bytes > maximum_total_bytes:
+            raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+        normalized[encoded] = value
+    return [normalized[encoded] for encoded in sorted(normalized)]
+
+
+def _validate_sanitization_inputs(
+    *, roots: dict[str, str], secrets: list[str]
+) -> None:
+    """Reject sanitizer inputs that the public bundle scanner cannot accept."""
+
+    if not isinstance(roots, dict) or not isinstance(secrets, list):
+        raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+    if len(roots) > MAX_SANITIZATION_ROOT_COUNT:
+        raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+    _normalize_bounded_sanitization_values(
+        list(roots.values()),
+        maximum_count=MAX_SANITIZATION_ROOT_COUNT,
+        maximum_total_bytes=MAX_SANITIZATION_ROOT_TOTAL_BYTES,
+    )
+    _normalize_bounded_sanitization_values(
+        secrets,
+        maximum_count=MAX_SANITIZATION_SECRET_COUNT,
+        maximum_total_bytes=MAX_SANITIZATION_SECRET_TOTAL_BYTES,
+    )
 
 
 def _kmp_failure_table(pattern: str) -> tuple[int, ...]:
@@ -111,12 +163,22 @@ def _redact_credential_urls(value: str) -> str:
 
 def _collect_secret_values(environment: dict[str, str] | None = None) -> list[str]:
     source = os.environ if environment is None else environment
+    configured_names = source.get("ZMR_EVIDENCE_SECRET_NAMES", "")
+    configured_names_bytes = _utf8_byte_length(configured_names)
+    if (
+        configured_names_bytes is None
+        or configured_names_bytes > MAX_SANITIZATION_SECRET_NAMES_BYTES
+    ):
+        raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
     custom_names = {
         name.strip()
-        for name in source.get("ZMR_EVIDENCE_SECRET_NAMES", "").split(",")
+        for name in configured_names.split(",")
         if name.strip()
     }
-    values = set()
+    if len(custom_names) > MAX_SANITIZATION_SECRET_NAME_COUNT:
+        raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+    values: dict[bytes, str] = {}
+    total_bytes = 0
     for name, value in source.items():
         if name == "ZMR_EVIDENCE_SECRET_NAMES" or not value:
             continue
@@ -126,8 +188,22 @@ def _collect_secret_values(environment: dict[str, str] | None = None) -> list[st
             if segment
         }
         if name in custom_names or segments & _SENSITIVE_NAME_SEGMENTS:
-            values.add(value)
-    return sorted(values, key=lambda value: (-len(value), value))
+            encoded_length = _utf8_byte_length(value)
+            if (
+                encoded_length is None
+                or encoded_length > MAX_SANITIZATION_TERM_BYTES
+            ):
+                raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+            encoded = value.encode("utf-8")
+            if encoded in values:
+                continue
+            if len(values) >= MAX_SANITIZATION_SECRET_COUNT:
+                raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+            if total_bytes + encoded_length > MAX_SANITIZATION_SECRET_TOTAL_BYTES:
+                raise ValueError(_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC)
+            values[encoded] = value
+            total_bytes += encoded_length
+    return sorted(values.values(), key=lambda value: (-len(value), value))
 
 
 def _replace_root(value: str, root: str, replacement: str) -> str:
@@ -148,9 +224,9 @@ def _replace_root(value: str, root: str, replacement: str) -> str:
     return value
 
 
-def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> str:
-    """Redact known credentials and host-specific absolute paths from text."""
-
+def _sanitize_text_validated(
+    value: str, *, roots: dict[str, str], secrets: list[str]
+) -> str:
     text = value if isinstance(value, str) else str(value)
     text = _redact_credential_urls(text)
     for secret in sorted(
@@ -168,6 +244,13 @@ def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> s
     text = _WINDOWS_ABSOLUTE_RE.sub("<absolute-path>", text)
     text = _POSIX_ABSOLUTE_RE.sub("<absolute-path>", text)
     return text
+
+
+def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> str:
+    """Redact text after enforcing the public sanitizer input budget."""
+
+    _validate_sanitization_inputs(roots=roots, secrets=secrets)
+    return _sanitize_text_validated(value, roots=roots, secrets=secrets)
 
 
 class StreamingSanitizer:
@@ -188,6 +271,7 @@ class StreamingSanitizer:
     _TRAILING_SCHEME_CHARS_RE = re.compile(r"[A-Za-z0-9+.-]+\Z")
 
     def __init__(self, *, roots: dict[str, str], secrets: list[str]) -> None:
+        _validate_sanitization_inputs(roots=roots, secrets=secrets)
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._roots = roots
         self._secrets = secrets
@@ -323,8 +407,10 @@ class StreamingSanitizer:
         self._sensitive_token_state = state
         self._streamed_scheme_prefix = False
         return (
-            sanitize_text(
-                prefix, roots=self._roots, secrets=self._secrets
+            _sanitize_text_validated(
+                prefix,
+                roots=self._roots,
+                secrets=self._secrets,
             ).encode("utf-8")
             + marker.encode("utf-8")
         )
@@ -337,8 +423,10 @@ class StreamingSanitizer:
         if self._SCHEME_CONTINUATION_RE.fullmatch(scheme_tail) is None:
             return None
         remainder = self._pending[marker + 3 :]
-        emitted = sanitize_text(
-            scheme_tail, roots=self._roots, secrets=self._secrets
+        emitted = _sanitize_text_validated(
+            scheme_tail,
+            roots=self._roots,
+            secrets=self._secrets,
         ).encode("utf-8") + b"<redacted>"
         self._pending = ""
         self._sensitive_token_state = "credential_confirmed"
@@ -391,8 +479,10 @@ class StreamingSanitizer:
         prefix = self._pending[:split]
         self._pending = self._pending[split:]
         self._advance_streamed_scheme_prefix(prefix)
-        return sanitize_text(
-            prefix, roots=self._roots, secrets=self._secrets
+        return _sanitize_text_validated(
+            prefix,
+            roots=self._roots,
+            secrets=self._secrets,
         ).encode("utf-8")
 
     def _include_crossing_redactions(self, split: int) -> int:
@@ -491,8 +581,10 @@ class StreamingSanitizer:
             self._sensitive_token_state = None
             self._pending = ""
             return emitted
-        content = sanitize_text(
-            self._pending, roots=self._roots, secrets=self._secrets
+        content = _sanitize_text_validated(
+            self._pending,
+            roots=self._roots,
+            secrets=self._secrets,
         ).encode("utf-8")
         self._pending = ""
         return emitted + content
@@ -512,26 +604,36 @@ def _sanitization_roots(root: Path | None = None) -> dict[str, str]:
     workspace = os.environ.get("GITHUB_WORKSPACE")
     if not workspace:
         workspace = str(_repository_root())
-    return {
+    roots = {
         "workspace": workspace,
         "run_root": str(Path(root).absolute()) if root is not None else "",
         "home": os.environ.get("HOME", str(Path.home())),
     }
+    _validate_sanitization_inputs(roots=roots, secrets=[])
+    return roots
 
 
-def _sanitize_value(value: Any, *, roots: dict[str, str], secrets: list[str]) -> Any:
+def _sanitize_value_validated(
+    value: Any, *, roots: dict[str, str], secrets: list[str]
+) -> Any:
     if isinstance(value, str):
-        return sanitize_text(value, roots=roots, secrets=secrets)
+        return _sanitize_text_validated(value, roots=roots, secrets=secrets)
     if isinstance(value, list):
         return [
-            _sanitize_value(item, roots=roots, secrets=secrets) for item in value
+            _sanitize_value_validated(item, roots=roots, secrets=secrets)
+            for item in value
         ]
     if isinstance(value, dict):
         return {
-            key: _sanitize_value(item, roots=roots, secrets=secrets)
+            key: _sanitize_value_validated(item, roots=roots, secrets=secrets)
             for key, item in value.items()
         }
     return value
+
+
+def _sanitize_value(value: Any, *, roots: dict[str, str], secrets: list[str]) -> Any:
+    _validate_sanitization_inputs(roots=roots, secrets=secrets)
+    return _sanitize_value_validated(value, roots=roots, secrets=secrets)
 
 
 def _credential_flag(value: str) -> bool:
@@ -549,6 +651,7 @@ def _credential_flag(value: str) -> bool:
 def _sanitize_argv(
     argv: list[str], *, roots: dict[str, str], secrets: list[str]
 ) -> list[str]:
+    _validate_sanitization_inputs(roots=roots, secrets=secrets)
     sanitized = []
     redact_next = False
     for raw in argv:
@@ -563,20 +666,35 @@ def _sanitize_argv(
                 sanitized.append(flag + "=<redacted>")
             else:
                 sanitized.append(
-                    sanitize_text(argument, roots=roots, secrets=secrets)
+                    _sanitize_text_validated(
+                        argument,
+                        roots=roots,
+                        secrets=secrets,
+                    )
                 )
                 redact_next = True
             continue
-        sanitized.append(sanitize_text(argument, roots=roots, secrets=secrets))
+        sanitized.append(
+            _sanitize_text_validated(
+                argument,
+                roots=roots,
+                secrets=secrets,
+            )
+        )
     return sanitized
 
 __all__ = (
+    "_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC",
+    "_normalize_bounded_sanitization_values",
+    "_validate_sanitization_inputs",
     "_collect_secret_values",
     "_replace_root",
+    "_sanitize_text_validated",
     "sanitize_text",
     "StreamingSanitizer",
     "_repository_root",
     "_sanitization_roots",
+    "_sanitize_value_validated",
     "_sanitize_value",
     "_credential_flag",
     "_sanitize_argv",

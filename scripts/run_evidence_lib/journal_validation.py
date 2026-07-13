@@ -149,6 +149,12 @@ def _validate_transaction_operation(
     terminal = values[summary_path]
     if terminal.get("runId") != run_id:
         raise ValueError("finalize transaction summary runId is invalid")
+    has_summary_fingerprint = "finalizeRequestFingerprint" in terminal
+    if has_receipt_target != has_summary_fingerprint:
+        raise ValueError(
+            "finalize receipt and summary finalize request fingerprint must "
+            "either both be present or both be absent"
+        )
     if has_receipt_target:
         summary_request_fingerprint = terminal.get(
             "finalizeRequestFingerprint"

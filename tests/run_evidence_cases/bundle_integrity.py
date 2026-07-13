@@ -684,6 +684,39 @@ class BundleIntegrityTests(CommandTestCase):
 
         self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 
+    def test_finalize_receipt_and_summary_fingerprint_are_reciprocal(self):
+        self.make_bundle()
+        summary_path = self.root / "run-summary.json"
+        receipt_path = self.root / "finalize-receipt.json"
+        original_summary = summary_path.read_bytes()
+        original_receipt = receipt_path.read_bytes()
+        summary = self.read_json(summary_path)
+        summary.pop("finalizeRequestFingerprint")
+        fingerprintless_summary = run_evidence._json_bytes(summary)
+        cases = (
+            ("fingerprint only", original_summary, None),
+            ("receipt only", fingerprintless_summary, original_receipt),
+        )
+        for label, summary_content, receipt_content in cases:
+            with self.subTest(label=label):
+                summary_path.write_bytes(summary_content)
+                receipt_path.unlink(missing_ok=True)
+                if receipt_content is not None:
+                    receipt_path.write_bytes(receipt_content)
+
+                errors = run_evidence.validate_bundle(
+                    self.root, secrets=[]
+                )
+
+                self.assertTrue(
+                    any(
+                        "receipt and run-summary.json.finalizeRequestFingerprint "
+                        "must either both" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
     def test_lone_surrogate_json_is_reported_without_exception(self):
         self.make_bundle()
         (self.root / "surrogate.json").write_bytes(b'{"value":"\\udcff"}')

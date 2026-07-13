@@ -173,6 +173,7 @@ else:
         *,
         finalize_request=None,
         expected_journal_count=1,
+        journal_limits=None,
     ):
         code = """
 import importlib.util
@@ -191,6 +192,8 @@ def die_at_boundary(actual_stage, actual_position):
         os._exit(73)
 
 module.journal._transaction_checkpoint = die_at_boundary
+for name, value in json.loads(sys.argv[9]).items():
+    setattr(module.journal, name, value)
 action = sys.argv[2]
 index_path = Path(sys.argv[3])
 root = Path(sys.argv[4])
@@ -217,6 +220,7 @@ else:
                 stage,
                 str(position),
                 json.dumps(finalize_request or {"status": "passed"}),
+                json.dumps(journal_limits or {}),
             ],
             cwd=REPOSITORY_ROOT,
             capture_output=True,
@@ -272,7 +276,9 @@ else:
             for target in self.read_json(journals[0])["targets"]
         ]
 
-    def rewrite_pending_finalize_as_distinct_clock_legacy(self, root):
+    def rewrite_pending_finalize_as_distinct_clock_legacy(
+        self, root, *, legacy_timestamp=None
+    ):
         publication_root = root.parent.parent
         journals = self.transaction_files(publication_root)
         self.assertEqual(len(journals), 1)
@@ -316,9 +322,10 @@ else:
         finished_at = datetime.fromisoformat(
             summary["finishedAt"].replace("Z", "+00:00")
         )
-        legacy_timestamp = (
-            finished_at + timedelta(milliseconds=1)
-        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        if legacy_timestamp is None:
+            legacy_timestamp = (
+                finished_at + timedelta(milliseconds=1)
+            ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         self.assertNotEqual(legacy_timestamp, summary["finishedAt"])
         events[-1]["timestamp"] = legacy_timestamp
         event_content = b"".join(
@@ -342,7 +349,12 @@ else:
         return journal, summary, legacy_timestamp
 
     def prepare_distinct_clock_legacy_finalize(
-        self, root, *, fallback=False, request=None
+        self,
+        root,
+        *,
+        fallback=False,
+        request=None,
+        legacy_timestamp=None,
     ):
         if fallback:
             context_path = root / "run-context.json"
@@ -354,7 +366,9 @@ else:
         with self.checkpoint_failure("prepared", -1):
             with self.assertRaises(OSError):
                 run_evidence._finalize_attempt(root, status, **request)
-        return self.rewrite_pending_finalize_as_distinct_clock_legacy(root)
+        return self.rewrite_pending_finalize_as_distinct_clock_legacy(
+            root, legacy_timestamp=legacy_timestamp
+        )
 
     def attempt_evidence_snapshot(self, root):
         return {
@@ -1171,6 +1185,47 @@ else:
                         publication, journal
                     )
 
+    def test_finalize_journal_rejects_fingerprint_without_receipt_before_mutation(self):
+        root = self.attempt_root("finalize-one-sided-binding")
+        context = valid_context(
+            runId=root.name,
+            executionId=root.name + "-execution",
+        )
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._finalize_attempt(
+                    root, "passed", command_status=0
+                )
+
+        original_path = self.transaction_files()[0]
+        journal = self.read_json(original_path)
+        journal["targets"] = [
+            target
+            for target in journal["targets"]
+            if not target["path"].endswith("/finalize-receipt.json")
+        ]
+        content = run_evidence._json_bytes(journal)
+        replacement = original_path.with_name(
+            f"finalize-{root.name}-"
+            f"{hashlib.sha256(content).hexdigest()[:16]}.json"
+        )
+        original_path.unlink()
+        replacement.write_bytes(content)
+        replacement.chmod(0o600)
+        before = self.attempt_evidence_snapshot(root)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "receipt and summary finalize request fingerprint must either both",
+        ):
+            run_evidence._recover_pending_transactions(
+                self.publication_root
+            )
+
+        self.assertEqual(self.attempt_evidence_snapshot(root), before)
+        self.assertTrue(replacement.is_file())
+
     def test_finalize_recovers_and_upgrades_distinct_clock_legacy_journals(self):
         for fallback in (False, True):
             with self.subTest(fallback=fallback):
@@ -1237,6 +1292,233 @@ else:
                     ),
                     recovered,
                 )
+
+    def test_legacy_summary_upgrade_obeys_exact_and_overhead_caps(self):
+        for fallback in (False, True):
+            for upgrade_fits in (False, True):
+                with self.subTest(
+                    fallback=fallback, upgrade_fits=upgrade_fits
+                ):
+                    publication, index_path = self.new_publication()
+                    kind = "fallback" if fallback else "normal"
+                    boundary = "overhead" if upgrade_fits else "exact"
+                    root = publication / "attempts" / (
+                        f"legacy-summary-{kind}-{boundary}"
+                    )
+                    context = valid_context(
+                        runId=root.name,
+                        executionId=root.name + "-execution",
+                    )
+                    run_evidence._initialize_attempt(
+                        index_path, root, context
+                    )
+                    journal, legacy_summary, legacy_timestamp = (
+                        self.prepare_distinct_clock_legacy_finalize(
+                            root, fallback=fallback
+                        )
+                    )
+                    summary_target = next(
+                        target
+                        for target in journal["targets"]
+                        if target["path"].endswith("/run-summary.json")
+                    )
+                    legacy_content = base64.b64decode(
+                        summary_target["contentBase64"], validate=True
+                    )
+                    upgraded_fingerprint = (
+                        run_evidence._legacy_finalize_receipt_request_fingerprint(
+                            journal["requestFingerprint"]
+                        )
+                    )
+                    upgraded_summary = dict(legacy_summary)
+                    upgraded_summary["finalizeRequestFingerprint"] = (
+                        upgraded_fingerprint
+                    )
+                    upgraded_content = run_evidence._json_bytes(
+                        upgraded_summary
+                    )
+                    self.assertGreater(
+                        len(upgraded_content), len(legacy_content)
+                    )
+                    summary_cap = (
+                        len(upgraded_content)
+                        if upgrade_fits
+                        else len(legacy_content)
+                    )
+
+                    with mock.patch.object(
+                        journal_module,
+                        "MAX_STRUCTURED_JSON_BYTES",
+                        summary_cap,
+                    ):
+                        recovered = run_evidence._finalize_attempt(
+                            root, "passed", command_status=0
+                        )
+
+                    self.assertEqual(
+                        self.transaction_files(publication), []
+                    )
+                    if upgrade_fits:
+                        self.assertEqual(recovered, upgraded_summary)
+                        self.assertEqual(
+                            self.read_events(root)[-1]["timestamp"],
+                            recovered["finishedAt"],
+                        )
+                        self.assertTrue(
+                            (root / "finalize-receipt.json").is_file()
+                        )
+                    else:
+                        self.assertEqual(recovered, legacy_summary)
+                        self.assertNotIn(
+                            "finalizeRequestFingerprint", recovered
+                        )
+                        self.assertEqual(
+                            self.read_events(root)[-1]["timestamp"],
+                            legacy_timestamp,
+                        )
+                        self.assertFalse(
+                            (root / "finalize-receipt.json").exists()
+                        )
+
+    def test_legacy_event_upgrade_overflow_replays_original_transaction(self):
+        publication, index_path = self.new_publication()
+        root = publication / "attempts" / "legacy-event-overflow"
+        context = valid_context(
+            runId=root.name,
+            executionId=root.name + "-execution",
+        )
+        run_evidence._initialize_attempt(index_path, root, context)
+        short_timestamp = "2026-07-11T10:00:00Z"
+        journal, legacy_summary, legacy_timestamp = (
+            self.prepare_distinct_clock_legacy_finalize(
+                root, legacy_timestamp=short_timestamp
+            )
+        )
+        event_target = next(
+            target
+            for target in journal["targets"]
+            if target["path"].endswith("/bootstrap-events.jsonl")
+        )
+        legacy_event_content = base64.b64decode(
+            event_target["contentBase64"], validate=True
+        )
+        migrated_events = [
+            json.loads(line)
+            for line in legacy_event_content.splitlines()
+            if line.strip()
+        ]
+        migrated_events[-1]["timestamp"] = legacy_summary["finishedAt"]
+        migrated_event_content = b"".join(
+            run_evidence._json_bytes(event) for event in migrated_events
+        )
+        self.assertGreater(
+            len(migrated_event_content), len(legacy_event_content)
+        )
+
+        with mock.patch.object(
+            journal_module,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            len(legacy_event_content),
+        ):
+            recovered = run_evidence._finalize_attempt(
+                root, "passed", command_status=0
+            )
+
+        self.assertEqual(recovered, legacy_summary)
+        self.assertEqual(
+            self.read_events(root)[-1]["timestamp"], legacy_timestamp
+        )
+        self.assertFalse((root / "finalize-receipt.json").exists())
+        self.assertEqual(self.transaction_files(publication), [])
+
+    def test_legacy_aggregate_upgrade_overflow_replays_original_transaction(self):
+        publication, index_path = self.new_publication()
+        root = publication / "attempts" / "legacy-aggregate-overflow"
+        context = valid_context(
+            runId=root.name,
+            executionId=root.name + "-execution",
+        )
+        run_evidence._initialize_attempt(index_path, root, context)
+        journal, legacy_summary, legacy_timestamp = (
+            self.prepare_distinct_clock_legacy_finalize(root)
+        )
+        legacy_aggregate = sum(
+            len(base64.b64decode(target["contentBase64"], validate=True))
+            for target in journal["targets"]
+        )
+
+        with mock.patch.object(
+            journal_module,
+            "MAX_TRANSACTION_TARGET_AGGREGATE_BYTES",
+            legacy_aggregate,
+        ):
+            recovered = run_evidence._finalize_attempt(
+                root, "passed", command_status=0
+            )
+
+        self.assertEqual(recovered, legacy_summary)
+        self.assertNotIn("finalizeRequestFingerprint", recovered)
+        self.assertEqual(
+            self.read_events(root)[-1]["timestamp"], legacy_timestamp
+        )
+        self.assertFalse((root / "finalize-receipt.json").exists())
+        self.assertEqual(self.transaction_files(publication), [])
+
+    @unittest.skipUnless(
+        os.name == "posix",
+        "requires immediate POSIX process-death semantics",
+    )
+    def test_process_death_after_unupgradable_legacy_commit_refuses_retry_guess(self):
+        publication, index_path = self.new_publication()
+        root = publication / "attempts" / "legacy-boundary-death"
+        context = valid_context(
+            runId=root.name,
+            executionId=root.name + "-execution",
+        )
+        run_evidence._initialize_attempt(index_path, root, context)
+        journal, legacy_summary, legacy_timestamp = (
+            self.prepare_distinct_clock_legacy_finalize(root)
+        )
+        summary_target = next(
+            target
+            for target in journal["targets"]
+            if target["path"].endswith("/run-summary.json")
+        )
+        legacy_summary_bytes = base64.b64decode(
+            summary_target["contentBase64"], validate=True
+        )
+
+        journal_path = self.crash_transaction_process(
+            "finalize",
+            index_path,
+            root,
+            context,
+            "committed",
+            -1,
+            finalize_request={
+                "status": "passed",
+                "command_status": 0,
+            },
+            expected_journal_count=0,
+            journal_limits={
+                "MAX_STRUCTURED_JSON_BYTES": len(legacy_summary_bytes)
+            },
+        )
+
+        self.assertIsNone(journal_path)
+        self.assertEqual(self.read_json(root / "run-summary.json"), legacy_summary)
+        self.assertEqual(
+            self.read_events(root)[-1]["timestamp"], legacy_timestamp
+        )
+        self.assertFalse((root / "finalize-receipt.json").exists())
+        # Once the legacy journal is gone, a lost response has no durable
+        # request binding; refusing to infer retry success is the safe limit.
+        with self.assertRaisesRegex(
+            FileExistsError, "terminal run summary already exists"
+        ):
+            run_evidence._finalize_attempt(
+                root, "passed", command_status=0
+            )
 
     def test_legacy_finalize_committed_response_loss_is_request_safe(self):
         for fallback in (False, True):

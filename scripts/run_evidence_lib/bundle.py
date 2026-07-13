@@ -462,7 +462,21 @@ def _validate_finalize_receipt_for_bundle(
 
     receipt_relative = "finalize-receipt.json"
     receipt_metadata = snapshot.metadata(receipt_relative)
+    has_summary_fingerprint = isinstance(summary, dict) and (
+        "finalizeRequestFingerprint" in summary
+    )
     if receipt_metadata is None:
+        if has_summary_fingerprint:
+            errors.append(
+                "finalize receipt and run-summary.json.finalizeRequestFingerprint "
+                "must either both be present or both be absent"
+            )
+        return
+    if not has_summary_fingerprint:
+        errors.append(
+            "finalize receipt and run-summary.json.finalizeRequestFingerprint "
+            "must either both be present or both be absent"
+        )
         return
     if not stat.S_ISREG(receipt_metadata.st_mode):
         errors.append("finalize-receipt.json: must be a regular file")

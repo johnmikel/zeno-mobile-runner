@@ -385,7 +385,7 @@ def _decoded_transaction_target(path: str, content: bytes) -> dict:
 
 
 def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
-    """Project one validated receipt-less finalize WAL into the current format."""
+    """Upgrade a validated receipt-less WAL when the projection stays bounded."""
 
     if transaction["operation"] != "finalize":
         return
@@ -404,10 +404,18 @@ def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
     )
     migrated_events = [dict(event) for event in event_target["value"]]
     migrated_events[-1]["timestamp"] = summary_target["value"]["finishedAt"]
-    migrated_event_target = _decoded_transaction_target(
-        event_path,
-        b"".join(_json_bytes(event) for event in migrated_events),
-    )
+    migrated_event_lines = [_json_bytes(event) for event in migrated_events]
+    migrated_event_content = b"".join(migrated_event_lines)
+    # Any admission return preserves the receiptless WAL exactly. If its
+    # response is then lost after journal removal, a retry cannot be reconciled.
+    if (
+        len(migrated_event_content) > MAX_LIFECYCLE_EVENT_STREAM_BYTES
+        or any(
+            len(line) - 1 > MAX_JSONL_LINE_BYTES
+            for line in migrated_event_lines
+        )
+    ):
+        return
 
     legacy_request_fingerprint = transaction["requestFingerprint"]
     receipt_request_fingerprint = (
@@ -421,22 +429,45 @@ def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
     )
     migrated_summary_content = _json_bytes(migrated_summary)
     if len(migrated_summary_content) > MAX_STRUCTURED_JSON_BYTES:
-        raise ValueError(
-            "upgraded terminal summary exceeds "
-            f"{MAX_STRUCTURED_JSON_BYTES} bytes"
+        return
+    try:
+        receipt_content = _make_finalize_receipt(
+            attempt_relative,
+            receipt_request_fingerprint,
+            migrated_summary_content,
         )
+    except ValueError as exc:
+        if str(exc).startswith("finalize receipt exceeds"):
+            return
+        raise
+
+    candidate_target_contents = [
+        (
+            migrated_event_content
+            if target["path"] == event_path
+            else migrated_summary_content
+            if target["path"] == summary_path
+            else target["content"]
+        )
+        for target in transaction["targets"]
+    ] + [receipt_content]
+    if (
+        len(candidate_target_contents) > MAX_TRANSACTION_TARGET_COUNT
+        or sum(map(len, candidate_target_contents))
+        > MAX_TRANSACTION_TARGET_AGGREGATE_BYTES
+    ):
+        return
+
+    migrated_event_target = _decoded_transaction_target(
+        event_path, migrated_event_content
+    )
     migrated_summary_target = _decoded_transaction_target(
         summary_path, migrated_summary_content
     )
     receipt_target = _decoded_transaction_target(
-        receipt_path,
-        _make_finalize_receipt(
-            attempt_relative,
-            receipt_request_fingerprint,
-            migrated_summary_content,
-        ),
+        receipt_path, receipt_content
     )
-    transaction["targets"] = [
+    candidate_targets = [
         (
             migrated_event_target
             if target["path"] == event_path
@@ -446,15 +477,17 @@ def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
         )
         for target in transaction["targets"]
     ] + [receipt_target]
-    transaction["requestFingerprint"] = receipt_request_fingerprint
-    transaction["legacyFinalizeUpgrade"] = True
     _validate_transaction_operation(
         transaction["operation"],
         attempt_relative,
         transaction["requiredDirectories"],
-        transaction["targets"],
+        candidate_targets,
         receipt_request_fingerprint,
     )
+
+    transaction["targets"] = candidate_targets
+    transaction["requestFingerprint"] = receipt_request_fingerprint
+    transaction["legacyFinalizeUpgrade"] = True
 
 
 def _bounded_directory_entries(path: Path, *, label: str) -> list[Path]:

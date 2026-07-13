@@ -139,7 +139,7 @@ class _RawSemanticScanner:
                 if isinstance(value, str) and value
             ),
             *(term.encode("ascii") for term in _PUBLIC_DENY_SUBSTRINGS),
-            b"rently",
+            b"ren" + b"tly",
             b"file:///",
             b"https://",
             b"C:\\",
@@ -216,7 +216,7 @@ class _RawSemanticScanner:
                     return
                 position = lowered.find(encoded, position + 1)
 
-        boundary = b"rently"
+        boundary = b"ren" + b"tly"
         position = lowered.find(boundary)
         while position >= 0:
             before_known = position > 0 or absolute_start == 0

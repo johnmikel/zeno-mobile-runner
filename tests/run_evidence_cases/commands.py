@@ -422,6 +422,132 @@ class CommandCaptureTests(CommandTestCase):
                 self.assertEqual(actual, expected)
                 self.assertNotIn(token, actual)
 
+    def test_rfc3986_userinfo_subdelimiters_never_replay_or_persist(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        subdelimiters = b"!$&'()*+,;="
+        credentials = tuple(
+            b"https://user"
+            + bytes((delimiter,))
+            + b"param:password@example.test/"
+            + str(index).encode("ascii")
+            for index, delimiter in enumerate(subdelimiters)
+        )
+        redacted_credentials = tuple(
+            b"https://example.test/" + str(index).encode("ascii")
+            for index in range(len(subdelimiters))
+        )
+        raw = b"\n".join(credentials) + b"\n"
+        expected = b"\n".join(redacted_credentials) + b"\n"
+
+        whole = run_evidence.sanitize_text(
+            raw.decode("utf-8"), roots=roots, secrets=[]
+        ).encode("utf-8")
+        sanitizer = run_evidence.StreamingSanitizer(
+            roots=roots, secrets=[]
+        )
+        streamed = b"".join(sanitizer.feed(bytes((byte,))) for byte in raw)
+        streamed += sanitizer.finish()
+
+        for credential, redacted in zip(credentials, redacted_credentials):
+            token = credential + b"\n"
+            for split in range(len(token) + 1):
+                sanitizer = run_evidence.StreamingSanitizer(
+                    roots=roots, secrets=[]
+                )
+                actual = sanitizer.feed(token[:split])
+                actual += sanitizer.feed(token[split:])
+                actual += sanitizer.finish()
+                with self.subTest(delimiter=credential[12:13], split=split):
+                    self.assertEqual(actual, redacted + b"\n")
+
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+        script = (
+            "import base64,os,sys;data=base64.b64decode(sys.argv[1]);"
+            "os.write(1,data);os.write(2,data)"
+        )
+        return_code = run_evidence._run_command(
+            self.root,
+            "scenario.execute",
+            "userinfo-subdelimiters",
+            "runner.driver_protocol",
+            [
+                sys.executable,
+                "-c",
+                script,
+                base64.b64encode(raw).decode("ascii"),
+            ],
+            stdout_stream=stdout,
+            stderr_stream=stderr,
+        )
+        metadata = self.command_metadata()[-1]
+        stored_stdout = (self.root / metadata["stdout"]["path"]).read_bytes()
+        stored_stderr = (self.root / metadata["stderr"]["path"]).read_bytes()
+
+        self.assertEqual(return_code, 0)
+        for publishable in (
+            whole,
+            streamed,
+            stdout.getvalue(),
+            stderr.getvalue(),
+            stored_stdout,
+            stored_stderr,
+        ):
+            self.assertEqual(publishable, expected)
+            for credential in credentials:
+                self.assertNotIn(credential.split(b"@", 1)[0], publishable)
+
+        carry = run_evidence._SANITIZATION_CARRY
+        payload = b"sensitive-userinfo-" * ((carry * 2) // 19 + 1)
+        for delimiter in subdelimiters:
+            credential = (
+                b"https://user"
+                + bytes((delimiter,))
+                + payload
+                + b":password@example.test/path"
+            )
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=[]
+            )
+            actual = bytearray()
+            for offset in range(0, len(credential), carry // 2):
+                actual.extend(
+                    sanitizer.feed(credential[offset : offset + carry // 2])
+                )
+            actual.extend(sanitizer.feed(b"\nsafe-tail"))
+            actual.extend(sanitizer.finish())
+            with self.subTest(overlong_delimiter=bytes((delimiter,))):
+                self.assertEqual(bytes(actual), b"<redacted>\nsafe-tail")
+                self.assertNotIn(payload[:1024], actual)
+                self.assertNotIn(b":password@example.test", actual)
+
+    def test_open_known_root_scan_keeps_only_the_earliest_candidate(self):
+        sanitizer = run_evidence.StreamingSanitizer(
+            roots={"workspace": "/root", "run_root": "", "home": ""},
+            secrets=[],
+        )
+        sanitizer._pending = "/root/" * 512
+        original_pattern = sanitizer._TOKEN_DELIMITER_RE
+
+        class CountingPattern:
+            def __init__(self):
+                self.searches = 0
+
+            def search(self, *args, **kwargs):
+                self.searches += 1
+                return original_pattern.search(*args, **kwargs)
+
+        counter = CountingPattern()
+        with mock.patch.object(
+            run_evidence.StreamingSanitizer,
+            "_TOKEN_DELIMITER_RE",
+            counter,
+        ):
+            matches = sanitizer._open_known_roots()
+
+        self.assertEqual(matches, [(0, 0, "${WORKSPACE}")])
+        self.assertLessEqual(counter.searches, 3)
+
     def test_streaming_sanitizer_redacts_overlong_credential_token_wholesale(self):
         carry = run_evidence._SANITIZATION_CARRY
         roots = {"workspace": "", "run_root": "", "home": ""}
@@ -464,12 +590,9 @@ class CommandCaptureTests(CommandTestCase):
             b"\n",
             b"\x00",
             b'"',
-            b"'",
             b"<",
             b">",
             b"|",
-            b",",
-            b";",
             b"/",
         ):
             sanitizer = run_evidence.StreamingSanitizer(
@@ -485,6 +608,65 @@ class CommandCaptureTests(CommandTestCase):
             ).encode("utf-8")
             with self.subTest(delimiter=delimiter):
                 self.assertEqual(actual, b"<redacted>" + expected_tail)
+
+        for userinfo_subdelimiter in (b"'", b",", b";"):
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=[]
+            )
+            actual = sanitizer.feed(unresolved)
+            actual += sanitizer.feed(userinfo_subdelimiter + b"safe-tail")
+            actual += sanitizer.finish()
+            with self.subTest(userinfo_subdelimiter=userinfo_subdelimiter):
+                self.assertEqual(actual, b"<redacted>")
+
+    def test_file_uri_and_forward_slash_network_paths_are_redacted_streaming(self):
+        roots = {"workspace": "", "run_root": "", "home": ""}
+        short_paths = (
+            b"file://localhost/etc/private.conf",
+            b"file:/var/private/data.db",
+            b"//server/share/private.txt",
+        )
+        expected = b"<absolute-path>\n" * len(short_paths)
+        raw = b"\n".join(short_paths) + b"\n"
+        self.assertEqual(
+            run_evidence.sanitize_text(
+                raw.decode("utf-8"), roots=roots, secrets=[]
+            ).encode("utf-8"),
+            expected,
+        )
+
+        for split in range(len(raw) + 1):
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=[]
+            )
+            actual = sanitizer.feed(raw[:split])
+            actual += sanitizer.feed(raw[split:])
+            actual += sanitizer.finish()
+            with self.subTest(split=split):
+                self.assertEqual(actual, expected)
+
+        carry = run_evidence._SANITIZATION_CARRY
+        payload = b"private-path-" * ((carry * 2) // 13 + 1)
+        for prefix in (
+            b"file://localhost/etc/",
+            b"file:/var/private/",
+            b"//server/share/",
+        ):
+            sanitizer = run_evidence.StreamingSanitizer(
+                roots=roots, secrets=[]
+            )
+            value = prefix + payload
+            actual = bytearray()
+            for offset in range(0, len(value), carry // 2):
+                actual.extend(
+                    sanitizer.feed(value[offset : offset + carry // 2])
+                )
+            actual.extend(sanitizer.feed(b"\nsafe-tail"))
+            actual.extend(sanitizer.finish())
+            with self.subTest(prefix=prefix):
+                self.assertEqual(bytes(actual), b"<absolute-path>\nsafe-tail")
+                self.assertNotIn(prefix, actual)
+                self.assertNotIn(payload[:1024], actual)
 
     def test_digit_heavy_unbounded_schemes_are_redacted_without_credential_leaks(self):
         carry = run_evidence._SANITIZATION_CARRY

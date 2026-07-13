@@ -45,7 +45,9 @@ _PUBLIC_BOUNDARY_DENY_RE = re.compile(
 )
 
 _FILE_URL_BYTES_RE = re.compile(
-    rb"file:///(?:[^\s\x00\"'<>|,;]+)", re.IGNORECASE
+    rb"file:(?://[^/\s\x00\"'<>|,;]*/|/)"
+    rb"(?:[^\s\x00\"'<>|,;]+)",
+    re.IGNORECASE,
 )
 _WINDOWS_ABSOLUTE_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)[^\s\x00\"'<>|,;]+"
@@ -53,14 +55,20 @@ _WINDOWS_ABSOLUTE_BYTES_RE = re.compile(
 _POSIX_ABSOLUTE_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"'<>|,;]+)"
 )
+_POSIX_NETWORK_ABSOLUTE_BYTES_RE = re.compile(
+    rb"(?<![A-Za-z0-9_}$/:<])//(?:[^\s\x00\"'<>|,;]+)"
+)
 _WINDOWS_START_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)"
 )
 _POSIX_START_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_}$/<])/(?!/)[^\s\x00\"'<>|,;]"
 )
-_TOKEN_FRAGMENT_RE = re.compile(rb"[^\s\x00\"'<>|,;]+")
-_TOKEN_DELIMITER_BYTES = frozenset(b" \t\r\n\v\f\x00\"'<>|,;")
+_POSIX_NETWORK_START_BYTES_RE = re.compile(
+    rb"(?<![A-Za-z0-9_}$/:<])//[^\s\x00\"'<>|,;]"
+)
+_TOKEN_FRAGMENT_RE = re.compile(rb"[^\s\x00\"<>|]+")
+_TOKEN_DELIMITER_BYTES = frozenset(b" \t\r\n\v\f\x00\"<>|")
 _TOKEN_STATE_MARKERS = (b":", b"/", b"\\", b"@", b"?", b"#")
 _ASCII_LETTERS = frozenset(range(ord("a"), ord("z") + 1))
 _POSIX_DISALLOWED_PREDECESSORS = frozenset(
@@ -329,6 +337,14 @@ class _RawSemanticScanner:
             new_start=new_start,
             needs_predecessor=True,
         )
+        self._mark_regex(
+            "absolute_path",
+            _POSIX_NETWORK_ABSOLUTE_BYTES_RE,
+            window,
+            absolute_start=absolute_start,
+            new_start=new_start,
+            needs_predecessor=True,
+        )
         self._mark_deny_terms(
             window,
             absolute_start=absolute_start,
@@ -424,6 +440,9 @@ class _RawSemanticScanner:
                     self._restart_scheme(value)
             elif self._scheme_state == 2:
                 if value == ord("/"):
+                    if bytes(self._scheme_prefix).lower() == b"file":
+                        self._token_sensitive = True
+                        self._flags.add("absolute_path")
                     self._scheme_state = 3
                 else:
                     self._restart_scheme(value)
@@ -447,6 +466,7 @@ class _RawSemanticScanner:
         if not self._token_sensitive and (
             _WINDOWS_START_BYTES_RE.search(combined)
             or _POSIX_START_BYTES_RE.search(combined)
+            or _POSIX_NETWORK_START_BYTES_RE.search(combined)
         ):
             self._token_sensitive = True
         self._token_length += len(fragment)

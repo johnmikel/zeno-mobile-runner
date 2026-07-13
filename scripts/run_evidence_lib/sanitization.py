@@ -24,7 +24,10 @@ from typing import Any
 
 from .constants import *  # noqa: F401,F403
 
-_CREDENTIAL_TOKEN_DECISION_RE = re.compile(r"[/@\s\x00\"'<>|,;]")
+# RFC 3986 permits sub-delimiters such as apostrophe, comma, and semicolon in
+# userinfo.  Only authority terminators and hard text boundaries can disprove a
+# credential candidate before its first ``@``.
+_CREDENTIAL_TOKEN_DECISION_RE = re.compile(r"[/@?#\s\x00\"<>|]")
 _SCHEME_CHARACTERS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+.-"
 )
@@ -144,6 +147,7 @@ def sanitize_text(value: str, *, roots: dict[str, str], secrets: list[str]) -> s
         text = _replace_root(text, str(roots.get(key, "")), replacement)
     text = _FILE_URL_RE.sub("<absolute-path>", text)
     text = _WINDOWS_ABSOLUTE_RE.sub("<absolute-path>", text)
+    text = _POSIX_NETWORK_ABSOLUTE_RE.sub("<absolute-path>", text)
     text = _POSIX_ABSOLUTE_RE.sub("<absolute-path>", text)
     return text
 
@@ -204,6 +208,10 @@ class StreamingSanitizer:
 
     def _open_known_roots(self) -> list[tuple[int, int, str]]:
         matches: list[tuple[int, int, str]] = []
+        last_delimiter = max(
+            (self._pending.rfind(delimiter) for delimiter in self._DELIMITERS),
+            default=-1,
+        )
         for priority, (key, replacement) in enumerate(
             (
                 ("workspace", "${WORKSPACE}"),
@@ -232,12 +240,13 @@ class StreamingSanitizer:
                     if (
                         before_ok
                         and after_ok
-                        and self._TOKEN_DELIMITER_RE.search(
-                            self._pending, end
-                        )
-                        is None
+                        and last_delimiter < end
                     ):
                         matches.append((start, priority, replacement))
+                        # Only the earliest still-open occurrence can win the
+                        # caller's minimum; scanning the remainder turns a
+                        # repeated root token into quadratic work.
+                        break
                     start = self._pending.find(candidate, start + 1)
         return matches
 
@@ -248,7 +257,12 @@ class StreamingSanitizer:
         candidates = self._open_known_roots()
 
         for priority, pattern in enumerate(
-            (_FILE_URL_RE, _WINDOWS_ABSOLUTE_RE, _POSIX_ABSOLUTE_RE),
+            (
+                _FILE_URL_RE,
+                _WINDOWS_ABSOLUTE_RE,
+                _POSIX_NETWORK_ABSOLUTE_RE,
+                _POSIX_ABSOLUTE_RE,
+            ),
             start=3,
         ):
             for match in pattern.finditer(self._pending):
@@ -293,20 +307,17 @@ class StreamingSanitizer:
         return emitted, remainder
 
     def _pending_credential_start(self) -> int | None:
-        token_start = max(
-            (self._pending.rfind(delimiter) + 1 for delimiter in self._DELIMITERS),
-            default=0,
-        )
-        token = self._pending[token_start:]
         search_from = 0
         while True:
-            marker = token.find("://", search_from)
+            marker = self._pending.find("://", search_from)
             if marker < 0:
                 return None
-            scheme_start = _credential_scheme_start(token, marker)
-            decision = self._CREDENTIAL_DECISION_RE.search(token, marker + 3)
+            scheme_start = _credential_scheme_start(self._pending, marker)
+            decision = self._CREDENTIAL_DECISION_RE.search(
+                self._pending, marker + 3
+            )
             if scheme_start is not None and decision is None:
-                return token_start + scheme_start
+                return scheme_start
             search_from = marker + 3
 
     def _flush_prefix(self) -> bytes:

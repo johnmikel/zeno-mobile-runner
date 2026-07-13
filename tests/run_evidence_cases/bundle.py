@@ -115,6 +115,70 @@ class BundleValidationTests(CommandTestCase):
         )
         self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 
+    def test_bundle_scan_rejects_file_uri_network_path_and_userinfo_subdelimiters(self):
+        self.make_bundle()
+        report = self.root / "reports" / "run.html"
+        unsafe_values = [
+            "file://localhost/etc/private.conf",
+            "file:/var/private/data.db",
+            "//server/share/private.txt",
+        ]
+        unsafe_values.extend(
+            "https://user"
+            + delimiter
+            + "param:password@example.test/path"
+            for delimiter in "!$&'()*+,;="
+        )
+
+        for unsafe in unsafe_values:
+            report.write_text(unsafe, encoding="utf-8")
+            errors = run_evidence.validate_bundle(self.root, secrets=[])
+            with self.subTest(unsafe=unsafe):
+                self.assertTrue(
+                    any(
+                        marker in error
+                        for error in errors
+                        for marker in ("absolute path", "credential URL")
+                    ),
+                    errors,
+                )
+
+    def test_raw_bundle_scanner_tracks_userinfo_subdelimiters_across_every_split(self):
+        for delimiter in b"!$&'()*+,;=":
+            raw = (
+                b"https://user"
+                + bytes((delimiter,))
+                + b"param:password@example.test/path"
+            )
+            for split in range(len(raw) + 1):
+                scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                    roots={}, secrets=[]
+                )
+                scanner.feed(raw[:split])
+                scanner.feed(raw[split:])
+                flags = scanner.finish()
+                with self.subTest(delimiter=bytes((delimiter,)), split=split):
+                    self.assertIn("credential_url", flags)
+
+            scanner = run_evidence.bundle_scan._RawSemanticScanner(
+                roots={}, secrets=[]
+            )
+            payload = b"x" * (scanner.carry_bytes * 2 + 1)
+            overlong = (
+                b"https://user"
+                + bytes((delimiter,))
+                + payload
+                + b":password@example.test/path"
+            )
+            for offset in range(0, len(overlong), scanner.carry_bytes // 2):
+                scanner.feed(
+                    overlong[offset : offset + scanner.carry_bytes // 2]
+                )
+            flags = scanner.finish()
+            with self.subTest(overlong_delimiter=bytes((delimiter,))):
+                self.assertIn("credential_url", flags)
+                self.assertIn("semantic_limit", flags)
+
     def test_command_event_requires_exact_metadata_reference(self):
         self.make_bundle()
         events_path = self.root / "bootstrap-events.jsonl"

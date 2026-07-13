@@ -151,9 +151,16 @@ _AJV_TIME_RE = re.compile(
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _CREDENTIAL_URL_RE = re.compile(
     r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)"
-    r"[^/@\s\x00\"'<>|,;]+@"
+    r"[^/@?#\s\x00\"<>|]+@"
 )
-_FILE_URL_RE = re.compile(r"file:///(?:[^\s\x00\"'<>|,;]+)", re.IGNORECASE)
+_FILE_URL_RE = re.compile(
+    r"file:(?://[^/\s\x00\"'<>|,;]*/|/)"
+    r"(?:[^\s\x00\"'<>|,;]+)",
+    re.IGNORECASE,
+)
+_POSIX_NETWORK_ABSOLUTE_RE = re.compile(
+    r"(?<![A-Za-z0-9_}$/:<])//(?:[^\s\x00\"'<>|,;]+)"
+)
 _POSIX_ABSOLUTE_RE = re.compile(
     r"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"'<>|,;]+)"
 )
@@ -210,6 +217,7 @@ __all__ = (
     "_SCHEME_RE",
     "_CREDENTIAL_URL_RE",
     "_FILE_URL_RE",
+    "_POSIX_NETWORK_ABSOLUTE_RE",
     "_POSIX_ABSOLUTE_RE",
     "_WINDOWS_ABSOLUTE_RE",
     "_SENSITIVE_NAME_SEGMENTS",

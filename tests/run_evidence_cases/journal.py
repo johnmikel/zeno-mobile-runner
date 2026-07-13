@@ -1911,3 +1911,544 @@ except TimeoutError:
             any("atomic-write temporary" in error for error in errors), errors
         )
         self.assertTrue(temporary_path.exists())
+
+
+class TransactionResourceLimitTests(StorageTestCase):
+    def capture_init_transaction(self, run_id="bounded-wal"):
+        root = self.attempt_root(run_id)
+        context = valid_context(
+            runId=run_id, executionId=run_id + "-execution"
+        )
+        captured = []
+
+        with mock.patch.object(
+            run_evidence.lifecycle,
+            "_commit_transaction_unlocked",
+            side_effect=lambda _publication, transaction: captured.append(
+                transaction
+            ),
+        ):
+            run_evidence._initialize_attempt(self.index_path, root, context)
+        self.assertEqual(len(captured), 1)
+        return root, copy.deepcopy(captured[0])
+
+    def write_pending_journal(self, journal, suffix=b""):
+        content = run_evidence._json_bytes(journal) + suffix
+        transaction_root = self.publication_root / ".transactions"
+        transaction_root.mkdir(exist_ok=True)
+        fingerprint = hashlib.sha256(content).hexdigest()[:16]
+        run_id = journal["attemptRoot"].split("/")[-1]
+        path = transaction_root / (
+            f"{journal['operation']}-{run_id}-{fingerprint}.json"
+        )
+        path.write_bytes(content)
+        path.chmod(0o600)
+        return path, content
+
+    def test_pending_journal_file_limit_accepts_exact_and_rejects_plus_one(self):
+        _root, transaction = self.capture_init_transaction()
+        journal_path, content = self.write_pending_journal(
+            transaction["journal"]
+        )
+        with mock.patch.object(
+            journal_module, "MAX_TRANSACTION_JOURNAL_BYTES", len(content)
+        ), run_evidence._rooted_io(self.publication_root, mutation=False):
+            self.assertEqual(
+                len(
+                    run_evidence.journal._load_pending_transactions(
+                        self.publication_root
+                    )
+                ),
+                1,
+            )
+
+        journal_path.unlink()
+        self.write_pending_journal(transaction["journal"], b" ")
+        with mock.patch.object(
+            journal_module, "MAX_TRANSACTION_JOURNAL_BYTES", len(content)
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "transaction journal exceeds"
+        ):
+            run_evidence.journal._load_pending_transactions(
+                self.publication_root
+            )
+
+    def test_pending_enumeration_bounds_entries_count_and_aggregate_before_load(self):
+        transaction_root = self.publication_root / ".transactions"
+        transaction_root.mkdir()
+        paths = [transaction_root / f"pending-{index}.json" for index in range(2)]
+        for path in paths:
+            path.write_bytes(b"{}")
+            path.chmod(0o600)
+
+        with mock.patch.object(
+            journal_module, "MAX_TRANSACTION_DIRECTORY_ENTRY_COUNT", 1
+        ), mock.patch.object(
+            journal_module,
+            "_evidence_iterdir",
+            side_effect=AssertionError("unbounded listing was used"),
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "directory entry"
+        ):
+            run_evidence.journal._pending_transaction_paths(
+                self.publication_root
+            )
+
+        with mock.patch.object(
+            journal_module, "MAX_TRANSACTION_DIRECTORY_ENTRY_COUNT", 128
+        ), mock.patch.object(
+            journal_module, "MAX_PENDING_TRANSACTION_COUNT", 1
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "pending transaction count"
+        ):
+            run_evidence.journal._pending_transaction_paths(
+                self.publication_root
+            )
+
+        paths[1].unlink()
+        with mock.patch.object(
+            journal_module, "MAX_PENDING_TRANSACTION_BYTES", 1
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "pending transaction bytes"
+        ):
+            run_evidence.journal._pending_transaction_paths(
+                self.publication_root
+            )
+
+    def test_make_transaction_rejects_raw_limits_before_base64_encoding(self):
+        root = self.attempt_root("producer-bounds")
+        fingerprint = "sha256:" + "a" * 64
+        cases = (
+            ({"MAX_TRANSACTION_TARGET_COUNT": 0}, "target count"),
+            (
+                {"MAX_TRANSACTION_REQUIRED_DIRECTORY_COUNT": 0},
+                "required directory count",
+            ),
+            ({"MAX_STRUCTURED_JSON_BYTES": 2}, "target .* exceeds"),
+            (
+                {"MAX_TRANSACTION_TARGET_AGGREGATE_BYTES": 2},
+                "aggregate",
+            ),
+        )
+        for patched_limits, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic), mock.patch.multiple(
+                journal_module, **patched_limits
+            ), mock.patch.object(
+                journal_module.base64,
+                "b64encode",
+                side_effect=AssertionError(
+                    "base64 encoding happened before admission"
+                ),
+            ) as encoder, run_evidence._rooted_io(
+                self.publication_root, mutation=False
+            ), self.assertRaisesRegex(
+                ValueError, diagnostic
+            ):
+                run_evidence._make_transaction(
+                    self.publication_root,
+                    "register",
+                    root,
+                    ["attempts/producer-bounds"],
+                    [("attempt-index.json", b"{}\n")],
+                    request_fingerprint=fingerprint,
+                )
+            self.assertEqual(encoder.call_count, 0)
+
+    def test_journal_rejects_per_target_and_aggregate_base64_before_decode(self):
+        _root, transaction = self.capture_init_transaction()
+        oversized = copy.deepcopy(transaction["journal"])
+        oversized["targets"][0]["contentBase64"] = "AAAA"
+        oversized["targets"][0]["sha256"] = "sha256:" + "0" * 64
+        cases = (
+            (
+                oversized,
+                {"MAX_STRUCTURED_JSON_BYTES": 1},
+                "target .* exceeds",
+            ),
+            (
+                transaction["journal"],
+                {"MAX_TRANSACTION_TARGET_AGGREGATE_BYTES": 1},
+                "aggregate",
+            ),
+        )
+        for journal, patched_limits, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic), mock.patch.multiple(
+                journal_module, **patched_limits
+            ), mock.patch.object(
+                journal_module.base64,
+                "b64decode",
+                side_effect=AssertionError("oversized base64 was decoded"),
+            ) as decoder, run_evidence._rooted_io(
+                self.publication_root, mutation=False
+            ), self.assertRaisesRegex(
+                ValueError, diagnostic
+            ):
+                run_evidence._validate_transaction_journal(
+                    self.publication_root, journal
+                )
+            self.assertEqual(decoder.call_count, 0)
+
+    def test_transaction_targets_use_strict_bounded_json_decoding(self):
+        context = run_evidence._json_bytes(
+            valid_context(runId="strict-target")
+        )
+        duplicate = context.replace(
+            b'"runId":"strict-target"',
+            b'"runId":"strict-target","runId":"strict-target"',
+            1,
+        )
+        cases = (
+            (duplicate, "duplicate object key"),
+            (b'{"runId":NaN}\n', "non-finite JSON number"),
+            (
+                (b'{"value":' * 257) + b"null" + (b"}" * 257),
+                "nesting exceeds supported depth",
+            ),
+        )
+        for content, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(
+                ValueError, diagnostic
+            ):
+                journal_module._validate_transaction_target_content(
+                    "attempts/strict-target/run-context.json", content
+                )
+
+        with mock.patch.object(
+            journal_module, "MAX_STRUCTURED_JSON_BYTES", len(context)
+        ):
+            journal_module._validate_transaction_target_content(
+                "attempts/strict-target/run-context.json", context
+            )
+        with mock.patch.object(
+            journal_module, "MAX_STRUCTURED_JSON_BYTES", len(context) - 1
+        ), self.assertRaisesRegex(ValueError, "target .* exceeds"):
+            journal_module._validate_transaction_target_content(
+                "attempts/strict-target/run-context.json", context
+            )
+
+    def test_apply_transaction_streams_existing_and_written_target_hashes(self):
+        root, transaction = self.capture_init_transaction("streamed-replay")
+        root.mkdir(parents=True)
+        context_target = next(
+            target
+            for target in transaction["targets"]
+            if target["path"].endswith("/run-context.json")
+        )
+        (root / "run-context.json").write_bytes(
+            b"x" * (len(context_target["content"]) + 1024)
+        )
+        journal_path, _content = self.write_pending_journal(
+            transaction["journal"]
+        )
+        with mock.patch.object(
+            journal_module,
+            "_evidence_read_bytes",
+            side_effect=AssertionError("replay used an unbounded full-file read"),
+        ), run_evidence._rooted_io(self.publication_root, mutation=True):
+            journal_module._apply_transaction(
+                self.publication_root, journal_path, transaction
+            )
+        self.assertEqual(
+            (root / "run-context.json").read_bytes(),
+            context_target["content"],
+        )
+        self.assertFalse(journal_path.exists())
+
+    def test_recovered_result_rejects_size_mismatch_before_reading(self):
+        root, transaction = self.capture_init_transaction("bounded-result")
+        root.mkdir(parents=True)
+        (root / "run-context.json").write_bytes(b"oversized-result")
+        with mock.patch.object(
+            journal_module,
+            "_evidence_read_bytes",
+            side_effect=AssertionError("result used an unbounded full-file read"),
+        ), mock.patch.object(
+            run_evidence.bounded_io,
+            "_iter_regular_chunks",
+            side_effect=AssertionError("size mismatch was streamed"),
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "result target changed"
+        ):
+            journal_module._recovered_result(
+                self.publication_root,
+                [transaction],
+                "init",
+                f"attempts/{root.name}",
+                transaction["requestFingerprint"],
+            )
+
+    def test_base64_shape_and_exact_multi_target_aggregate_precede_decoding(self):
+        _root, transaction = self.capture_init_transaction("aggregate-wal")
+        journal = transaction["journal"]
+        decoded_total = sum(
+            len(base64.b64decode(target["contentBase64"], validate=True))
+            for target in journal["targets"]
+        )
+        with mock.patch.object(
+            journal_module,
+            "MAX_TRANSACTION_TARGET_AGGREGATE_BYTES",
+            decoded_total,
+        ), run_evidence._rooted_io(self.publication_root, mutation=False):
+            run_evidence._validate_transaction_journal(
+                self.publication_root, journal
+            )
+
+        with mock.patch.object(
+            journal_module,
+            "MAX_TRANSACTION_TARGET_AGGREGATE_BYTES",
+            decoded_total - 1,
+        ), mock.patch.object(
+            journal_module.base64,
+            "b64decode",
+            side_effect=AssertionError("over-limit aggregate was decoded"),
+        ) as decoder, run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "aggregate"
+        ):
+            run_evidence._validate_transaction_journal(
+                self.publication_root, journal
+            )
+        self.assertEqual(decoder.call_count, 0)
+
+        malformed = copy.deepcopy(journal)
+        malformed["targets"][1]["contentBase64"] = "!!!!"
+        with mock.patch.object(
+            journal_module.base64,
+            "b64decode",
+            side_effect=AssertionError("malformed later target followed a decode"),
+        ) as decoder, run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "contentBase64"
+        ):
+            run_evidence._validate_transaction_journal(
+                self.publication_root, malformed
+            )
+        self.assertEqual(decoder.call_count, 0)
+
+    def test_recovery_preflights_every_journal_and_target_before_any_mutation(self):
+        first_root = self.attempt_root("a-preflight")
+        second_root = self.attempt_root("z-preflight")
+        run_evidence._initialize_attempt(
+            self.index_path,
+            first_root,
+            valid_context(
+                runId=first_root.name,
+                executionId="preflight-execution",
+                attempt=1,
+            ),
+        )
+        run_evidence._initialize_attempt(
+            self.index_path,
+            second_root,
+            valid_context(
+                runId=second_root.name,
+                executionId="preflight-execution",
+                attempt=2,
+            ),
+        )
+
+        transactions = []
+        for root in (first_root, second_root):
+            with mock.patch.object(
+                run_evidence.summaries,
+                "_commit_transaction_unlocked",
+                side_effect=lambda _publication, transaction: transactions.append(
+                    copy.deepcopy(transaction)
+                ),
+            ):
+                run_evidence._finalize_attempt(root, "passed")
+        self.assertEqual(len(transactions), 2)
+        for transaction in transactions:
+            self.write_pending_journal(transaction["journal"])
+
+        orphan = self.publication_root / ".transactions" / (
+            ".init-orphan-0123456789abcdef.json.abcdefgh.tmp"
+        )
+        orphan.write_bytes(b"trusted-looking orphan")
+        orphan.chmod(0o600)
+        unsafe_target_temp = second_root / (
+            ".bootstrap-events.jsonl.abcdefgh.tmp"
+        )
+        unsafe_target_temp.write_bytes(b"unsafe later target temp")
+        unsafe_target_temp.chmod(0o644)
+
+        def snapshot():
+            result = {}
+            for path in sorted(self.publication_root.rglob("*")):
+                metadata = path.lstat()
+                relative = path.relative_to(self.publication_root).as_posix()
+                result[relative] = (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                    metadata.st_mode,
+                    path.read_bytes() if path.is_file() else None,
+                )
+            return result
+
+        before = snapshot()
+        with self.assertRaisesRegex(ValueError, "temporary"):
+            run_evidence._recover_pending_transactions(self.publication_root)
+        self.assertEqual(snapshot(), before)
+
+    def test_consumer_counts_and_event_limits_are_checked_before_decode(self):
+        _root, transaction = self.capture_init_transaction("consumer-wal")
+        journal = transaction["journal"]
+        for patched_limits, diagnostic in (
+            ({"MAX_TRANSACTION_TARGET_COUNT": 2}, "target count"),
+            (
+                {"MAX_TRANSACTION_REQUIRED_DIRECTORY_COUNT": 2},
+                "required directory count",
+            ),
+        ):
+            with self.subTest(diagnostic=diagnostic), mock.patch.multiple(
+                journal_module, **patched_limits
+            ), mock.patch.object(
+                journal_module.base64,
+                "b64decode",
+                side_effect=AssertionError("count overflow reached decode"),
+            ) as decoder, run_evidence._rooted_io(
+                self.publication_root, mutation=False
+            ), self.assertRaisesRegex(
+                ValueError, diagnostic
+            ):
+                run_evidence._validate_transaction_journal(
+                    self.publication_root, journal
+                )
+            self.assertEqual(decoder.call_count, 0)
+
+        event_target = next(
+            target
+            for target in transaction["targets"]
+            if target["path"].endswith("/bootstrap-events.jsonl")
+        )
+        event_path = event_target["path"]
+        event_content = event_target["content"]
+        maximum_line = max(
+            len(line) for line in event_content.splitlines()
+        )
+        with mock.patch.object(
+            journal_module,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            len(event_content),
+        ), mock.patch.object(
+            journal_module, "MAX_JSONL_LINE_BYTES", maximum_line
+        ):
+            journal_module._validate_transaction_target_content(
+                event_path, event_content
+            )
+        with mock.patch.object(
+            journal_module,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            len(event_content) - 1,
+        ), self.assertRaisesRegex(ValueError, "target .* exceeds"):
+            journal_module._validate_transaction_target_content(
+                event_path, event_content
+            )
+        with mock.patch.object(
+            journal_module, "MAX_JSONL_LINE_BYTES", maximum_line - 1
+        ), self.assertRaisesRegex(ValueError, "JSONL line exceeds"):
+            journal_module._validate_transaction_target_content(
+                event_path, event_content
+            )
+
+    def test_commit_bounds_journal_before_creating_transaction_directory(self):
+        _root, transaction = self.capture_init_transaction("commit-bound")
+        journal_size = len(run_evidence._json_bytes(transaction["journal"]))
+        with mock.patch.object(
+            journal_module, "MAX_TRANSACTION_JOURNAL_BYTES", journal_size - 1
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=True
+        ), self.assertRaisesRegex(
+            ValueError, "transaction journal exceeds"
+        ):
+            journal_module._commit_transaction_unlocked(
+                self.publication_root, transaction
+            )
+        self.assertFalse((self.publication_root / ".transactions").exists())
+
+    def test_matching_replay_targets_are_streamed_without_rewrite(self):
+        root, transaction = self.capture_init_transaction("matching-replay")
+        first_journal, _content = self.write_pending_journal(
+            transaction["journal"]
+        )
+        with run_evidence._rooted_io(self.publication_root, mutation=True):
+            journal_module._apply_transaction(
+                self.publication_root, first_journal, transaction
+            )
+        second_journal, _content = self.write_pending_journal(
+            transaction["journal"]
+        )
+        with mock.patch.object(
+            journal_module,
+            "_evidence_read_bytes",
+            side_effect=AssertionError("matching replay used a full-file read"),
+        ), mock.patch.object(
+            journal_module,
+            "_atomic_write_bytes",
+            side_effect=AssertionError("matching replay rewrote a target"),
+        ) as writer, run_evidence._rooted_io(
+            self.publication_root, mutation=True
+        ):
+            journal_module._apply_transaction(
+                self.publication_root, second_journal, transaction
+            )
+        self.assertEqual(writer.call_count, 0)
+        self.assertTrue((root / "run-context.json").is_file())
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX file modes")
+    def test_orphan_mode_change_after_preflight_is_not_unlinked(self):
+        transaction_root = self.publication_root / ".transactions"
+        transaction_root.mkdir(mode=0o700)
+        orphan = transaction_root / (
+            ".init-mode-race-0123456789abcdef.json.abcdefgh.tmp"
+        )
+        orphan.write_bytes(b"orphan")
+        orphan.chmod(0o600)
+        original_preflight = journal_module._preflight_pending_transactions
+
+        def change_mode_after_preflight(publication_root, pending):
+            original_preflight(publication_root, pending)
+            orphan.chmod(0o644)
+
+        with mock.patch.object(
+            journal_module,
+            "_preflight_pending_transactions",
+            side_effect=change_mode_after_preflight,
+        ), self.assertRaisesRegex(ValueError, "changed before cleanup"):
+            run_evidence._recover_pending_transactions(self.publication_root)
+        self.assertTrue(orphan.is_file())
+        self.assertEqual(orphan.stat().st_mode & 0o777, 0o644)
+
+    def test_recovery_directory_preflight_does_not_borrow_later_declarations(self):
+        earlier = {
+            "requiredDirectories": ["attempts/earlier/child"],
+            "targets": [],
+        }
+        later = {
+            "requiredDirectories": ["attempts", "attempts/earlier"],
+            "targets": [],
+        }
+        pending = [
+            (self.publication_root / "earlier.json", earlier),
+            (self.publication_root / "later.json", later),
+        ]
+        with run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(
+            ValueError, "parent is unsafe"
+        ):
+            journal_module._preflight_pending_transactions(
+                self.publication_root, pending
+            )

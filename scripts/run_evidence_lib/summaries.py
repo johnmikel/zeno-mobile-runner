@@ -28,7 +28,11 @@ from .sanitization import *  # noqa: F401,F403
 from .sanitization import _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
-from .receipts import _finalize_receipt_relative, _make_finalize_receipt
+from .receipts import (
+    _finalize_receipt_relative,
+    _legacy_finalize_receipt_request_fingerprint,
+    _make_finalize_receipt,
+)
 from .lifecycle import *  # noqa: F401,F403
 
 _MAX_INVALID_SUMMARY_DIAGNOSTICS = 256
@@ -396,6 +400,18 @@ def _finalize_attempt(
                         root,
                         request,
                     )
+                    legacy_artifact_request_fingerprint = None
+                    if sanitized_artifact_patch is not None:
+                        legacy_request = dict(request)
+                        legacy_request.pop("artifactPatch")
+                        legacy_artifact_request_fingerprint = (
+                            _request_fingerprint(
+                                publication_root,
+                                "finalize",
+                                root,
+                                legacy_request,
+                            )
+                        )
                     recovery_fingerprint = request_fingerprint
                     matching_recovered = [
                         transaction
@@ -403,11 +419,23 @@ def _finalize_attempt(
                         if transaction["operation"] == "finalize"
                         and transaction["attemptRoot"] == attempt_relative
                     ]
+                    recovered_legacy_upgrade = bool(
+                        len(matching_recovered) == 1
+                        and matching_recovered[0].get(
+                            "legacyFinalizeUpgrade"
+                        )
+                    )
+                    if recovered_legacy_upgrade:
+                        recovery_fingerprint = (
+                            _legacy_finalize_receipt_request_fingerprint(
+                                request_fingerprint
+                            )
+                        )
                     context_target_path = (
                         attempt_relative + "/run-context.json"
                     )
                     if (
-                        sanitized_artifact_patch is not None
+                        legacy_artifact_request_fingerprint is not None
                         and len(matching_recovered) == 1
                         and all(
                             target["path"] != context_target_path
@@ -416,14 +444,15 @@ def _finalize_attempt(
                     ):
                         # Finalize journals written before artifact patching
                         # became atomic bind only the already-patched context.
-                        legacy_request = dict(request)
-                        legacy_request.pop("artifactPatch")
-                        recovery_fingerprint = _request_fingerprint(
-                            publication_root,
-                            "finalize",
-                            root,
-                            legacy_request,
+                        recovery_fingerprint = (
+                            legacy_artifact_request_fingerprint
                         )
+                        if recovered_legacy_upgrade:
+                            recovery_fingerprint = (
+                                _legacy_finalize_receipt_request_fingerprint(
+                                    recovery_fingerprint
+                                )
+                            )
                     recovered_result = _recovered_result(
                         publication_root,
                         recovered,
@@ -437,6 +466,16 @@ def _finalize_attempt(
                         publication_root,
                         attempt_relative,
                         request_fingerprint,
+                        compatible_request_fingerprints=tuple(
+                            _legacy_finalize_receipt_request_fingerprint(
+                                fingerprint
+                            )
+                            for fingerprint in (
+                                request_fingerprint,
+                                legacy_artifact_request_fingerprint,
+                            )
+                            if fingerprint is not None
+                        ),
                     )
                     if completed_result is not None:
                         return completed_result

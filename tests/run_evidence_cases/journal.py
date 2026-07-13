@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import time
+from datetime import datetime, timedelta
 
 from .support import *  # noqa: F401,F403
 
@@ -271,6 +272,89 @@ else:
             for target in self.read_json(journals[0])["targets"]
         ]
 
+    def rewrite_pending_finalize_as_distinct_clock_legacy(self, root):
+        publication_root = root.parent.parent
+        journals = self.transaction_files(publication_root)
+        self.assertEqual(len(journals), 1)
+        journal_path = journals[0]
+        journal = self.read_json(journal_path)
+        self.assertEqual(journal["operation"], "finalize")
+
+        journal["targets"] = [
+            target
+            for target in journal["targets"]
+            if not target["path"].endswith("/finalize-receipt.json")
+        ]
+        event_target = next(
+            target
+            for target in journal["targets"]
+            if target["path"].endswith("/bootstrap-events.jsonl")
+        )
+        summary_target = next(
+            target
+            for target in journal["targets"]
+            if target["path"].endswith("/run-summary.json")
+        )
+        summary = json.loads(
+            base64.b64decode(summary_target["contentBase64"], validate=True)
+        )
+        events = [
+            json.loads(line)
+            for line in base64.b64decode(
+                event_target["contentBase64"], validate=True
+            ).splitlines()
+            if line.strip()
+        ]
+        finished_at = datetime.fromisoformat(
+            summary["finishedAt"].replace("Z", "+00:00")
+        )
+        legacy_timestamp = (
+            finished_at + timedelta(milliseconds=1)
+        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        self.assertNotEqual(legacy_timestamp, summary["finishedAt"])
+        events[-1]["timestamp"] = legacy_timestamp
+        event_content = b"".join(
+            run_evidence._json_bytes(event) for event in events
+        )
+        event_target["contentBase64"] = base64.b64encode(
+            event_content
+        ).decode("ascii")
+        event_target["sha256"] = (
+            "sha256:" + hashlib.sha256(event_content).hexdigest()
+        )
+
+        journal_bytes = run_evidence._json_bytes(journal)
+        legacy_path = journal_path.with_name(
+            f"finalize-{root.name}-"
+            f"{hashlib.sha256(journal_bytes).hexdigest()[:16]}.json"
+        )
+        journal_path.unlink()
+        legacy_path.write_bytes(journal_bytes)
+        legacy_path.chmod(0o600)
+        return journal, summary, legacy_timestamp
+
+    def prepare_distinct_clock_legacy_finalize(
+        self, root, *, fallback=False, request=None
+    ):
+        if fallback:
+            context_path = root / "run-context.json"
+            damaged = self.read_json(context_path)
+            damaged["platform"] = "invalid-platform"
+            context_path.write_text(json.dumps(damaged), encoding="utf-8")
+        request = dict(request or {"status": "passed", "command_status": 0})
+        status = request.pop("status")
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._finalize_attempt(root, status, **request)
+        return self.rewrite_pending_finalize_as_distinct_clock_legacy(root)
+
+    def attempt_evidence_snapshot(self, root):
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file() and not path.name.endswith(".lock")
+        }
+
     def test_register_rolls_forward_after_prepare_and_target_faults(self):
         for case_number, (stage, position) in enumerate(
             (("prepared", -1), ("target", 0)), 1
@@ -484,21 +568,13 @@ else:
             root,
             {"artifacts": {"trace": "traces/requested.json"}},
         )
-
-        with self.checkpoint_failure("prepared", -1):
-            with self.assertRaises(OSError):
-                run_evidence._finalize_attempt(
-                    root,
-                    "passed",
-                    command_status=0,
-                )
+        self.prepare_distinct_clock_legacy_finalize(root)
 
         self.assertEqual(
             self.transaction_target_paths(),
             [
                 f"attempts/{root.name}/bootstrap-events.jsonl",
                 f"attempts/{root.name}/run-summary.json",
-                f"attempts/{root.name}/finalize-receipt.json",
             ],
         )
         recovered = run_evidence._finalize_attempt(
@@ -513,7 +589,17 @@ else:
             recovered["artifacts"]["trace"], "traces/requested.json"
         )
         self.assertEqual(len(self.terminal_events(root, recovered)), 1)
+        self.assertTrue((root / "finalize-receipt.json").is_file())
         self.assertEqual(self.transaction_files(), [])
+        self.assertEqual(
+            run_evidence._finalize_attempt(
+                root,
+                "passed",
+                command_status=0,
+                artifact_patch={"trace": "traces/requested.json"},
+            ),
+            recovered,
+        )
 
     def test_request_fingerprint_persists_no_secret_or_absolute_request_material(self):
         publication, index_path = self.new_publication()
@@ -975,41 +1061,151 @@ else:
                         publication, journal
                     )
 
-    def test_finalize_recovers_legacy_pending_journal_without_receipt(self):
-        root = self.attempt_root("finalize-legacy-pending-journal")
-        context = valid_context(
-            runId=root.name,
-            executionId=root.name + "-execution",
-        )
-        run_evidence._initialize_attempt(self.index_path, root, context)
-        with self.checkpoint_failure("prepared", -1):
-            with self.assertRaises(OSError):
-                run_evidence._finalize_attempt(
+    def test_finalize_recovers_and_upgrades_distinct_clock_legacy_journals(self):
+        for fallback in (False, True):
+            with self.subTest(fallback=fallback):
+                publication, index_path = self.new_publication()
+                suffix = "fallback" if fallback else "normal"
+                root = publication / "attempts" / f"legacy-upgrade-{suffix}"
+                context = valid_context(
+                    runId=root.name,
+                    executionId=root.name + "-execution",
+                )
+                run_evidence._initialize_attempt(index_path, root, context)
+                journal, expected, legacy_timestamp = (
+                    self.prepare_distinct_clock_legacy_finalize(
+                        root, fallback=fallback
+                    )
+                )
+
+                recovered = run_evidence._finalize_attempt(
                     root, "passed", command_status=0
                 )
 
-        journal_path = self.transaction_files()[0]
-        journal = self.read_json(journal_path)
-        journal["targets"] = [
-            target
-            for target in journal["targets"]
-            if not target["path"].endswith("/finalize-receipt.json")
-        ]
-        journal_bytes = run_evidence._json_bytes(journal)
-        legacy_path = journal_path.with_name(
-            f"finalize-{root.name}-"
-            f"{hashlib.sha256(journal_bytes).hexdigest()[:16]}.json"
-        )
-        journal_path.unlink()
-        legacy_path.write_bytes(journal_bytes)
-        legacy_path.chmod(0o600)
+                self.assertEqual(recovered, expected)
+                self.assertEqual(
+                    recovered, self.read_json(root / "run-summary.json")
+                )
+                terminal_event = self.read_events(root)[-1]
+                self.assertNotEqual(legacy_timestamp, recovered["finishedAt"])
+                self.assertEqual(
+                    terminal_event["timestamp"], recovered["finishedAt"]
+                )
+                receipt_path = root / "finalize-receipt.json"
+                self.assertTrue(receipt_path.is_file())
+                self.assertLessEqual(
+                    receipt_path.stat().st_size,
+                    run_evidence.MAX_FINALIZE_RECEIPT_BYTES,
+                )
+                receipt = self.read_json(receipt_path)
+                self.assertEqual(
+                    receipt["requestFingerprint"],
+                    run_evidence._legacy_finalize_receipt_request_fingerprint(
+                        journal["requestFingerprint"]
+                    ),
+                )
+                self.assertEqual(
+                    receipt["resultSha256"],
+                    "sha256:"
+                    + hashlib.sha256(
+                        (root / "run-summary.json").read_bytes()
+                    ).hexdigest(),
+                )
+                self.assertEqual(self.transaction_files(publication), [])
+                self.assertEqual(
+                    run_evidence._finalize_attempt(
+                        root, "passed", command_status=0
+                    ),
+                    recovered,
+                )
 
-        recovered = run_evidence._finalize_attempt(
-            root, "passed", command_status=0
-        )
-        self.assertEqual(recovered, self.read_json(root / "run-summary.json"))
-        self.assertFalse((root / "finalize-receipt.json").exists())
-        self.assertEqual(self.transaction_files(), [])
+    def test_legacy_finalize_committed_response_loss_is_request_safe(self):
+        for fallback in (False, True):
+            with self.subTest(fallback=fallback):
+                publication, index_path = self.new_publication()
+                suffix = "fallback" if fallback else "normal"
+                root = publication / "attempts" / f"legacy-loss-{suffix}"
+                context = valid_context(
+                    runId=root.name,
+                    executionId=root.name + "-execution",
+                )
+                run_evidence._initialize_attempt(index_path, root, context)
+                self.prepare_distinct_clock_legacy_finalize(
+                    root, fallback=fallback
+                )
+
+                with self.checkpoint_failure("committed", -1):
+                    with self.assertRaises(OSError):
+                        run_evidence._finalize_attempt(
+                            root, "passed", command_status=0
+                        )
+
+                self.assertEqual(self.transaction_files(publication), [])
+                self.assertTrue((root / "finalize-receipt.json").is_file())
+                committed = self.read_json(root / "run-summary.json")
+                before_mismatch = self.attempt_evidence_snapshot(root)
+                with self.assertRaisesRegex(ValueError, "request fingerprint"):
+                    run_evidence._finalize_attempt(
+                        root,
+                        "failed",
+                        error_code="runner.unclassified",
+                    )
+                self.assertEqual(
+                    self.attempt_evidence_snapshot(root), before_mismatch
+                )
+                self.assertEqual(
+                    run_evidence._finalize_attempt(
+                        root, "passed", command_status=0
+                    ),
+                    committed,
+                )
+
+    @unittest.skipUnless(
+        os.name == "posix",
+        "requires immediate POSIX process-death semantics",
+    )
+    def test_process_death_after_legacy_upgrade_reconciles_finalize(self):
+        for fallback in (False, True):
+            with self.subTest(fallback=fallback):
+                publication, index_path = self.new_publication()
+                suffix = "fallback" if fallback else "normal"
+                root = publication / "attempts" / f"legacy-death-{suffix}"
+                context = valid_context(
+                    runId=root.name,
+                    executionId=root.name + "-execution",
+                )
+                run_evidence._initialize_attempt(index_path, root, context)
+                self.prepare_distinct_clock_legacy_finalize(
+                    root, fallback=fallback
+                )
+
+                journal_path = self.crash_transaction_process(
+                    "finalize",
+                    index_path,
+                    root,
+                    context,
+                    "committed",
+                    -1,
+                    finalize_request={
+                        "status": "passed",
+                        "command_status": 0,
+                    },
+                    expected_journal_count=0,
+                )
+
+                self.assertIsNone(journal_path)
+                committed = self.read_json(root / "run-summary.json")
+                self.assertTrue((root / "finalize-receipt.json").is_file())
+                self.assertEqual(
+                    self.read_events(root)[-1]["timestamp"],
+                    committed["finishedAt"],
+                )
+                self.assertEqual(
+                    run_evidence._finalize_attempt(
+                        root, "passed", command_status=0
+                    ),
+                    committed,
+                )
 
     def test_invalid_fallback_rolls_forward_after_every_target_position(self):
         fault_points = [

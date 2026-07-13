@@ -23,10 +23,26 @@ _FINALIZE_RECEIPT_KEYS = {
     "resultSha256",
 }
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_LEGACY_FINALIZE_REQUEST_DOMAIN = (
+    b"zeno-mobile-runner:legacy-finalize-receipt-request:v1\x00"
+)
 
 
 def _valid_sha256(value: Any) -> bool:
     return isinstance(value, str) and _SHA256_RE.fullmatch(value) is not None
+
+
+def _legacy_finalize_receipt_request_fingerprint(
+    request_fingerprint: str,
+) -> str:
+    """Bind an upgraded receipt to a legacy WAL without impersonating v1 writes."""
+
+    if not _valid_sha256(request_fingerprint):
+        raise ValueError("legacy finalize request fingerprint is invalid")
+    digest = hashlib.sha256(
+        _LEGACY_FINALIZE_REQUEST_DOMAIN + request_fingerprint.encode("ascii")
+    ).hexdigest()
+    return "sha256:" + digest
 
 
 def _finalize_receipt_relative(attempt_relative: str) -> str:
@@ -145,6 +161,7 @@ __all__ = (
     "MAX_FINALIZE_RECEIPT_BYTES",
     "_FINALIZE_RECEIPT_NAME",
     "_FINALIZE_RECEIPT_KEYS",
+    "_legacy_finalize_receipt_request_fingerprint",
     "_finalize_receipt_relative",
     "_attempt_relative_for_receipt",
     "_validate_finalize_receipt_value",

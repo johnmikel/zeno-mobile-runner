@@ -18,6 +18,8 @@ from .bounded_io import _read_bounded_bytes
 from .receipts import (
     MAX_FINALIZE_RECEIPT_BYTES,
     _finalize_receipt_relative,
+    _legacy_finalize_receipt_request_fingerprint,
+    _make_finalize_receipt,
     _read_finalize_receipt,
     _validate_finalize_receipt_content,
 )
@@ -276,6 +278,70 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
     }
 
 
+def _decoded_transaction_target(path: str, content: bytes) -> dict:
+    digest = "sha256:" + hashlib.sha256(content).hexdigest()
+    return {
+        "path": path,
+        "content": content,
+        "sha256": digest,
+        "value": _validate_transaction_target_content(path, content),
+    }
+
+
+def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
+    """Project one validated receipt-less finalize WAL into the current format."""
+
+    if transaction["operation"] != "finalize":
+        return
+    attempt_relative = transaction["attemptRoot"]
+    receipt_path = _finalize_receipt_relative(attempt_relative)
+    if any(target["path"] == receipt_path for target in transaction["targets"]):
+        return
+
+    event_path = attempt_relative + "/bootstrap-events.jsonl"
+    summary_path = attempt_relative + "/run-summary.json"
+    event_target = next(
+        target for target in transaction["targets"] if target["path"] == event_path
+    )
+    summary_target = next(
+        target for target in transaction["targets"] if target["path"] == summary_path
+    )
+    migrated_events = [dict(event) for event in event_target["value"]]
+    migrated_events[-1]["timestamp"] = summary_target["value"]["finishedAt"]
+    migrated_event_target = _decoded_transaction_target(
+        event_path,
+        b"".join(_json_bytes(event) for event in migrated_events),
+    )
+
+    legacy_request_fingerprint = transaction["requestFingerprint"]
+    receipt_request_fingerprint = (
+        _legacy_finalize_receipt_request_fingerprint(
+            legacy_request_fingerprint
+        )
+    )
+    receipt_target = _decoded_transaction_target(
+        receipt_path,
+        _make_finalize_receipt(
+            attempt_relative,
+            receipt_request_fingerprint,
+            summary_target["content"],
+        ),
+    )
+    transaction["targets"] = [
+        migrated_event_target if target["path"] == event_path else target
+        for target in transaction["targets"]
+    ] + [receipt_target]
+    transaction["requestFingerprint"] = receipt_request_fingerprint
+    transaction["legacyFinalizeUpgrade"] = True
+    _validate_transaction_operation(
+        transaction["operation"],
+        attempt_relative,
+        transaction["requiredDirectories"],
+        transaction["targets"],
+        receipt_request_fingerprint,
+    )
+
+
 def _pending_transaction_paths(
     publication_root: Path, *, cleanup_orphan_temporaries: bool = False
 ) -> list[Path]:
@@ -348,6 +414,7 @@ def _load_pending_transactions(
             or name_match.group("runId") != run_id
         ):
             raise ValueError("transaction journal filename identity is invalid")
+        _upgrade_legacy_finalize_transaction(validated)
         operation_key = (validated["operation"], validated["attemptRoot"])
         if operation_key in seen_operations:
             raise ValueError("duplicate pending transaction operation")
@@ -652,6 +719,8 @@ def _completed_finalize_result(
     publication_root: Path,
     attempt_relative: str,
     request_fingerprint: str,
+    *,
+    compatible_request_fingerprints: tuple[str, ...] = (),
 ) -> dict | None:
     """Reconcile a durably committed finalize after its journal was removed."""
 
@@ -686,7 +755,10 @@ def _completed_finalize_result(
     if receipt["resultSha256"] != result_sha256:
         raise ValueError("finalize receipt result hash does not match summary")
     result = _validate_transaction_target_content(result_relative, result_content)
-    if receipt["requestFingerprint"] != request_fingerprint:
+    if receipt["requestFingerprint"] not in (
+        request_fingerprint,
+        *compatible_request_fingerprints,
+    ):
         raise ValueError(
             "completed finalize request fingerprint does not match retry"
         )

@@ -184,7 +184,10 @@ def _validate_transaction_operation(
     if not events:
         raise ValueError("finalize transaction event stream is empty")
     final_event = events[-1]
-    if final_event.get("timestamp") != terminal.get("finishedAt"):
+    if (
+        has_receipt_target
+        and final_event.get("timestamp") != terminal.get("finishedAt")
+    ):
         raise ValueError(
             "finalize transaction event timestamp disagrees with terminal summary"
         )

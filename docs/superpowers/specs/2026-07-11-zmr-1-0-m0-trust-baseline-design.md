@@ -1,8 +1,11 @@
 # ZMR 1.0 M0: Trust Baseline Design
 
-**Status:** Proposed for implementation planning
+**Status:** Approved for implementation
 
 **Date:** 2026-07-11
+
+**Amended:** 2026-07-13 — durable Task 4 command supervision and explicit
+Task 5 iOS outcome boundary
 
 **Parent:** `2026-07-11-zmr-1-0-program-design.md`
 
@@ -70,10 +73,22 @@ The directory contains:
 - `run-summary.json` — stable machine-readable terminal status;
 - `bootstrap-events.jsonl` — ordered phase transitions and diagnostics;
 - `commands/` — bounded stdout/stderr logs for setup subprocesses;
+- optional `run-outcomes/` — bounded, registered, sanitized
+  producer-to-wrapper sidecars that remain diagnostic evidence but are not a
+  third public schema;
 - optional links or relative paths to scenario traces and reports.
 
 The workflow uploads the run-level directory even when no scenario trace was
 created.
+
+Long-running and background setup commands require a private control plane at
+`<attempt>/.evidence-control/`. It contains bounded write-ahead command state,
+process-identity leases, session ownership, and terminal intent. It is never a
+publishable artifact: read-only bundle validation refuses while the tree exists,
+and recovery removes it only after every command and the terminal summary are
+durably committed and verified. This durability work is evidence
+infrastructure; it does not refactor the scenario runner, dispatcher, or mobile
+action surface.
 
 ### 4. Failure classification
 
@@ -100,6 +115,13 @@ Classification includes:
 
 Unknown failures default to `runner_failure` with an `unclassified` error code;
 they may not be omitted from readiness calculations.
+
+An unexpected child signal is not cancellation. Cancellation exists only when
+the session owner records an explicit cancellation request before forwarding a
+signal and cleanup/evidence finalization both succeed. A requested expected TERM
+may be a successful lifecycle stop; TERM-to-KILL escalation is
+`runner.cleanup_failed`. Supervisor loss and raw-capture failure are evidence
+runner failures even when a child result was also observed.
 
 ### 5. Evidence statistics
 
@@ -281,6 +303,10 @@ Each JSONL event includes sequence, timestamp, phase, status, and optional
 error/command/artifact metadata. Valid status values are `started`, `passed`,
 `failed`, `skipped`, and `cancelled`.
 
+The public event schema does not need a private supervisor identifier. Recovery
+stores the exact schema-valid started and terminal event objects inside bounded
+private command state and verifies or appends those objects exactly once.
+
 The stable M0 phase vocabulary is:
 
 - `invocation`;
@@ -331,7 +357,7 @@ The implementation maintains a tested error-code registry. M0 begins with:
 
 | Classification | Stable M0 error codes |
 | --- | --- |
-| `runner_failure` | `runner.unclassified`, `runner.child_timeout`, `runner.cleanup_failed`, `runner.driver_protocol`, `runner.ios_shim.build_failed`, `runner.ios_shim.readiness_timeout`, `runner.trace_failed`, `runner.report_failed`, `runner.evidence_invalid` |
+| `runner_failure` | `runner.unclassified`, `runner.child_timeout`, `runner.cleanup_failed`, `runner.command_supervisor_lost`, `runner.capture_failed`, `runner.driver_protocol`, `runner.ios_shim.build_failed`, `runner.ios_shim.readiness_timeout`, `runner.trace_failed`, `runner.report_failed`, `runner.evidence_invalid` |
 | `configuration_failure` | `config.invalid`, `config.app_artifact_missing`, `config.device_selection`, `config.signing`, `config.unsupported_capability`, `config.required_tool_missing` |
 | `infrastructure_failure` | `infra.hosted_runner`, `infra.device_unavailable`, `infra.emulator_provision`, `infra.simulator_provision`, `infra.disk`, `infra.network` |
 | `app_failure` | `app.assertion_failed`, `app.crashed`, `app.launch_failed` |
@@ -342,25 +368,228 @@ code requires a schema-version change and migration note.
 
 ## Component Design
 
-### Evidence helper
+### Evidence core and Bash adapter
 
-Create one implementation used by demo, pilot, and device-matrix wrappers to:
+One dependency-free Python implementation is the durable authority used by
+demo, pilot, and device-matrix wrappers. It owns initialization, exact event
+append, command supervision, private write-ahead state, recovery, session
+ownership, exactly-once summary finalization, validation, and publication
+eligibility.
 
-- initialize a run directory;
-- append bootstrap events safely;
-- execute or record bounded command logs;
-- finalize a summary exactly once;
-- recover an `unclassified` failure summary from shell traps;
-- validate the summary against its public schema.
+`scripts/run-evidence.sh` is a thin GNU Bash 3.2 adapter. It exposes event,
+foreground run, handled/retry run, stdout capture, dual capture, background
+run/wait/stop, instrumented-script delegation, context update, cleanup
+registration, and pass/failure intent functions. It does not own durable state
+or classify output. When evidence is disabled, the sourced API preserves the
+existing scripts' stdin/stdout/stderr/status behavior. It must not require Bash
+4 features such as associative arrays, namerefs, `mapfile`, `wait -n`, or
+dynamic file descriptors.
+
+The Task 3 `run_evidence.py command` surface remains compatible, but Task 4
+routes it through the same supervisor as the adapter. The generic command API
+receives a phase, stable configured failure code, failure policy
+(`terminal`/`handled`), stop policy (`none`/`expected-term`), execution mode, and
+stdin policy. It never infers ownership by matching phase, exit status, or
+stderr.
+
+A direct compatibility `command` outside an adapter uses a one-shot handled
+session and removes it after the command commits; it does not finalize the run.
+Background adapter launch registers its command ID before spawn, waits at most
+five seconds for `running`/terminal readiness, and later waits by status without
+holding evidence locks.
 
 If a candidate summary fails validation, retain it as
-`run-summary.invalid.json`, retain validator output, and atomically emit a
-minimal schema-valid `run-summary.json` classified as
+`run-summary.invalid.json`, retain sanitized validator output, and atomically
+emit a minimal schema-valid `run-summary.json` classified as
 `runner_failure`/`runner.evidence_invalid`.
 
-The first implementation may be a small dependency-free script compatible with
-the project's current shell/Python release tooling. The data contract, not the
-language, is the stable boundary.
+### Private control state
+
+The nonpublishable control layout is:
+
+```text
+<attempt>/.evidence-control/
+  session.json
+  terminal-intent.json
+  commands/<32hex-command-id>/
+    state.json
+    supervisor.lease
+    group.lease
+    stdout.recovery
+    stderr.recovery
+```
+
+Private documents use strict bounded JSON with no duplicate or unknown keys.
+The fixed limits are 16 KiB for `session.json`, 32 KiB for terminal intent,
+64 KiB for each command state, one primary plus at most eight secondary terminal
+diagnostics, and at most eight active commands. Command/session IDs are 32
+lowercase hexadecimal characters. A command accepts at most 256 argv elements,
+16 KiB per element, and 64 KiB total encoded argv.
+
+`session.json` binds `schemaVersion`, `sessionId`, `runId`, owner PID, a
+platform-stable owner birth identity, `state`, `generation`, and `startedAt`.
+Session state advances `active -> finalizing -> committed`.
+
+Each command state binds `schemaVersion`, command/session/generation identity,
+stage, a canonical persisted-request fingerprint, sanitized request and
+relative output paths, the exact started event, supervisor/child identity,
+stop intent, child outcome, capture state, and materialization hashes. It
+advances monotonically:
+
+```text
+prepared -> running -> stop_requested? -> exited -> materialized -> committed
+```
+
+`prepared` is the write-ahead record for the exact started event.
+`materialized` binds the exact terminal event and hashes/sizes for metadata and
+both logs. `committed` means those exact outputs/events have been verified and
+the private command directory may be removed. Raw argv, environment values, and
+raw command output never enter state. Recovery spools contain only sanitized
+data and use the public 10 MiB-per-stream head/tail limit.
+
+### Command supervision and recovery
+
+Every child starts in a new process session/group. The supervisor concurrently
+drains stdout and stderr so either stream can fill without deadlock. Only the
+supervisor holds `supervisor.lease`; `group.lease` is inherited by the child and
+descendants. Stored PID, process birth identity, PGID, and lease observations
+must all agree before recovery may signal a process group. If identity cannot be
+proven, recovery fails closed and blocks finalization rather than risking a
+reused PID/PGID.
+
+Raw shell capture is independently capped at 1 MiB per requested stream and
+exists only in memory/pipes. Overflow, NUL, or channel failure is
+`runner.capture_failed`, with any child result retained as secondary. Sanitized
+logs remain capped at 10 MiB per stream, retaining the first and final 5 MiB.
+The stress requirement is simultaneous 256 MiB stdout and stderr without
+deadlock or unbounded retention.
+
+Command metadata adds `commandId`, `configuredFailureCode`,
+`captureComplete`, and an exact `termination` object. An unexpected child signal
+uses the configured failure code, not cancellation. An expected TERM is success
+only when explicitly requested and completed inside the two-second grace.
+Escalation to KILL is `runner.cleanup_failed`. Supervisor loss is
+`runner.command_supervisor_lost`.
+
+Recovery is deterministic and idempotent:
+
+| Durable stage/observation | Recovery behavior |
+| --- | --- |
+| live supervisor | report busy; do not mutate or finalize |
+| stale `prepared` | append/verify the exact started event, materialize incomplete evidence, and emit one supervisor-lost terminal event |
+| orphaned `running`/`stop_requested` with proven live group | TERM, wait two seconds, KILL if required, then materialize incomplete evidence |
+| `running`/`stop_requested` with both leases free | treat the group as gone and materialize incomplete evidence |
+| `exited` before materialization | retain child result as secondary; recovery/capture loss is primary |
+| `materialized` | complete only missing exact hash-bound outputs/event; never overwrite a mismatch |
+| `committed` | verify exact outputs/receipt, then remove private state |
+| corrupt state, changed birth identity, or unproven group | do not signal/delete/overwrite; block mutation, finalization, and publication |
+
+Recovered streams set `captureComplete: false`, `truncated: true`, and byte
+counts as lower bounds. Repeated recovery cannot duplicate a started or terminal
+event.
+
+### Session ownership and terminal intent
+
+The first adapter process claims the attempt and exports
+`ZMR_EVIDENCE_SESSION_ID`. Instrumented descendants inherit the ID and are
+borrowers. Borrowers may append events, supervise commands, register cleanup,
+and defer failure, but they cannot commit pass or finalize the run. An
+independent owner is rejected while the stored owner PID/birth identity is live.
+Orphan takeover requires that exact process identity to be gone and no
+supervisor lease to be live; takeover increments the generation.
+
+INT/TERM handling persists cancellation intent before forwarding signals.
+Owner EXIT dispatch performs registered cleanup in LIFO order, stops remaining
+background groups, recovers commands, resolves terminal intent, finalizes once,
+verifies/removes fully committed control state, and validates. A retry completes
+that sequence after a crash. Borrower exit only defers a failure to the owner.
+Resolution is:
+
+1. evidence write/recovery/finalization failure;
+2. cleanup failure or expected-stop escalation;
+3. explicit/deferred classified failure under the public precedence registry;
+4. requested cancellation when cleanup and evidence are healthy;
+5. nonzero unclassified shell exit as `runner.unclassified`;
+6. pass.
+
+The persisted intent contains one primary plus bounded secondary diagnostics so
+nested scripts and traps cannot erase an earlier cause through last-writer-wins
+updates.
+
+### Locking and publication invariants
+
+The only valid nested lock order is:
+
+```text
+.transactions.lock
+  -> attempt-index lock (when needed)
+  -> .commands.lock
+  -> .lifecycle.lock
+  -> .events.lock
+  -> per-command state lock
+```
+
+Locks to the left may be omitted when unnecessary, but never acquired after a
+lock to their right. No lock remains held during process spawn/wait, stream
+drain/replay, thread join, status polling, sleep, or signal delivery. The
+readiness timeout and ordinary evidence-lock timeout are each five seconds;
+status polling uses 50 ms and TERM/KILL grace/settlement are two seconds each.
+
+Every mutation first recovers lifecycle journals and stale command state.
+Command launch and finalization share the short `.commands.lock` gate: launch
+persists `prepared` before release; finalization recovers and refuses any live or
+noncommitted command. Therefore a launch/finalize race has one serial outcome
+and cannot create post-summary commands. Ordinary events and other commands
+remain available while a child runs longer than the five-second lock timeout.
+
+`validate-bundle` is deliberately read-only. It never repairs state and refuses
+any `.evidence-control` tree. A prior mutation may remove verified committed
+state; only then can public validation and upload succeed.
+
+### iOS shim provenance and run-outcome boundary
+
+Task 5, not the generic supervisor, owns platform-specific interpretation. Each
+iOS target kind (`simulator` and `physical`) independently selects a stable shim
+mode:
+
+- `disabled` — no selector shim;
+- `generated` — repository-generated XCTest shim;
+- `provided` — app/user-supplied shim command.
+
+There is no implicit simulator-to-physical fallback. Existing `--ios-shim`
+usage remains compatible by normalizing it to `provided`; the generated demo
+explicitly records `generated`. Missing/contradictory shim configuration is a
+configuration failure. Build/start/prewarm/protocol failure after valid setup is
+a runner failure. App ownership is allowed only when structured runner/trace
+state proves the driver and evidence pipeline remained healthy.
+
+Instrumented `zmr run` writes a bounded 64 KiB atomic internal
+`run-outcome` sidecar before returning success or a handled failure. It contains
+`schemaVersion`, `status` (`passed`/`failed`/`cancelled`), `failureOwner`, stable
+nullable `errorCode`, `phase`, nullable `summary`/`hint`, normalized nullable
+trace/report references, nullable child status, and nullable target-specific
+shim mode/digest (`null` on Android). Passed and cancelled outcomes use owner
+`none`; cancellation uses `run.cancelled`. The sidecar path must normalize under
+the attempt's `run-outcomes/`, is registered by a bootstrap event, and is
+scanned as publishable diagnostic evidence. This versioned sidecar is a
+producer-to-wrapper contract, not a third public schema. It contains no raw
+stderr or absolute local path, and normal `zmr run --json` output remains
+compatible.
+
+The evidence-side outcome consumer strictly validates the sidecar, registers
+trace/report paths, and records terminal intent. Missing, malformed, oversized,
+or mismatched mandatory sidecars are
+`runner_failure`/`runner.evidence_invalid`. Scripts may inspect bounded stderr
+to decide whether a `simctl` install attempt is retryable, but never to assign
+terminal ownership. iOS prewarm maps its JSON pipe to foreground stdin
+inheritance, retries use handled-failure policy, and normal long-lived shim
+shutdown uses expected-stop policy; these platform mechanics do not add special
+cases to the generic supervisor.
+
+Consumption binds `run-outcomes/<command-id>.json` to that command's committed
+metadata and the active session. Any non-null sidecar child status must match
+the supervisor's shell-visible status; identity/status/artifact disagreement is
+evidence invalidation rather than a tie-breaker.
 
 ### Workflow integration
 
@@ -377,11 +606,22 @@ classification fields.
 
 ## Error Handling
 
-- A shell EXIT trap finalizes a failure summary only if no terminal summary
-  exists.
+- Shell traps persist bounded terminal intent. Only the owning Python-backed
+  EXIT dispatcher may finalize, and only after cleanup, background-command
+  shutdown, and command recovery complete.
+- Borrower shells never finalize the owner's run; orphan takeover requires
+  stored PID birth-identity and lease proof.
+- Unexpected child signals remain configured failures. Explicit cancellation is
+  reported only after healthy cleanup/evidence; escalation is a cleanup runner
+  failure.
+- Supervisor/capture loss takes precedence over an observed child result and
+  leaves incomplete, truncated recovery metadata rather than claiming complete
+  capture.
 - Finalization uses a temporary file plus atomic rename.
 - Log capture has explicit size limits and records truncation.
 - Redaction/public-metadata guards run before artifacts become public.
+- Corrupt or unsafe private state blocks mutation/finalization/publication and
+  is never deleted or signalled through speculatively.
 - Summary validation failure is itself a `runner_failure` and keeps the invalid
   file plus validator output for diagnosis.
 - Artifact upload failure fails the device-smoke job because missing evidence
@@ -391,8 +631,15 @@ classification fields.
 
 - Command logs pass through existing public-safety and redaction controls before
   publication.
+- Raw capture remains bounded in memory/pipes and is never written to command
+  state, recovery files, or the publication root.
 - Environment variables and command arguments known to contain credentials are
   represented by redacted placeholders in events.
+- Private state uses rooted regular-file/no-symlink checks and is rejected by
+  public bundle validation. Recovery signals only a process group whose stored
+  PID, birth identity, PGID, and leases still prove ownership.
+- The iOS run-outcome sidecar is bounded, atomic, path-normalized, and contains
+  structured ownership rather than raw stderr.
 - Workflows use explicit minimal permissions.
 - Third-party actions are pinned by full SHA.
 - Downloaded toolchains are verified against pinned checksums from an
@@ -403,11 +650,24 @@ classification fields.
 ### Unit and script tests
 
 - create/finalize successful summary;
-- trap-finalized unclassified failure;
+- owner-dispatched and borrower-deferred unclassified failure;
 - each terminal classification;
 - atomic finalization and duplicate-finalize rejection;
+- strict bounded private-state schemas and legal monotonic transitions;
+- crash recovery after every command stage, including idempotent exact-event
+  replay and fail-closed corrupt/PID-reuse cases;
+- a command running longer than five seconds while events and independent
+  command launches continue, plus launch/finalize races;
+- process-group descendant cleanup, expected TERM, cancellation, unexpected
+  signal, escalation, and supervisor loss;
+- 1 MiB raw capture limits and 256 MiB simultaneous stdout/stderr stress;
+- owner/borrower nesting, rejected independent ownership, orphan takeover, and
+  LIFO cleanup;
+- GNU Bash 3.2 parsing and behavior without Bash 4-only features;
 - bounded/truncated command log behavior;
 - path sanitization and secret redaction;
+- atomic iOS run-outcome sidecars, simulator/physical shim provenance, and
+  structured ownership without stderr classification;
 - schema validation and malformed-event rejection;
 - 20-row local pilot and 300-row certification calculations;
 - first-attempt versus eventual pass-rate reporting;
@@ -437,12 +697,26 @@ Using fake drivers, inject failures at:
 Every injection must produce a valid run summary, bootstrap event stream, and
 bounded command log with the expected classification.
 
+The harness also injects supervisor death at each durable command stage,
+capture overflow, unexpected signal, requested cancellation, expected TERM,
+TERM-to-KILL escalation, cleanup failure, corrupt private state, nested borrower
+failure, owner loss/takeover, and launch/finalize races. A command running longer
+than five seconds cannot block ordinary event append. Read-only validation must
+refuse live private state and succeed only after verified recovery removes all
+committed control data.
+
 The acceptance table follows the precedence rules above. In particular: shim
 build/readiness and runner-owned wait failures are `runner_failure`; missing app
 artifacts and unsupported device requests are `configuration_failure`; a
 healthy-driver assertion miss is `app_failure`; known hosted provisioning
 failures are `infrastructure_failure`; and unknown injected errors are
 `runner_failure`.
+
+Real iOS acceptance covers simulator and physical targets separately for
+`disabled`, `generated`, and `provided` shim modes. The final app/runner/config
+ownership and trace/report references must come from the atomic run-outcome
+sidecar. Missing or invalid mandatory sidecar data is evidence failure; stderr
+text is not an ownership oracle.
 
 ## Acceptance Criteria
 
@@ -459,7 +733,12 @@ M0 is complete when:
    available;
 7. documentation explains how to inspect and reproduce a classified failure;
 8. no public contract claims that the underlying iOS/Android flakes are fixed;
-9. the work is committed in reviewable, independently verified changes.
+9. the work is committed in reviewable, independently verified changes;
+10. long-running commands do not hold lifecycle locks, crash recovery stops
+    every descendant whose identity is proven and blocks safely when it is not,
+    and no private control tree is publishable;
+11. iOS simulator/physical shim provenance is explicit and terminal ownership
+    comes from a valid atomic run-outcome sidecar rather than stderr matching.
 
 ## Rollout
 

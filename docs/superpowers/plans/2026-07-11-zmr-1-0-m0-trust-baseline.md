@@ -4,9 +4,9 @@
 
 **Goal:** Make the exact ZMR revision under test produce green required CI and complete, classified, statistically honest device-run evidence even when failure occurs before a scenario trace starts.
 
-**Architecture:** Add a dependency-free Python evidence core plus a small shell adapter. The evidence core owns canonical run-summary/bootstrap-event contracts, atomic finalization, classification, comparability hashes, and aggregation; existing demo/pilot/matrix scripts only emit phase transitions through the adapter. CI wraps each platform run in this evidence lifecycle, and release-readiness recomputes rather than trusts cohort keys.
+**Architecture:** Add a dependency-free Python evidence core with a durable command supervisor and a thin Bash 3.2 adapter. The Python core owns canonical run-summary/bootstrap-event contracts, private write-ahead command state, session ownership, crash recovery, atomic finalization, classification, comparability hashes, and aggregation; existing demo/pilot/matrix scripts use the adapter without becoming lifecycle authorities. CI wraps each platform run in this evidence lifecycle, and release-readiness recomputes rather than trusts cohort keys.
 
-**Tech Stack:** Zig 0.16 schema registry, Python 3 standard library, Bash, JSON Schema draft 2020-12, GitHub Actions, GitHub REST API.
+**Tech Stack:** Zig 0.16 schema registry, Python 3 standard library, GNU Bash 3.2 compatibility, JSON Schema draft 2020-12, GitHub Actions, GitHub REST API.
 
 ---
 
@@ -35,14 +35,34 @@ The implementation worktree is:
 - `schemas/run-summary.schema.json` — public terminal attempt-summary contract.
 - `schemas/bootstrap-event.schema.json` — public bootstrap JSONL event contract.
 - `scripts/run_evidence.py` — dependency-free evidence core and CLI.
-- `scripts/run-evidence.sh` — shell adapter/wrapper and trap-safe finalization.
+- `scripts/run_evidence_lib/command_state.py` — private command-state schema,
+  write-ahead transitions, leases, and recovery inspection.
+- `scripts/run_evidence_lib/command_supervisor.py` — process-group lifecycle,
+  concurrent stream draining, bounded raw capture, and signal delivery.
+- `scripts/run_evidence_lib/session.py` — owner/borrower claims, bounded terminal
+  intent, command registry, and owner-only finalization dispatch.
+- `scripts/run-evidence.sh` — GNU Bash 3.2-compatible adapter over the Python
+  session and command APIs.
 - `tests/run_evidence_test.py` — Python unit tests for contracts, hashing,
   finalization, classification, and statistics.
+- `tests/run_evidence_cases/command_state.py` — private-state schema,
+  transition, lease, and recovery tests.
+- `tests/run_evidence_cases/command_supervisor.py` — process-group, stream,
+  signal, capture, and crash-injection tests.
+- `tests/run_evidence_cases/session.py` — owner/borrower, terminal-intent, and
+  exactly-once finalization tests.
 - `tests/run-evidence-script-test.sh` — shell integration and injected-failure
   tests.
 - `tests/run-evidence-acceptance-test.sh` — table-driven fake-driver acceptance
   tests for every required failure-injection boundary and complete artifact
   bundle.
+- `src/run_outcome.zig` and `src/run_outcome_tests.zig` — bounded atomic
+  producer-to-wrapper outcome sidecar used by instrumented `zmr run` calls;
+  this is an internal M0 boundary, not a third public schema.
+- `scripts/run_evidence_lib/run_outcome.py` and
+  `tests/run_evidence_cases/run_outcome.py` — strict sidecar validation and
+  translation into evidence context/terminal intent outside the generic
+  command supervisor.
 - `tests/workflow-pinning-test.py` — immutable action/toolchain policy tests.
 - `docs/run-evidence.md` — operator guide for summaries, phases,
   classification, reproduction, and certification.
@@ -57,10 +77,26 @@ The implementation worktree is:
   test the two new public schemas.
 - `schemas/README.md` and `tests/schemas-json-test.sh` — document/index the
   contracts and update the schema count from 24 to 26.
+- `scripts/run_evidence_lib/commands.py`,
+  `scripts/run_evidence_lib/constants.py`,
+  `scripts/run_evidence_lib/cli.py`,
+  `scripts/run_evidence_lib/lifecycle.py`,
+  `scripts/run_evidence_lib/summaries.py`, and
+  `scripts/run_evidence_lib/bundle.py` — route command execution through the
+  durable supervisor, enforce the lock/recovery protocol, and keep private
+  control state out of publishable bundles.
+- `tests/run_evidence_cases/commands.py`,
+  `tests/run_evidence_cases/cli.py`,
+  `tests/run_evidence_cases/lifecycle.py`, and
+  `tests/run_evidence_cases/bundle.py` — cover the refactored command/session
+  CLI, concurrent lifecycle operations, and control-state publication gate.
 - `scripts/demo-android-real.sh`, `scripts/demo-ios-real.sh` — emit top-level
   build/device/pilot phases when an evidence context is present.
 - `scripts/run-android-pilot.sh`, `scripts/run-ios-pilot.sh` — emit validation,
   install, shim, scenario, report, and cleanup phases.
+- `src/cli_run.zig`, `src/cli_output.zig`, `src/cli_run_tests.zig`,
+  `src/cli_output_tests.zig`, and `src/main_tests.zig` — expose and verify the
+  atomic run-outcome sidecar without changing normal `zmr run --json` output.
 - `scripts/device-matrix.sh` — create distinct logical execution/attempt metadata
   and retain every attempt summary.
 - `tests/android-real-demo-script-test.sh`, `tests/ios-real-demo-script-test.sh`,
@@ -85,11 +121,35 @@ The implementation worktree is:
 - Default release artifact retention: 30 days.
 - Default command log limit: 10 MiB per log; retain the first and final 5 MiB
   and record `truncated: true`.
+- Raw shell capture is limited to 1 MiB per requested stream. Raw argv,
+  environment values, and command output never enter private command state or
+  the publication root; only sanitized 10 MiB recovery spools/logs do.
+- Private supervisor state lives only under
+  `<attempt>/.evidence-control/`. `validate-bundle` refuses to publish while
+  that tree exists; recovery verifies and removes committed state before a
+  read-only validation succeeds.
+- Private limits are: 16 KiB `session.json`, 32 KiB
+  `terminal-intent.json`, 64 KiB per command `state.json`, eight secondary
+  terminal diagnostics, and eight concurrently active commands.
+- Command and session IDs are 32 lowercase hexadecimal characters. A request
+  accepts at most 256 argv elements, 16 KiB per element, and 64 KiB total
+  encoded argv.
+- Command-supervisor readiness and evidence-lock acquisition each time out
+  after five seconds. TERM grace is two seconds, KILL settlement is two
+  seconds, and status polling uses a 50 ms interval.
+- Task 4 adds stable runner codes `runner.command_supervisor_lost` and
+  `runner.capture_failed`; all cleanup escalation continues to use
+  `runner.cleanup_failed`.
+- The shell adapter must parse and run under the system `/bin/bash` GNU Bash
+  3.2 baseline; it may not require associative arrays, namerefs, `mapfile`,
+  `readarray`, `wait -n`, dynamic file descriptors, or `&>>`.
 - Attempt directories are append-only. `init` fails if its root already exists;
   a retry always receives a new root and never replaces an earlier summary.
 - The publishable layout is
   `<publication-root>/attempt-index.json` plus
-  `<publication-root>/attempts/<runId>/{run-summary.json,bootstrap-events.jsonl,commands/...}`.
+  `<publication-root>/attempts/<runId>/{run-summary.json,bootstrap-events.jsonl,commands/...,run-outcomes/...}`.
+  `run-outcomes/` is optional and contains only bounded, registered, sanitized
+  producer-to-wrapper sidecars; it is not part of the public schema registry.
   `ZMR_RUN_EVIDENCE_ROOT` names the attempt root and
   `ZMR_RUN_EVIDENCE_INDEX` names the sibling index.
 - `attempt-index.json` paths are relative to the index location and use `/` as
@@ -484,11 +544,15 @@ resolve previously null tuple values, but it may not change a resolved value or
 make sibling attempts disagree. Finalize recomputes again and never trusts a
 stored producer key.
 
-`command` is the only evidence-enabled subprocess path. It records a started
-event, executes without `shell=True`, captures stdout and stderr separately,
-records the true return code or signal, sanitizes before either replaying or
-persisting output, writes logs and metadata atomically, then records the
-terminal event. Sensitive environment-name segments match
+`command` is the compatibility entry point for evidence-enabled subprocesses.
+It records a started event, executes without `shell=True`, captures stdout and
+stderr separately, records the true return code or signal, sanitizes before
+either replaying or persisting output, writes logs and metadata atomically, then
+records the terminal event. Task 4 replaces its synchronous internals with the
+durable command supervisor while preserving this CLI. No lifecycle, event,
+command-gate, or per-command state lock may remain held while a child is
+spawned, running, drained, waited, replayed, joined, slept for, or signalled.
+Sensitive environment-name segments match
 `TOKEN|SECRET|PASSWORD|PASS|KEY|AUTH|AUTHORIZATION|CREDENTIAL|CREDENTIALS`
 case-insensitively plus the comma-separated exact names in
 `ZMR_EVIDENCE_SECRET_NAMES`; known secret values are replaced everywhere with
@@ -497,10 +561,13 @@ credentials embedded in URLs. Path sanitization replaces
 the repository workspace, run root, and home with their named placeholders and
 any remaining absolute path with `<absolute-path>`.
 
-With `--capture-stdout`, the command suppresses normal stdout replay and returns
-raw stdout only on the CLI's stdout so the shell adapter can capture it in a
-variable; stderr is still replayed sanitized. The adapter disables xtrace around
-that command substitution and never echoes or persists the raw captured value.
+With `--capture-stdout`, the compatibility command maps to Task 4's
+`capture-stdout` supervisor mode. It suppresses normal stdout replay and returns
+at most 1 MiB of raw stdout on the CLI's stdout so the shell adapter can capture
+it in a variable; stderr is still replayed sanitized. The adapter disables
+xtrace around that command substitution and never echoes or persists the raw
+captured value. Overflow, NUL bytes, or capture-channel failure becomes
+`runner.capture_failed`; raw capture never enters command state or a file.
 
 `external` is reserved for GitHub action boundaries whose internal subprocess
 streams are unavailable. It writes a bounded synthetic stdout/stderr pair and
@@ -537,69 +604,423 @@ git add scripts/run_evidence.py tests/run_evidence_test.py
 git commit -m "feat(evidence): add classified run evidence core"
 ```
 
-## Task 4: Add the trap-safe shell adapter and injected-failure harness
+## Task 4: Add durable command supervision and the Bash 3.2 lifecycle adapter
+
+Task 4 replaces the shell-only lifecycle design. Python is the durable authority
+for command state, process ownership, recovery, and finalization. Shell traps
+only persist terminal intent and invoke the owner dispatcher; they never decide
+that a bundle is complete merely because a shell process is exiting.
 
 **Files:**
 
+- Create: `scripts/run_evidence_lib/command_state.py`
+- Create: `scripts/run_evidence_lib/command_supervisor.py`
+- Create: `scripts/run_evidence_lib/session.py`
+- Create: `tests/run_evidence_cases/command_state.py`
+- Create: `tests/run_evidence_cases/command_supervisor.py`
+- Create: `tests/run_evidence_cases/session.py`
 - Create: `scripts/run-evidence.sh`
 - Create: `tests/run-evidence-script-test.sh`
 - Create: `tests/run-evidence-acceptance-test.sh`
+- Modify: `scripts/run_evidence_lib/commands.py`
+- Modify: `scripts/run_evidence_lib/constants.py`
+- Modify: `scripts/run_evidence_lib/cli.py`
+- Modify: `scripts/run_evidence_lib/lifecycle.py`
+- Modify: `scripts/run_evidence_lib/summaries.py`
+- Modify: `scripts/run_evidence_lib/bundle.py`
+- Modify: `tests/run_evidence_cases/commands.py`
+- Modify: `tests/run_evidence_cases/cli.py`
+- Modify: `tests/run_evidence_cases/lifecycle.py`
+- Modify: `tests/run_evidence_cases/bundle.py`
+- Modify: `tests/run_evidence_test.py`
 - Modify: `scripts/ci-gate.sh`
 - Modify: `scripts/release-gate.sh`
 - Modify: `tests/ci-gate-script-test.sh`
 - Modify: `tests/release-gate-script-test.sh`
 
-- [ ] **Step 1: Write failing shell integration tests**
+The completed Python CLI must expose this contract while retaining the Task 3
+`command` compatibility entry point:
 
-Use temporary directories and fake commands to assert:
+```text
+run_evidence.py command-id
+run_evidence.py session-claim --root <dir> --owner-pid <pid>
+run_evidence.py session-status --root <dir> --session-id <32hex>
+run_evidence.py session-intent --root <dir> --session-id <32hex>
+                               --intent-json <json>
+run_evidence.py session-finalize --root <dir> --session-id <32hex>
+run_evidence.py command-supervise --root <dir> --command-id <32hex>
+                                  --session-id <32hex>
+                                  --phase <phase> --name <slug>
+                                  --failure-code <code>
+                                  --failure-policy <terminal|handled>
+                                  --stop-policy <none|expected-term>
+                                  --mode <foreground|background|capture-stdout|capture-both>
+                                  --stdin-policy <devnull|inherit>
+                                  -- <command> [args...]
+run_evidence.py command-status --root <dir> --command-id <32hex> [--wait]
+run_evidence.py command-stop --root <dir> --command-id <32hex>
+                             --kind <expected|cancel>
+run_evidence.py command-recover --root <dir> [--cancel-live]
+```
 
-- successful wrapped command creates `run-summary.json` and
-  `bootstrap-events.jsonl`;
-- exit 7 remains exit 7 and finalizes the requested classification/code;
-- SIGTERM produces `cancelled` only after successful cleanup;
-- no explicit finalization triggers `runner.unclassified` in the EXIT trap;
-- a deliberately invalid context retains `run-summary.invalid.json` and emits a
-  valid `runner.evidence_invalid` fallback;
-- `zmr_evidence_run` preserves the command's status and creates sanitized,
-  bounded stdout/stderr logs and metadata for success, failure, and signals;
-- the adapter refuses to publish a bundle containing a seeded secret or raw
-  absolute path;
-- command logs are present for every command-owning terminal result.
+`stdin-policy=inherit` is valid only for foreground/capture/delegated commands;
+background commands use `devnull`. A foreground supervisor returns the child's
+shell-visible status, while metadata retains the exact exit code or signal.
+`failure-policy=handled` records complete command evidence without committing a
+terminal run intent, so platform retry logic can decide whether a later failure
+is primary. The generic supervisor accepts the caller's phase and stable failure
+code; it must not infer app, runner, configuration, or infrastructure ownership
+from phase names, exit codes, or stderr text.
 
-Write `tests/run-evidence-acceptance-test.sh` as a table-driven fake-driver
-harness. Inject failures at all seven approved boundaries:
+When the compatibility `command` is invoked outside an adapter session, it
+creates a one-shot handled session for the invoking process, commits the command
+record, and removes that session control record without finalizing the run. This
+preserves the existing explicit `command`-then-`finalize` CLI workflow. Inside
+an adapter it joins the inherited session. For background mode, the adapter
+starts `command-supervise` as a shell background job, registers the command ID
+before spawn, and polls `command-status` for `running` or a terminal state for
+at most five seconds. `command-status --wait` may block for child completion but
+never holds an evidence lock while waiting.
 
-| Boundary | Phase | Expected code/classification |
-| --- | --- | --- |
-| emulator/simulator acquisition | `device.acquire` | `infra.emulator_provision` or `infra.simulator_provision` / `infrastructure_failure` |
-| app install (missing artifact) | `app.install` | `config.app_artifact_missing` / `configuration_failure` |
-| shim build | `shim.build` | `runner.ios_shim.build_failed` / `runner_failure` |
-| shim readiness | `shim.prewarm` | `runner.ios_shim.readiness_timeout` / `runner_failure` |
-| scenario execution | `scenario.execute` | healthy-driver `app.assertion_failed` / `app_failure` |
-| report generation | `report.generate` | `runner.report_failed` / `runner_failure` |
-| summary validation | `evidence.finalize` | `runner.evidence_invalid` / `runner_failure` |
+- [ ] **Step 1: Write failing private-state contract tests**
 
-For every row, assert the original injected exit status, exactly one terminal
-schema-valid summary, ordered individually valid JSONL events, one metadata file
-with its bounded stdout/stderr logs for each executed fake command, sanitized
-paths/secrets, and the exact precedence-derived phase/code/classification. Add
-unknown, missing-app, unsupported-device, cancellation, and cleanup-failure
-rows so every terminal classification and precedence override is exercised.
+Assert that all durable supervisor recovery state is confined to this non-publishable
+tree and is opened with rooted, no-symlink safety:
 
-- [ ] **Step 2: Run the test and verify failure**
+```text
+<attempt>/.evidence-control/
+  session.json
+  terminal-intent.json
+  commands/<32hex-command-id>/
+    state.json
+    supervisor.lease
+    group.lease
+    stdout.recovery
+    stderr.recovery
+```
+
+`session.json` has exactly these fields:
+
+```json
+{
+  "schemaVersion": 1,
+  "sessionId": "0123456789abcdef0123456789abcdef",
+  "runId": "logical-1-attempt-1",
+  "ownerPid": 1234,
+  "ownerBirthIdentity": "platform-stable-process-start-token",
+  "state": "active",
+  "generation": 1,
+  "startedAt": "2026-07-11T00:00:00Z"
+}
+```
+
+`state` is `active`, `finalizing`, or `committed`. A session ID is 32 lowercase
+hexadecimal characters. `terminal-intent.json` binds the same session and
+generation, contains one nullable `primary` diagnostic plus a `secondary`
+array, and rejects a ninth secondary diagnostic. Each diagnostic contains only
+`status`, `classification`, `phase`, `errorCode`, `summary`, `hint`,
+`commandStatus`, `source`, and `recordedAt`; passed intent omits failure fields.
+
+Each command `state.json` has exactly these top-level fields:
+
+```json
+{
+  "schemaVersion": 1,
+  "commandId": "0123456789abcdef0123456789abcdef",
+  "sessionId": "fedcba9876543210fedcba9876543210",
+  "generation": 1,
+  "stage": "prepared",
+  "requestFingerprint": "sha256:<canonical-persisted-request>",
+  "request": {
+    "phase": "scenario.execute",
+    "name": "zmr-run",
+    "failureCode": "runner.unclassified",
+    "failurePolicy": "terminal",
+    "stopPolicy": "none",
+    "mode": "foreground",
+    "stdinPolicy": "devnull",
+    "sanitizedArgv": ["zmr", "run", "<absolute-path>"]
+  },
+  "paths": {
+    "metadata": "commands/zmr-run.json",
+    "stdout": "commands/zmr-run.stdout.log",
+    "stderr": "commands/zmr-run.stderr.log"
+  },
+  "startedEvent": {
+    "schemaVersion": 1,
+    "seq": 3,
+    "timestamp": "2026-07-11T00:00:01Z",
+    "phase": "scenario.execute",
+    "status": "started",
+    "command": "commands/zmr-run.json"
+  },
+  "supervisor": null,
+  "child": null,
+  "stopIntent": null,
+  "outcome": null,
+  "capture": null,
+  "materialized": null
+}
+```
+
+Only legal stage-specific null/object combinations are accepted. State advances
+monotonically through
+`prepared -> running -> stop_requested? -> exited -> materialized -> committed`.
+The prepared record is the write-ahead copy of the exact started event;
+materialized state binds hashes and sizes for both logs, metadata, and the exact
+terminal event. Raw argv, environment values, and raw output are never stored.
+Tests enforce the constants in this plan, relative paths only, immutable request
+fields, and rejection without mutation for corrupt, oversized, unknown-field,
+or mismatched-session state.
+
+- [ ] **Step 2: Run the state tests, implement the minimal state machine, and commit**
 
 Run:
 
 ```bash
-bash tests/run-evidence-script-test.sh
-bash tests/run-evidence-acceptance-test.sh
+python3 -W error -m unittest tests.run_evidence_cases.command_state -v
 ```
 
-Expected: FAIL because the adapter does not exist.
+Expected before implementation: FAIL because the modules and control-state
+contracts do not exist. Implement bounded strict decoding, atomic sibling-file
+replacement, canonical fingerprints, legal transitions, and rooted path
+validation. Run the command again; expected: PASS.
 
-- [ ] **Step 3: Implement the shell adapter**
+```bash
+git add scripts/run_evidence_lib/command_state.py scripts/run_evidence_lib/constants.py tests/run_evidence_cases/command_state.py
+git commit -m "feat(evidence): add durable command state"
+```
 
-Support wrapper mode:
+- [ ] **Step 3: Write failing command-recovery tests**
+
+Inject process death after every durable transition and assert this recovery
+table:
+
+| Durable state | Lease observation | Required recovery |
+| --- | --- | --- |
+| `prepared` | supervisor live | report busy; do not alter state |
+| stale `prepared` | supervisor free | append or verify the exact stored started event, publish bounded incomplete logs/metadata, and append exactly one `runner.command_supervisor_lost` terminal event |
+| `running` or `stop_requested` | supervisor live | report busy; finalization refuses |
+| `running` or `stop_requested` | supervisor free, group lease held, PID/birth/PGID still proven | mark orphaned, TERM the process group, wait two seconds, KILL if needed, and materialize incomplete recovered evidence |
+| `running` or `stop_requested` | both leases free | treat the group as gone and materialize incomplete recovered evidence |
+| `exited` | supervisor lost before materialization | retain the observed child result as secondary; make command recovery/capture loss primary |
+| `materialized` | outputs partially committed | verify matching hashes, complete only missing exact outputs/event, and never overwrite a mismatch |
+| `committed` | all bound outputs match | verify and remove that command's private state |
+| any stage | corrupt/unsafe state or unproven PID reuse | do not signal, delete, overwrite, or finalize; block mutation and publication |
+
+Recovered streams set `captureComplete: false` and `truncated: true`; recorded
+byte counts are lower bounds. Re-running recovery must be idempotent: the exact
+stored started and terminal events appear once, and a recovered command cannot
+produce a second terminal result.
+
+- [ ] **Step 4: Implement recovery, verify it, and commit**
+
+Implement recovery in `command_state.py`/`commands.py` and invoke it before every
+mutating lifecycle, command, session, or finalization operation. Read-only
+`validate-bundle` never recovers: it refuses any remaining
+`.evidence-control` tree. Once a committed receipt and every bound output have
+been verified, a later mutation may remove committed state so validation can
+proceed.
+
+Run:
+
+```bash
+python3 -W error -m unittest tests.run_evidence_cases.command_state tests.run_evidence_cases.commands tests.run_evidence_cases.bundle -v
+```
+
+Expected: PASS.
+
+```bash
+git add scripts/run_evidence_lib/command_state.py scripts/run_evidence_lib/commands.py scripts/run_evidence_lib/bundle.py tests/run_evidence_cases/command_state.py tests/run_evidence_cases/commands.py tests/run_evidence_cases/bundle.py
+git commit -m "feat(evidence): recover interrupted commands"
+```
+
+- [ ] **Step 5: Write failing short-lock and finalization-gate tests**
+
+Start a command that runs for more than five seconds. While it is running,
+append an ordinary event and start an independent command; both must complete
+their short critical sections without timing out. Race command launch against
+finalization and prove exactly one outcome: launch durably reaches `prepared`
+before finalization inspects it and finalization refuses, or finalization commits
+first and launch refuses. Also assert the eight-active-command ceiling and that
+a live or recoverable noncommitted command blocks terminal summary creation.
+
+The only valid nested lock order is:
+
+```text
+.transactions.lock
+  -> attempt-index lock (only when needed)
+  -> .commands.lock
+  -> .lifecycle.lock
+  -> .events.lock
+  -> per-command state lock
+```
+
+A caller may omit locks it does not need but may never acquire a listed lock
+after one to its right. No lock is held across spawn, wait, stream drain,
+sanitized replay, thread join, readiness/status polling, sleep, or signal
+delivery. `command-stop` records intent under the state lock, releases every
+lock, then signals. Command launch takes `.commands.lock`, rejects a terminal
+summary, recovers stale state, persists `prepared`, and commits the exact started
+event in short transactions. Finalization takes the same command gate, recovers,
+and refuses live/noncommitted state before creating a summary.
+
+- [ ] **Step 6: Refactor command execution to the short-lock protocol**
+
+Route the compatibility `command` entry point and the new command CLI through
+the state machine. Add `commandId`, `configuredFailureCode`, `captureComplete`,
+and an exact `termination` object to command metadata. `termination` records
+`kind` (`exit` or `signal`), numeric code/signal, whether stop was requested,
+the request kind, grace/escalation state, and the shell-visible status. Keep
+existing 10 MiB sanitized head/tail log semantics.
+
+Run:
+
+```bash
+python3 -W error -m unittest tests.run_evidence_cases.commands tests.run_evidence_cases.lifecycle tests.run_evidence_cases.cli -v
+```
+
+Expected: PASS, including the command-over-five-seconds concurrency test.
+
+```bash
+git add scripts/run_evidence_lib/commands.py scripts/run_evidence_lib/cli.py scripts/run_evidence_lib/lifecycle.py scripts/run_evidence_lib/summaries.py tests/run_evidence_cases/commands.py tests/run_evidence_cases/cli.py tests/run_evidence_cases/lifecycle.py
+git commit -m "refactor(evidence): keep command locks short"
+```
+
+- [ ] **Step 7: Write failing process-group, lease, and signal tests**
+
+Use real child/grandchild processes plus injected PID/birth-identity providers
+to prove:
+
+- every child starts in a new process session/group;
+- only the supervisor holds `supervisor.lease`, while `group.lease` is inherited
+  by the child and descendants;
+- SIGINT/SIGTERM received by the session owner persists cancellation intent
+  before forwarding TERM to active command groups;
+- an unexpected child signal is the caller's configured failure, not
+  cancellation;
+- an `expected-term` stop passes only when the requested signal ends the group
+  inside the two-second grace period;
+- KILL escalation is `runner.cleanup_failed`, even after requested cancellation;
+- a lost supervisor is `runner.command_supervisor_lost`;
+- a missing/closed group lease or changed PID birth identity never authorizes a
+  signal to a possibly reused PID/PGID.
+
+Kill the supervisor after `prepared`, after child spawn, after child exit, and
+during materialization. Recovery must follow the table in Step 3 without
+leaking a descendant or misclassifying a signal.
+
+- [ ] **Step 8: Implement process supervision and verify crash recovery**
+
+Implement concurrent stdout/stderr draining, supervisor/group leases, stable
+PID birth identity, process-group signalling, TERM/KILL timing, and exact
+termination metadata in `command_supervisor.py`. If the platform cannot prove a
+stored process identity, fail closed: retain the control state and block
+finalization instead of signalling.
+
+Run:
+
+```bash
+python3 -W error -m unittest tests.run_evidence_cases.command_supervisor tests.run_evidence_cases.command_state tests.run_evidence_cases.commands -v
+```
+
+Expected: PASS with no surviving test descendants.
+
+```bash
+git add scripts/run_evidence_lib/command_supervisor.py scripts/run_evidence_lib/command_state.py scripts/run_evidence_lib/commands.py tests/run_evidence_cases/command_supervisor.py tests/run_evidence_cases/command_state.py tests/run_evidence_cases/commands.py
+git commit -m "feat(evidence): supervise command process groups"
+```
+
+- [ ] **Step 9: Write failing bounded-capture tests**
+
+Cover `foreground`, `background`, `capture-stdout`, and `capture-both` with
+stdout-only, stderr-only, interleaved, non-UTF-8, NUL, trailing-newline, nonzero,
+and signalled commands. A stress child writes 256 MiB to each stream
+concurrently; the supervisor must not deadlock or retain unbounded memory.
+
+Requested raw streams are capped independently at 1 MiB and exist only in
+memory/pipes. Bash assignment follows command-substitution newline semantics.
+Raw capture overflow, a NUL byte, or a broken capture channel records
+`runner.capture_failed`; the child outcome remains secondary. Sanitized recovery
+spools/logs remain independently capped at 10 MiB per stream with first/final
+5 MiB retention. Secrets, credentials, and raw absolute paths may appear in the
+in-memory test value but never in state, logs, metadata, events, or diagnostics.
+
+- [ ] **Step 10: Implement capture modes, verify bounds, and commit**
+
+Implement bounded raw channels without temporary regular files. Do not pass a
+captured payload through argv or environment variables. Ensure xtrace is
+disabled before a raw value reaches the shell and restore the caller's prior
+xtrace/errexit state afterward.
+
+Run:
+
+```bash
+python3 -W error -m unittest tests.run_evidence_cases.command_supervisor tests.run_evidence_cases.commands tests.run_evidence_cases.sanitization -v
+```
+
+Expected: PASS, including the 256 MiB dual-stream stress case.
+
+```bash
+git add scripts/run_evidence_lib/command_supervisor.py scripts/run_evidence_lib/commands.py tests/run_evidence_cases/command_supervisor.py tests/run_evidence_cases/commands.py
+git commit -m "feat(evidence): add bounded command capture"
+```
+
+- [ ] **Step 11: Write failing owner/borrower and terminal-intent tests**
+
+The first adapter process for an attempt claims ownership and exports
+`ZMR_EVIDENCE_SESSION_ID`; instrumented descendants that inherit that value are
+borrowers. Assert:
+
+- an independent second owner is rejected while the stored owner PID and birth
+  identity are live;
+- borrowers may append events, run commands, register cleanup, and defer a
+  failure, but cannot finalize pass or commit the run summary;
+- a borrower exit never finalizes the owner's attempt;
+- orphan takeover requires the exact stored owner process to be gone and no
+  live supervisor lease; generation increments on takeover;
+- one primary and at most eight secondary terminal diagnostics survive nested
+  scripts and signals without last-writer-wins loss;
+- owner EXIT runs registered cleanup in LIFO order, requests stops for every
+  remaining background handle, recovers command state, resolves terminal
+  intent, finalizes exactly once, then validates the bundle.
+
+Terminal resolution order is fixed:
+
+1. evidence write/recovery/finalization failure;
+2. cleanup failure or expected-stop escalation;
+3. explicit/deferred classified failure under the public precedence registry;
+4. requested cancellation only when cleanup and evidence are healthy;
+5. a nonzero unclassified shell exit as `runner.unclassified`;
+6. pass.
+
+- [ ] **Step 12: Implement session ownership and owner-only finalization**
+
+Implement `session-claim`, `session-status`, `session-intent`, and
+`session-finalize`. Persist the owner PID's platform-stable birth identity, not
+only its numeric PID. Transition the session `active -> finalizing -> committed`
+around the existing durable finalization receipt. The same call verifies the
+committed summary/receipt and removes fully committed control state before
+bundle validation; a retry completes that verification/removal after a crash at
+any point in the sequence.
+
+Run:
+
+```bash
+python3 -W error -m unittest tests.run_evidence_cases.session tests.run_evidence_cases.lifecycle tests.run_evidence_cases.command_state -v
+```
+
+Expected: PASS.
+
+```bash
+git add scripts/run_evidence_lib/session.py scripts/run_evidence_lib/cli.py scripts/run_evidence_lib/summaries.py scripts/run_evidence_lib/bundle.py tests/run_evidence_cases/session.py tests/run_evidence_cases/cli.py tests/run_evidence_cases/lifecycle.py tests/run_evidence_cases/bundle.py
+git commit -m "feat(evidence): add owner-only finalization"
+```
+
+- [ ] **Step 13: Write failing GNU Bash 3.2 adapter tests**
+
+Run every adapter test with `/bin/bash`, assert it is compatible with GNU Bash
+3.2 syntax, and cover wrapper mode:
 
 ```text
 scripts/run-evidence.sh \
@@ -613,69 +1034,139 @@ scripts/run-evidence.sh \
   -- <command> [args...]
 ```
 
-And sourced-library functions when `ZMR_RUN_EVIDENCE_ROOT` is set:
+The sourced API is:
 
 ```bash
+zmr_evidence_register_cleanup <function> [args...]
 zmr_evidence_event <phase> <status> [error-code] [summary] [artifact]
 zmr_evidence_run <phase> <name> <failure-code> -- <command> [args...]
+zmr_evidence_try <phase> <name> <failure-code> -- <command> [args...]
 zmr_evidence_capture <destination-variable> <phase> <name> <failure-code> -- <command> [args...]
-zmr_evidence_run_background <phase> <name> <failure-code> -- <command> [args...]
-zmr_evidence_wait <evidence-child-id>
+zmr_evidence_capture_both <stdout-variable> <stderr-variable> <phase> <name> <failure-code> -- <command> [args...]
+zmr_evidence_run_background <handle-variable> <phase> <name> <failure-code> [--expected-stop] -- <command> [args...]
+zmr_evidence_wait <command-id>
+zmr_evidence_stop <command-id> <expected|cancel>
+zmr_evidence_delegate <phase> <name> <failure-code> -- <instrumented-script> [args...]
 zmr_evidence_update_context <json-patch>
 zmr_evidence_finalize_pass
 zmr_evidence_finalize_failure <classification> <phase> <code> <summary> <hint> [status]
 ```
 
-The wrapper installs EXIT/INT/TERM traps, preserves the wrapped command status,
-and always validates the complete sanitized bundle before returning.
-`zmr_evidence_run` delegates to `run_evidence.py command`; scripts must not
-manually redirect an evidence-enabled setup subprocess because that would bypass
-bounded capture and redaction. Background commands use
-`zmr_evidence_run_background`/`zmr_evidence_wait`, which retain the child PID but
-finalize the same metadata/log record only after wait observes its true status.
-For discovery commands whose stdout drives later shell logic,
-`zmr_evidence_capture` assigns raw stdout to the named shell variable only in
-memory with xtrace disabled, while persisting/replaying only its sanitized form;
-the raw value is never written beneath the publication root. Integration tests
-cover spaces/newlines, nonzero status, and a secret-bearing captured value.
+The two `zmr_evidence_finalize_*` names are compatibility APIs: they persist
+pass/failure intent only. They never write a summary directly; only the owner
+EXIT dispatcher calls `session-finalize` after cleanup and recovery.
 
-- [ ] **Step 4: Add the new tests to fast and release gates**
+`try` selects handled-failure policy for retries. `delegate` preserves the
+session ID so the nested script is a borrower. Background command IDs are
+assigned to the caller's destination variable with `printf -v` and registered
+in indexed arrays in the current shell; callers must not use command
+substitution to obtain a background handle. Tests preserve caller errexit and
+xtrace settings, spaces/newlines, status, nested borrowing, stdin inheritance,
+expected stops, cancellation, and cleanup order. They also reject unsupported
+destination names without evaluating them as shell code.
+
+- [ ] **Step 14: Implement the thin adapter, verify it, and commit**
+
+The adapter uses indexed arrays only and delegates every state mutation to the
+Python CLI. Owner INT/TERM traps persist cancellation intent before requesting
+command stops. The owner EXIT dispatcher is the only path that may call
+`session-finalize`; borrower traps only persist a deferred failure. No trap
+silently converts an unexpected signal into cancellation.
+
+Run:
+
+```bash
+/bin/bash -n scripts/run-evidence.sh
+/bin/bash tests/run-evidence-script-test.sh
+python3 -W error -m unittest tests.run_evidence_cases.cli tests.run_evidence_cases.session -v
+```
+
+Expected: PASS under the system Bash 3.2 baseline.
+
+```bash
+git add scripts/run-evidence.sh tests/run-evidence-script-test.sh scripts/run_evidence_lib/cli.py scripts/run_evidence_lib/session.py tests/run_evidence_cases/cli.py tests/run_evidence_cases/session.py
+git commit -m "feat(evidence): add Bash 3.2 lifecycle adapter"
+```
+
+- [ ] **Step 15: Build the table-driven failure and concurrency acceptance harness**
+
+Inject failures at all seven approved boundaries:
+
+| Boundary | Phase | Expected code/classification |
+| --- | --- | --- |
+| emulator/simulator acquisition | `device.acquire` | `infra.emulator_provision` or `infra.simulator_provision` / `infrastructure_failure` |
+| app install (missing artifact) | `app.install` | `config.app_artifact_missing` / `configuration_failure` |
+| shim build | `shim.build` | `runner.ios_shim.build_failed` / `runner_failure` |
+| shim readiness | `shim.prewarm` | `runner.ios_shim.readiness_timeout` / `runner_failure` |
+| scenario execution | `scenario.execute` | proven healthy-driver `app.assertion_failed` / `app_failure` |
+| report generation | `report.generate` | `runner.report_failed` / `runner_failure` |
+| summary validation | `evidence.finalize` | `runner.evidence_invalid` / `runner_failure` |
+
+Task 4's fake driver supplies those ownership decisions explicitly. Task 5 is
+responsible for deriving real iOS ownership from the stable run-outcome sidecar;
+neither the supervisor nor this harness may classify a real command by matching
+stderr.
+
+For every row, assert the original shell-visible command status, exactly one
+terminal schema-valid summary, ordered individually valid JSONL events, one
+metadata record with bounded stdout/stderr logs for every executed command,
+sanitized paths/secrets, and the exact precedence-derived
+phase/code/classification. Add rows for unknown failure, missing app,
+unsupported device, cancellation, cancellation plus cleanup failure, unexpected
+signal, expected TERM, TERM-to-KILL escalation, supervisor loss, raw-capture
+overflow, corrupt private state, and evidence invalidation.
+
+Add race/crash cases for a command running longer than five seconds while an
+event is appended, concurrent command launch versus finalization, all durable
+state transitions, nested owner/borrower delegation, rejected independent
+ownership, orphan takeover, PID reuse, and 256 MiB concurrent stdout/stderr.
+`validate-bundle` must refuse live/private state and succeed only after verified
+recovery removes committed control data.
+
+- [ ] **Step 16: Add the tests to gates, run the complete Task 4 suite, and commit**
 
 Insert:
 
 ```bash
 run "python3 -W error -m unittest tests/run_evidence_test.py"
-run "bash tests/run-evidence-script-test.sh"
-run "bash tests/run-evidence-acceptance-test.sh"
+run "/bin/bash tests/run-evidence-script-test.sh"
+run "/bin/bash tests/run-evidence-acceptance-test.sh"
 ```
 
-Update dry-run assertions accordingly.
-
-- [ ] **Step 5: Run focused tests**
-
-Run:
+Update dry-run assertions, then run:
 
 ```bash
-bash tests/run-evidence-script-test.sh
-bash tests/run-evidence-acceptance-test.sh
+python3 -W error -m unittest tests/run_evidence_test.py
+/bin/bash tests/run-evidence-script-test.sh
+/bin/bash tests/run-evidence-acceptance-test.sh
 bash tests/ci-gate-script-test.sh
 bash tests/release-gate-script-test.sh
-bash -n scripts/run-evidence.sh
+/bin/bash -n scripts/run-evidence.sh
 ```
 
-Expected: all pass.
-
-- [ ] **Step 6: Commit**
+Expected: all pass; no descendant process or `.evidence-control` tree remains
+after a successfully finalized test attempt.
 
 ```bash
-git add scripts/run-evidence.sh tests/run-evidence-script-test.sh tests/run-evidence-acceptance-test.sh scripts/ci-gate.sh scripts/release-gate.sh tests/ci-gate-script-test.sh tests/release-gate-script-test.sh
-git commit -m "feat(evidence): add trap-safe command wrapper"
+git add tests/run_evidence_test.py tests/run-evidence-acceptance-test.sh scripts/ci-gate.sh scripts/release-gate.sh tests/ci-gate-script-test.sh tests/release-gate-script-test.sh
+git commit -m "test(evidence): gate durable command supervision"
 ```
 
 ## Task 5: Instrument demos, pilots, and device-matrix attempts
 
 **Files:**
 
+- Create: `src/run_outcome.zig`
+- Create: `src/run_outcome_tests.zig`
+- Create: `scripts/run_evidence_lib/run_outcome.py`
+- Create: `tests/run_evidence_cases/run_outcome.py`
+- Modify: `src/cli_run.zig`
+- Modify: `src/cli_output.zig`
+- Modify: `src/cli_run_tests.zig`
+- Modify: `src/cli_output_tests.zig`
+- Modify: `src/main_tests.zig`
+- Modify: `scripts/run_evidence_lib/cli.py`
+- Modify: `tests/run_evidence_test.py`
 - Modify: `scripts/demo-android-real.sh`
 - Modify: `scripts/demo-ios-real.sh`
 - Modify: `scripts/run-android-pilot.sh`
@@ -687,7 +1178,126 @@ git commit -m "feat(evidence): add trap-safe command wrapper"
 - Modify: `tests/ios-pilot-script-test.sh`
 - Modify: `tests/device-matrix-test.sh`
 
-- [ ] **Step 1: Extend fake-script tests with an evidence context**
+- [ ] **Step 1: Write failing iOS provenance and run-outcome contract tests**
+
+Add `--outcome-file <attempt-relative-path>` and
+`--ios-shim-mode <disabled|generated|provided>` parsing tests without changing
+the existing `--json` stdout contract. Preserve compatibility by normalizing an
+omitted mode to `disabled` when no shim path is present and `provided` when the
+existing `--ios-shim` flag is present. An explicit `generated` or `provided`
+mode requires a shim path; explicit `disabled` forbids one.
+
+Simulator and physical invocations are independent provenance rows. The
+selected target kind must be recorded and no simulator shim path/mode may be
+silently reused for a physical run or vice versa. The generated demo explicitly
+selects `generated`; an app-supplied path selects `provided`; a smoke path with
+no selector shim selects `disabled`.
+
+The producer-to-wrapper sidecar is an internal, versioned M0 contract with a
+64 KiB maximum and no unknown fields:
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "failureOwner": "app",
+  "errorCode": "app.assertion_failed",
+  "phase": "scenario.execute",
+  "summary": "Scenario assertion failed while the driver remained healthy",
+  "hint": "Inspect the trace failure and app state",
+  "trace": "traces/ios-run-1",
+  "report": null,
+  "childStatus": 1,
+  "iosShim": {
+    "targetKind": "simulator",
+    "mode": "generated",
+    "digest": "sha256:<digest>"
+  }
+}
+```
+
+`status` is `passed`, `failed`, or `cancelled`. `failureOwner` is one of
+`none`, `runner`, `app`, `configuration`, or `infrastructure`. Passed rows use
+`phase: "complete"`, owner `none`, and null failure fields. Cancelled rows also
+use owner `none` and the stable `run.cancelled` code. Failed/cancelled rows
+require a stable code, phase, summary, and hint. Trace/report references are
+null or normalized attempt-relative paths. `iosShim` is null for Android and a
+target-specific object for iOS; its digest is null for `disabled` and a SHA-256
+digest when available.
+
+When `--outcome-file` is present, `ZMR_RUN_EVIDENCE_ROOT` is required and the
+path must normalize beneath `run-outcomes/` in that attempt. The sidecar is
+registered from a bootstrap event, scanned with the publishable bundle, and
+must contain only sanitized data. It is durable diagnostic evidence but does
+not add a public JSON Schema in M0.
+
+The consumer binds the filename's command ID to committed command metadata and
+requires any non-null `childStatus` to match that metadata's shell-visible
+status. A path, command, session, status, or artifact mismatch is evidence
+invalidation, not an opportunity to guess which source is correct.
+
+Test atomic replacement and failure before replacement, no-symlink/path escape,
+strict bounded decoding, handled `zmr run` failure, and a sidecar-write failure.
+The sidecar must be durable before `zmr run` returns success or a handled run
+error. `scripts/run_evidence_lib/run_outcome.py` validates it, registers
+trace/report through the evidence context API, and translates ownership into a
+session terminal intent. It does not parse stderr.
+
+Task 5 adds this internal evidence CLI for the shell integration:
+
+```text
+run_evidence.py consume-outcome --root <dir> --session-id <32hex>
+                                --path run-outcomes/<command-id>.json
+```
+
+It returns success when the sidecar was valid and consumed regardless of the
+represented app/runner outcome; the adapter separately preserves the supervised
+child's shell-visible status after recording the structured terminal intent.
+
+Ownership tests are exact:
+
+- missing/contradictory shim configuration is `configuration` with
+  `config.invalid`; a disabled shim for a required selector capability is
+  `config.unsupported_capability`;
+- shim build/start/prewarm/protocol failures after valid configuration are
+  `runner` with the existing `runner.ios_shim.*` or
+  `runner.driver_protocol` code;
+- an assertion/app crash is `app` only when the structured runner/trace outcome
+  proves the driver and evidence path remained healthy;
+- anything unproven is `runner`/`runner.unclassified`;
+- a missing, malformed, oversized, or mismatched mandatory outcome sidecar is
+  evidence failure, `runner.evidence_invalid`.
+
+- [ ] **Step 2: Run outcome tests and verify failure**
+
+Run:
+
+```bash
+zig build test --summary all
+python3 -W error -m unittest tests.run_evidence_cases.run_outcome -v
+```
+
+Expected: FAIL because the sidecar module, flags, and consumer do not exist.
+
+- [ ] **Step 3: Implement the atomic sidecar and consumer, then commit**
+
+Build one structured in-memory result, preserve the existing `--json` stdout
+fields and behavior, and serialize the additional ownership/provenance contract
+only to an atomic sibling temporary file followed by rename when requested.
+Keep raw local paths and stderr out of that contract. A runner error must be
+captured into the sidecar before it is returned to the CLI dispatcher. The
+Python consumer reads only a rooted regular file, validates the exact contract,
+registers it in a bootstrap event, sanitizes diagnostics, updates trace/report
+context, and persists terminal intent outside `command_supervisor.py`.
+
+Run the commands from Step 2. Expected: PASS.
+
+```bash
+git add src/run_outcome.zig src/run_outcome_tests.zig src/cli_run.zig src/cli_output.zig src/cli_run_tests.zig src/cli_output_tests.zig src/main_tests.zig scripts/run_evidence_lib/run_outcome.py scripts/run_evidence_lib/cli.py tests/run_evidence_cases/run_outcome.py tests/run_evidence_test.py
+git commit -m "feat(evidence): add atomic run outcome sidecar"
+```
+
+- [ ] **Step 4: Extend fake-script tests with an evidence context**
 
 For each wrapper, set `ZMR_RUN_EVIDENCE_ROOT` to a temporary initialized run and
 assert the expected phase sequence. Minimum phase coverage:
@@ -708,7 +1318,13 @@ bounded stdout/stderr plus metadata for every executed command, sanitized
 content, and exact phase/code/classification. The acceptance test is the common
 exhaustive table; each demo/pilot test covers the rows its platform owns.
 
-- [ ] **Step 2: Run focused tests and verify failure**
+For iOS, run separate simulator/physical fixtures across `disabled`,
+`generated`, and `provided` modes. Assert that scripts consume the atomic
+sidecar for terminal ownership and trace/report registration. Stderr substring
+matching may decide whether an existing `simctl` retry is transient, but it may
+not determine the final failure owner, classification, or stable error code.
+
+- [ ] **Step 5: Run focused tests and verify failure**
 
 Run:
 
@@ -722,7 +1338,7 @@ bash tests/device-matrix-test.sh
 
 Expected: new evidence assertions fail.
 
-- [ ] **Step 3: Source the adapter without changing behavior when disabled**
+- [ ] **Step 6: Source the adapter and instrument commands without changing disabled behavior**
 
 At each script's initialization:
 
@@ -734,14 +1350,30 @@ source "$ROOT/scripts/run-evidence.sh"
 Every evidence helper must be a no-op when `ZMR_RUN_EVIDENCE_ROOT` is unset, so
 existing app-local scripts and output remain compatible.
 
-- [ ] **Step 4: Emit phase boundaries around existing commands**
+Refactor each script's central run/capture/background helper to delegate every
+build, device acquisition/preflight, install, shim build/start/readiness,
+scenario, report, and cleanup subprocess to `zmr_evidence_run`,
+`zmr_evidence_try`, `zmr_evidence_capture`, `zmr_evidence_capture_both`, or the
+background/wait/stop API. Instrumented demo-to-pilot calls use
+`zmr_evidence_delegate`, so the nested pilot borrows the existing session. The
+adapter emits before/after events and command records; do not emit duplicate
+boundaries. When evidence is disabled, each helper executes the same command
+directly with unchanged stdout, stderr, status, stdin, and retry behavior.
 
-Refactor each script's central `run`/capture/background helper to delegate every build,
-device acquisition/preflight, install, shim build/start/readiness, scenario,
-report, and cleanup subprocess to `zmr_evidence_run`, `zmr_evidence_capture`, or
-the background/wait pair. The adapter emits the before/after events and command records; do not also
-emit duplicate boundaries. When evidence is disabled, the helper executes the
-same command directly with unchanged stdout, stderr, status, and retry behavior.
+Map platform mechanics onto Task 4 rather than changing the generic supervisor:
+
+- the iOS shim prewarm pipeline uses foreground `stdin-policy=inherit` so its
+  JSON request remains intact;
+- each retryable simulator install attempt uses handled-failure policy and
+  bounded dual capture; only the final exhausted attempt supplies terminal
+  intent;
+- long-lived emulator, Metro, recorder, and shim processes use background
+  handles plus `expected-term` stop policy where termination is normal cleanup;
+- cleanup registers before the command that creates the resource, runs LIFO,
+  and turns escalation into `runner.cleanup_failed`;
+- `zmr run` receives a unique attempt-relative `--outcome-file`; after wait,
+  the Python outcome consumer—not stderr—registers trace/report paths and
+  terminal ownership.
 
 For a command failure, emit the primary error code before returning. Unknown
 failures remain runner failures. A healthy-driver scenario assertion failure is
@@ -749,7 +1381,7 @@ failures remain runner failures. A healthy-driver scenario assertion failure is
 `config.app_artifact_missing`; known hosted provisioning failures use the
 matching `infra.*` code.
 
-- [ ] **Step 5: Give matrix rows stable logical/attempt identity**
+- [ ] **Step 7: Give matrix rows stable logical/attempt identity**
 
 Derive:
 
@@ -769,12 +1401,18 @@ raw comparability tuple. Tests create two retries and prove unique `runId`, one
 attempt 1, monotonic attempt numbers, stable comparability identity, and retained
 first-attempt failure evidence.
 
-- [ ] **Step 6: Run the focused script suite**
+- [ ] **Step 8: Run the focused script suite**
 
-Run the commands from Step 2. Expected: all pass and existing non-evidence
-assertions remain unchanged.
+Run the commands from Step 5 plus:
 
-- [ ] **Step 7: Commit**
+```bash
+zig build test --summary all
+python3 -W error -m unittest tests.run_evidence_cases.run_outcome -v
+```
+
+Expected: all pass and existing non-evidence assertions remain unchanged.
+
+- [ ] **Step 9: Commit script instrumentation**
 
 ```bash
 git add scripts/demo-android-real.sh scripts/demo-ios-real.sh scripts/run-android-pilot.sh scripts/run-ios-pilot.sh scripts/device-matrix.sh tests/android-real-demo-script-test.sh tests/ios-real-demo-script-test.sh tests/android-pilot-script-test.sh tests/ios-pilot-script-test.sh tests/device-matrix-test.sh

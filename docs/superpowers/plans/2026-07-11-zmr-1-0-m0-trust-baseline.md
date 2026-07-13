@@ -738,7 +738,8 @@ an adapter it joins the inherited session. For background mode, the adapter
 starts `command-supervise` as a shell background job, registers the command ID
 before spawn, and polls `command-status` for verified `running`/
 `stop_requested` or fully `committed` for at most five seconds. `prepared`,
-`exited`, and `materialized` are transitional and are not ready.
+`anchored`, `anchor_stop_requested`, `exited`, and `materialized` are
+transitional and are not ready.
 `command-status --wait` may block for child completion but never holds an
 evidence lock while waiting. Its strict JSON query succeeds with exit zero and
 contains the stored `shellStatus`; the adapter returns that status. A readiness
@@ -769,6 +770,12 @@ tree and is opened with rooted, no-symlink safety:
     stderr.recovery
 ```
 
+Every private directory has exact mode `0700` and every private file exact mode
+`0600`; wrong or special bits are corruption and are never silently repaired.
+Lease identities use canonical `<device>:<inode>` syntax whose two components
+are unsigned decimal 64-bit integers without signs, whitespace, or leading zero
+except the value `0` itself.
+
 `session.json` has exactly these fields:
 
 ```json
@@ -791,7 +798,9 @@ mutable current generation: it contains `schemaVersion`, `sessionId`,
 Each persisted diagnostic contains only `status`, `classification`, `phase`,
 `errorCode`, `summary`, `hint`, `commandStatus`, `source`, `recordedAt`, and a
 server-assigned `ordinal` and `recordedGeneration`; callers cannot supply the
-last three fields. Passed
+last three fields. Summary and hint are each capped at 512 UTF-8 bytes and
+unsafe control characters are rejected, ensuring nine worst-case escaped
+diagnostics fit the fixed 32 KiB document bound. Passed
 intent omits failure fields. Updates atomically deduplicate identical
 diagnostics over the normalized caller fields (everything except the three
 server fields), but only against the currently retained primary-plus-secondary
@@ -844,7 +853,13 @@ Each command `state.json` has exactly these top-level fields:
   "supervisor": {
     "pid": 1234,
     "birthIdentity": "linux:boot-id:start-ticks",
-    "leaseIdentity": "device:inode"
+    "leaseIdentity": "123:456",
+    "role": "launch",
+    "predecessor": null
+  },
+  "anchorReservation": {
+    "groupLeaseIdentity": "123:457",
+    "controlProtocolVersion": 1
   },
   "anchor": null,
   "child": null,
@@ -856,11 +871,13 @@ Each command `state.json` has exactly these top-level fields:
 ```
 
 Only legal stage-specific null/object combinations are accepted. State advances
-monotonically through
-`prepared -> running -> stop_requested? -> exited -> materialized -> committed`.
-The sole branch around `running` is
-`prepared -> exited(exec_failure:127) -> materialized -> committed` for an
-exact negative exec handshake.
+monotonically through `prepared -> anchored -> running -> stop_requested? ->
+exited -> materialized -> committed`. `anchored -> anchor_stop_requested ->
+exited(stopped_before_ack)` handles a stop before positive exec acknowledgement.
+The exact negative exec handshake is `anchored -> exited(exec_failure:127)`.
+`prepared`, `anchored`, `anchor_stop_requested`, `running`, and
+`stop_requested` may terminate as `exited(supervisor_failure:125)` under the
+strict role and identity rules below.
 `creationGeneration` never changes and may be less than the authoritative
 current `session.json.generation` after takeover. Mutation authorization always
 checks the caller's current session generation separately. The immutable
@@ -875,16 +892,20 @@ The strict non-null running-stage identities are:
   "supervisor": {
     "pid": 1234,
     "birthIdentity": "platform-stable-token",
-    "leaseIdentity": "device:inode",
+    "leaseIdentity": "123:456",
     "role": "launch",
     "predecessor": null
+  },
+  "anchorReservation": {
+    "groupLeaseIdentity": "123:457",
+    "controlProtocolVersion": 1
   },
   "anchor": {
     "pid": 1235,
     "birthIdentity": "platform-stable-token",
     "sid": 1235,
     "pgid": 1235,
-    "groupLeaseIdentity": "device:inode",
+    "groupLeaseIdentity": "123:457",
     "controlProtocolVersion": 1
   },
   "child": {
@@ -898,17 +919,39 @@ The strict non-null running-stage identities are:
 `role` is `launch` or `recovery`; `predecessor` is null or the SHA-256 digest of
 the canonical prior supervisor object. A recovery claim replaces `supervisor`
 with the exact claimant and stores that bounded digest, never a recursive chain.
-Prepared requires only non-null supervisor. Running requires non-null
-supervisor/anchor/child and null stop/outcome/materialized. Stop-requested adds
-only non-null stop intent. Exited requires outcome and capture, with stop intent
-optional; materialized adds the hash bindings; committed retains all historical
-identity/outcome objects. Anchor PID, SID, and PGID must be equal and all PIDs
+`leaseIdentity` remains the same stable `supervisor.lease` device/inode across
+launch and every recovery claim; only PID, birth identity, role, and predecessor
+identify the new claimant.
+`anchorReservation` has exactly the future anchor's `groupLeaseIdentity` and
+`controlProtocolVersion`; both are immutable and cross-bound to the actual
+stable group-lease inode. Prepared requires only non-null supervisor and
+reservation. Entry into anchored requires the verified launch supervisor; a
+later same-stage recovery claim may replace it. Anchored requires an anchor
+with null child/stop/outcome/capture/materialization. Anchor-stop-requested adds only
+stop intent while child remains null. Running adds the acknowledged child;
+stop-requested adds stop intent. Exited requires outcome and capture;
+materialized adds hash bindings; committed retains all historical objects.
+Once a pre-exit state has a recovery-role supervisor it may only retain its
+stage, persist stop intent via anchored-to-anchor-stop-requested or
+running-to-stop-requested, and then terminate as supervisor failure. Normal
+exit/signal, exec-failure, and stopped-before-ack results are forbidden. Anchor
+PID, SID, and PGID must be equal and all PIDs
 are positive and distinct where the OS reports distinct processes. Unknown
 fields, illegal null combinations, identity mutation outside the recovery
 claim rule, or a fingerprint mismatch are corruption.
 
+Stop intent has exactly `{kind, requestedAt, killAuthorizedAt}`. Expected stop
+is legal only when request `stopPolicy` is `expected-term`; cancellation is
+always legal. The initial anchored/running stop transition requires
+`killAuthorizedAt: null`. After the grace deadline, the current lease holder
+must atomically persist and fsync the sole legal same-stage stop-intent mutation
+from null to a UTC timestamp no earlier than `requestedAt` before sending KILL.
+The timestamp is immutable write-ahead proof of `runner.cleanup_failed` across
+crash recovery. Recovery claim and kill authorization are separate transitions
+and may not alter any other fields.
+
 The direct negative exec-handshake branch has exactly this exited-stage shape;
-no other `prepared -> exited` shape is legal:
+no other `anchored -> exited` exec-failure shape is legal:
 
 ```text
 supervisor = <the verified launch supervisor object>
@@ -936,23 +979,71 @@ Consequently `child.execAcknowledgedAt` is mandatory only for the positive
 handshake that enters `running`. A missing, malformed, timed-out, or transport-
 failed handshake is a supervisor/capture failure, not status-127 exec failure.
 
+The exact supervisor-control failure outcome is:
+
+```text
+outcome = {kind: "supervisor_failure",
+           errorCode: "runner.command_supervisor_lost" | "runner.capture_failed",
+           exitStatus: null, signal: null, shellVisibleStatus: 125,
+           failedAt: <RFC3339 UTC timestamp>}
+capture = {captureComplete: false,
+           stdout: {originalBytes: N, sanitizedBytes: M, storedBytes: M,
+                    truncated: true},
+           stderr: {originalBytes: N, sanitizedBytes: M, storedBytes: M,
+                    truncated: true}}
+```
+
+Counts are lower bounds. Supervisor loss requires a recovery-role claimant with
+the exact predecessor digest. Capture failure may be recorded by a verified
+launch or recovery supervisor. Reservation and identities known at the source
+stage are retained. If stop arrives while anchored but before exec
+acknowledgement, the only normal terminal branch is `stopped_before_ack` with
+exact fields `kind`, `requestKind`, `graceExpired`, `escalated`,
+`shellVisibleStatus`, and `stoppedAt`. Healthy expected stop is
+`false,false,0`; healthy cancellation is `false,false,130`; escalation is
+`true,true,125` and records `runner.cleanup_failed`. Mixed booleans or any other
+status are corrupt. Those flags cross-bind exactly to
+`stopIntent.killAuthorizedAt`; they are not the escalation authority. Every
+non-supervisor-failure outcome has `captureComplete: true`. A normal
+exit/signal's shell-visible status is its natural child status without a stop,
+`0` for healthy expected stop, `130` for healthy cancellation, and `125` when
+KILL was authorized.
+
 The prepared record is the write-ahead copy of the exact started event and
-always contains the verified identity of the process holding the stable
-`supervisor.lease` inode. Under commands -> lifecycle -> events -> state-lock,
-launch allocates the exact event and paths, fsyncs `prepared`, then appends and
-fsyncs that exact event. No anchor or child is spawned before both records
-verify. Every event allocation briefly takes `.commands.lock`; recovery fills a
-missing stored sequence only when it is exactly next, accepts already identical
-bytes, and treats an occupied different sequence as corruption.
-`running` is persisted only after anchor lease/identity, bounded control pipes,
-and a positive child exec acknowledgement verify. A direct negative handshake
-uses the strict `prepared -> exited(exec_failure:127)` shape above and is never
-advertised as running.
+always contains the verified launch identity of the process holding the stable
+`supervisor.lease` descriptor and the actual reserved `group.lease` inode.
+Reservation creates every stable command file before state exists. Creating
+prepared verifies the still-live descriptor with `fstat`, its rooted path and
+identity, exclusive ownership, and the current supervisor PID; an identity
+string alone grants no authority. Under commands -> lifecycle -> events ->
+state-lock, launch allocates the exact event and paths, fsyncs `prepared`, then
+appends and fsyncs that exact event. No anchor or child is spawned before both
+records verify. Every event allocation briefly takes `.commands.lock`; recovery
+fills a missing stored sequence only when it is exactly next, accepts already
+identical bytes, and treats an occupied different sequence as corruption.
+
+The anchor acquires and verifies the exact reserved group lease, reports its
+identity, and waits. The supervisor persists/fsyncs/re-reads `anchored` before
+sending `GO`; the anchor never forks or execs before `GO` and exits on supervisor
+EOF before `GO`. Stale prepared recovery holds the free supervisor lease,
+acquires the exact group lease, and re-reads prepared before recording
+supervisor loss; a held group lease means busy/wait with no mutation. Running is
+persisted only after a positive child exec acknowledgement. A direct negative
+handshake uses the strict `anchored -> exited(exec_failure:127)` shape above and
+is never advertised as running. Authority-sensitive actions immediately
+re-verify persisted lease identities against the still-held descriptors. Every
+rooted read cross-binds the supervisor, reservation, and non-null anchor lease
+identities to the visible stable files; every rooted command-state mutation
+also verifies the candidate supervisor's current PID and identity against the
+live held supervisor descriptor immediately before writing.
 materialized state binds hashes and sizes for both logs, metadata, and the exact
-terminal event. Raw argv, environment values, and raw output are never stored.
-Tests enforce the constants in this plan, relative paths only, immutable request
-fields, and rejection without mutation for corrupt, oversized, unknown-field,
-or mismatched-session state.
+terminal event; each log binding size equals its capture `storedBytes`. Raw
+argv, environment values, and raw output are never stored.
+Command state is capped at 256 KiB so every admitted 64 KiB sanitized argv,
+including worst-case JSON quotes/backslashes, remains encodable. Tests enforce
+the constants in this plan, relative paths only, immutable request fields, and
+rejection without mutation for corrupt, oversized, unknown-field, or
+mismatched-session state.
 
 - [ ] **Step 2: Run the state tests, implement the minimal state machine, and commit**
 
@@ -979,19 +1070,24 @@ table:
 
 Include distinct launch faults before prepared, after prepared but before the
 exact event append, after that append but before anchor spawn, after anchor
-spawn but before exec acknowledgement, and immediately after acknowledgement.
+lease acquisition/report, after anchor report but before `anchored`, after
+`anchored` but before `GO`, after `GO` but before exec acknowledgement, and
+immediately after acknowledgement.
 Every case yields zero or exactly one byte-identical started event, never
 allocates over a different occupied sequence, and proves no child was spawned
 before durable started evidence.
 
 | Durable state | Lease observation | Required recovery |
 | --- | --- | --- |
+| reserved directory without `state.json` | exact five-file empty layout is byte-stable after acquiring the free state lock plus supervisor/group leases and re-reading under `.commands.lock` | remove it as never prepared and emit no command event |
+| reserved directory without `state.json` | any file content, mode, identity, unknown entry, or lock/lease observation disagrees | retain it as unsafe; block mutation and finalization |
 | `prepared` | supervisor live | report busy; do not alter state |
-| stale `prepared` | supervisor lease free | claim recovery, append or verify the exact stored started event, publish bounded incomplete logs/metadata, and append exactly one `runner.command_supervisor_lost` terminal event |
-| `running` or `stop_requested` | supervisor live | report busy; finalization refuses |
-| `running` or `stop_requested` | supervisor free; anchor lease, PID/birth/SID/PGID agree | claim recovery, TERM the anchored process group, wait two seconds, KILL if needed, and materialize incomplete recovered evidence |
-| `running` or `stop_requested` | group lease free; anchor identity absent; two settlement-separated `killpg(pgid, 0)` probes return `ESRCH` | treat the group as gone and materialize incomplete recovered evidence |
-| `running` or `stop_requested` | lease, anchor identity, membership, or signal probe disagree | treat as corruption; do not signal or finalize |
+| stale `prepared` | supervisor lease free; exact reserved group lease held | report busy or wait for the pre-`anchored` anchor to exit; do not mutate state |
+| stale `prepared` | supervisor lease and exact reserved group lease free; state still byte-identical after both claims | claim recovery, append or verify the exact stored started event, persist the recovery supervisor, publish bounded incomplete logs/metadata, and append exactly one `runner.command_supervisor_lost` terminal event |
+| `anchored`, `anchor_stop_requested`, `running`, or `stop_requested` | supervisor live | report busy; finalization refuses |
+| `anchored`, `anchor_stop_requested`, `running`, or `stop_requested` | supervisor free; anchor lease, PID/birth/SID/PGID agree | claim recovery, TERM the anchored process group, wait two seconds, KILL if needed, and materialize incomplete recovered evidence |
+| `anchored`, `anchor_stop_requested`, `running`, or `stop_requested` | group lease free; anchor identity absent; two settlement-separated `killpg(pgid, 0)` probes return `ESRCH` | treat the group as gone and materialize incomplete recovered evidence |
+| `anchored`, `anchor_stop_requested`, `running`, or `stop_requested` | lease, anchor identity, membership, or signal probe disagree | treat as corruption; do not signal or finalize |
 | `exited` | supervisor lost before materialization | retain the observed child result as secondary; make command recovery/capture loss primary |
 | `materialized` | outputs partially committed | verify matching hashes, complete only missing exact outputs/event, and never overwrite a mismatch |
 | `committed` | all bound outputs match | verify and retain during an active adapter session; remove only on owner finalization or after a one-shot result is delivered |
@@ -1239,12 +1335,18 @@ the stored owner identity are borrowers. Assert:
 
 Terminal resolution order is fixed:
 
-1. evidence write/recovery/finalization failure;
-2. cleanup failure or expected-stop escalation;
-3. explicit/deferred classified failure under the public precedence registry;
-4. requested cancellation only when cleanup and evidence are healthy;
+1. evidence/control failure with server-owned code `runner.evidence_invalid`,
+   `runner.command_supervisor_lost`, or `runner.capture_failed`;
+2. cleanup failure or expected-stop escalation as `runner.cleanup_failed`;
+3. an explicit/deferred concrete classified failure under the public precedence
+   registry (excluding `runner.unclassified`);
+4. requested cancellation as `run.cancelled` only when cleanup and evidence are
+   healthy;
 5. a nonzero unclassified shell exit as `runner.unclassified`;
 6. pass.
+
+Caller-controlled `source` never selects a tier, and all permutations of the
+same retained diagnostic set resolve identically.
 
 - [ ] **Step 12: Implement session ownership and owner-only finalization**
 

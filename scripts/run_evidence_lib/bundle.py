@@ -31,6 +31,7 @@ from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
 from .summaries import *  # noqa: F401,F403
 from .commands import *  # noqa: F401,F403
+from .receipts import *  # noqa: F401,F403
 from .bounded_io import *  # noqa: F401,F403
 from .bundle_scan import *  # noqa: F401,F403
 from .bundle_consistency import *  # noqa: F401,F403
@@ -75,6 +76,7 @@ def _resolve_bundle_reference(
     errors: list[str],
     *,
     expected: str | None = None,
+    snapshot: _BundleSnapshot | None = None,
 ) -> Path | None:
     if not _valid_relative_path(relative):
         errors.append(f"{label}: reference must be a normalized relative path")
@@ -92,18 +94,36 @@ def _resolve_bundle_reference(
     except RootedIOError:
         errors.append(f"{label}: referenced path escapes the attempt root")
         return None
-    if not _evidence_exists(candidate):
+    metadata = snapshot.metadata(relative) if snapshot is not None else None
+    if snapshot is not None:
+        if metadata is None:
+            errors.append(f"{label}: referenced path does not exist")
+            return None
+    elif not _evidence_exists(candidate):
         errors.append(f"{label}: referenced path does not exist")
         return None
-    if expected == "file" and not _evidence_is_file(candidate):
+    if expected == "file" and (
+        not stat.S_ISREG(metadata.st_mode)
+        if metadata is not None
+        else not _evidence_is_file(candidate)
+    ):
         errors.append(f"{label}: referenced path must be a file")
-    elif expected == "directory" and not _evidence_is_dir(candidate):
+    elif expected == "directory" and (
+        not stat.S_ISDIR(metadata.st_mode)
+        if metadata is not None
+        else not _evidence_is_dir(candidate)
+    ):
         errors.append(f"{label}: referenced path must be a directory")
     return candidate
 
 
 def _validate_command_metadata(
-    root: Path, path: Path, metadata: Any, errors: list[str]
+    root: Path,
+    path: Path,
+    metadata: Any,
+    errors: list[str],
+    *,
+    snapshot: _BundleSnapshot | None = None,
 ) -> None:
     label = path.relative_to(root).as_posix()
     if not isinstance(metadata, dict):
@@ -216,10 +236,23 @@ def _validate_command_metadata(
         if stream_path != expected_path:
             errors.append(f"{stream_label}.path: must equal {expected_path}")
         referenced = _resolve_bundle_reference(
-            root, stream_path, stream_label + ".path", errors, expected="file"
+            root,
+            stream_path,
+            stream_label + ".path",
+            errors,
+            expected="file",
+            snapshot=snapshot,
         )
         if referenced is not None and _is_integer(stored):
-            if _evidence_stat(referenced).st_size != stored:
+            referenced_metadata = (
+                snapshot.metadata(stream_path)
+                if snapshot is not None and isinstance(stream_path, str)
+                else _evidence_stat(referenced)
+            )
+            if (
+                referenced_metadata is not None
+                and referenced_metadata.st_size != stored
+            ):
                 errors.append(
                     f"{stream_label}.storedBytes: does not match referenced log size"
                 )
@@ -286,6 +319,27 @@ def _command_link_projection(metadata: dict) -> dict:
     }
 
 
+def _exact_timestamp_delta_ms(started_at: Any, finished_at: Any) -> int | None:
+    """Return an exact non-negative millisecond delta for RFC3339 values."""
+
+    if not (_valid_datetime(started_at) and _valid_datetime(finished_at)):
+        return None
+    try:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        finished = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+        delta = finished - started
+    except (AttributeError, TypeError, ValueError):
+        return None
+    microseconds = (
+        delta.days * 86_400_000_000
+        + delta.seconds * 1_000_000
+        + delta.microseconds
+    )
+    if microseconds < 0 or microseconds % 1000:
+        return None
+    return microseconds // 1000
+
+
 def _command_event_owns_summary(
     event: dict, metadata: dict, summary: Any
 ) -> bool:
@@ -315,6 +369,8 @@ def _validate_command_event_link(
     link_counts: dict[str, int],
     summary: Any,
     errors: list[str],
+    *,
+    snapshot: _BundleSnapshot | None = None,
 ) -> bool:
     """Validate one command event and report whether it owns the summary."""
 
@@ -331,7 +387,14 @@ def _validate_command_event_link(
     ):
         errors.append(f"{label}: must be a command metadata reference")
         return False
-    _resolve_bundle_reference(root, reference, label, errors, expected="file")
+    _resolve_bundle_reference(
+        root,
+        reference,
+        label,
+        errors,
+        expected="file",
+        snapshot=snapshot,
+    )
     metadata = metadata_by_reference.get(reference)
     if metadata is None:
         errors.append(f"{label}: referenced command record is missing")
@@ -376,6 +439,60 @@ def _validate_command_event_link(
     return _command_event_owns_summary(event, metadata, summary)
 
 
+def _validate_finalize_receipt_for_bundle(
+    root: Path,
+    snapshot: _BundleSnapshot,
+    summary_metadata: Any,
+    errors: list[str],
+) -> None:
+    """Validate an optional durable receipt against the snapshotted summary."""
+
+    receipt_relative = "finalize-receipt.json"
+    receipt_metadata = snapshot.metadata(receipt_relative)
+    if receipt_metadata is None:
+        return
+    if not stat.S_ISREG(receipt_metadata.st_mode):
+        errors.append("finalize-receipt.json: must be a regular file")
+        return
+    receipt_path = root / receipt_relative
+    try:
+        receipt_content = _read_bounded_bytes(
+            receipt_path,
+            MAX_FINALIZE_RECEIPT_BYTES,
+            expected_metadata=receipt_metadata,
+        )
+    except ValueError as exc:
+        if str(exc).startswith("structured JSON exceeds"):
+            errors.append(
+                "finalize-receipt.json: finalize receipt exceeds "
+                f"{MAX_FINALIZE_RECEIPT_BYTES} bytes"
+            )
+        else:
+            errors.append(f"finalize-receipt.json: {exc}")
+        return
+    canonical_relative = (
+        f"attempts/{root.name}/finalize-receipt.json"
+    )
+    try:
+        receipt = _validate_finalize_receipt_content(
+            canonical_relative, receipt_content
+        )
+        summary_content = _read_bounded_bytes(
+            root / "run-summary.json",
+            _limits.MAX_STRUCTURED_JSON_BYTES,
+            expected_metadata=summary_metadata,
+        )
+        _validate_finalize_receipt_binding(
+            receipt,
+            request_fingerprint=receipt["requestFingerprint"],
+            result_sha256=(
+                "sha256:" + hashlib.sha256(summary_content).hexdigest()
+            ),
+        )
+    except (KeyError, ValueError) as exc:
+        errors.append(f"finalize-receipt.json: {exc}")
+
+
 @_rooted_attempt_read
 def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     """Validate a complete attempt bundle, including containment and redaction."""
@@ -393,24 +510,59 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     if not _evidence_is_dir(root):
         errors.append("$: attempt root must be a directory")
         return _finish_errors(errors)
+    try:
+        _unused_roots, secrets = _normalize_scan_inputs(
+            roots={}, secrets=secrets
+        )
+    except ValueError:
+        errors.append(f"$: {_SCAN_INPUT_LIMIT_DIAGNOSTIC}")
+        return _finish_errors(errors)
     if _scan_publishable_entry_name(root.name, secrets, errors):
         return _finish_errors(errors)
-    if not _scan_publishable_files(root, secrets, errors):
+    index_scan = _scan_publishable_index(root, secrets, errors)
+    if index_scan is None:
+        scanned_index = None
+        index_metadata = None
+    else:
+        scanned_index, index_metadata = index_scan
+    snapshot = _scan_publishable_files(root, secrets, errors)
+    if snapshot is None:
         return _finish_errors(errors)
 
     summary_path = root / "run-summary.json"
     summary = None
-    if not _evidence_is_file(summary_path) or _evidence_is_symlink(summary_path):
+    summary_metadata = snapshot.metadata("run-summary.json")
+    if summary_metadata is None or not stat.S_ISREG(summary_metadata.st_mode):
         errors.append("run-summary.json: terminal summary is missing or unsafe")
     else:
         try:
-            summary, _summary_bytes = _read_json_bounded(summary_path)
+            summary, _summary_bytes = _read_json_bounded(
+                summary_path, expected_metadata=summary_metadata
+            )
             errors.extend(
                 "run-summary.json" + error[1:] if error.startswith("$") else error
                 for error in validate_summary(summary)
             )
         except ValueError as exc:
             errors.append(f"run-summary.json: {exc}")
+
+    if summary_metadata is not None and stat.S_ISREG(summary_metadata.st_mode):
+        _validate_finalize_receipt_for_bundle(
+            root, snapshot, summary_metadata, errors
+        )
+
+    if isinstance(summary, dict) and (
+        _valid_datetime(summary.get("startedAt"))
+        and _valid_datetime(summary.get("finishedAt"))
+    ):
+        expected_duration = _exact_timestamp_delta_ms(
+            summary.get("startedAt"), summary.get("finishedAt")
+        )
+        if expected_duration is None or summary.get("durationMs") != expected_duration:
+            errors.append(
+                "run-summary.json.durationMs: must equal the exact "
+                "startedAt/finishedAt delta"
+            )
 
     if isinstance(summary, dict):
         artifacts = summary.get("artifacts")
@@ -426,8 +578,8 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             for field, expected in (
                 ("bootstrapEvents", "file"),
                 ("commands", "directory"),
-                ("trace", None),
-                ("report", None),
+                ("trace", "file"),
+                ("report", "file"),
             ):
                 if field not in artifacts or artifacts[field] is None:
                     continue
@@ -437,33 +589,48 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                     f"run-summary.json.artifacts.{field}",
                     errors,
                     expected=expected,
+                    snapshot=snapshot,
                 )
 
-    _validate_bundle_consistency(root, summary, errors)
+    _validate_bundle_consistency(
+        root,
+        summary,
+        errors,
+        snapshot=snapshot,
+        index=scanned_index,
+    )
 
-    commands_root = root / "commands"
-    metadata_paths = []
+    metadata_paths: list[Path] = []
     metadata_by_reference = {}
-    if _evidence_is_dir(commands_root) and not _evidence_is_symlink(commands_root):
-        metadata_paths = sorted(_evidence_glob(commands_root, "*.json"))
+    commands_metadata = snapshot.metadata("commands")
+    if commands_metadata is not None and stat.S_ISDIR(commands_metadata.st_mode):
+        metadata_paths = [
+            root.joinpath(*relative.split("/"))
+            for relative in snapshot.regular_files("commands", ".json")
+        ]
     for metadata_path in metadata_paths:
-        if _evidence_is_symlink(metadata_path):
-            errors.append(
-                f"{metadata_path.relative_to(root).as_posix()}: command record is a symlink"
-            )
-            continue
+        metadata_relative = metadata_path.relative_to(root).as_posix()
+        metadata_snapshot = snapshot.metadata(metadata_relative)
         try:
-            metadata, _metadata_bytes = _read_json_bounded(metadata_path)
+            metadata, _metadata_bytes = _read_json_bounded(
+                metadata_path, expected_metadata=metadata_snapshot
+            )
         except ValueError as exc:
             errors.append(
-                f"{metadata_path.relative_to(root).as_posix()}: {exc}"
+                f"{metadata_relative}: {exc}"
             )
             continue
         if isinstance(metadata, dict):
-            metadata_by_reference[metadata_path.relative_to(root).as_posix()] = (
+            metadata_by_reference[metadata_relative] = (
                 _command_link_projection(metadata)
             )
-        _validate_command_metadata(root, metadata_path, metadata, errors)
+        _validate_command_metadata(
+            root,
+            metadata_path,
+            metadata,
+            errors,
+            snapshot=snapshot,
+        )
 
     link_counts = {reference: 0 for reference in metadata_by_reference}
     event_count = 0
@@ -471,11 +638,14 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     sequence_error = False
     summary_command_owner_found = False
     events_path = root / "bootstrap-events.jsonl"
-    if not _evidence_is_file(events_path) or _evidence_is_symlink(events_path):
+    events_metadata = snapshot.metadata("bootstrap-events.jsonl")
+    if events_metadata is None or not stat.S_ISREG(events_metadata.st_mode):
         errors.append("bootstrap-events.jsonl: event log is missing or unsafe")
     else:
         try:
-            for line_number, encoded_line in _iter_bounded_jsonl_lines(events_path):
+            for line_number, encoded_line in _iter_bounded_jsonl_lines(
+                events_path, expected_metadata=events_metadata
+            ):
                 if encoded_line is None:
                     errors.append(
                         f"bootstrap-events.jsonl:{line_number}: JSONL line exceeds "
@@ -518,6 +688,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                         artifact,
                         f"bootstrap-events.jsonl:{line_number}.artifact",
                         errors,
+                        snapshot=snapshot,
                     )
                 if _validate_command_event_link(
                     root,
@@ -527,9 +698,10 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                     link_counts,
                     summary,
                     errors,
+                    snapshot=snapshot,
                 ):
                     summary_command_owner_found = True
-        except OSError as exc:
+        except (OSError, RootedIOError) as exc:
             errors.append(f"bootstrap-events.jsonl: cannot read event log: {exc}")
 
     if event_count == 0:
@@ -538,6 +710,11 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
         errors.append("bootstrap-events.jsonl: sequence must start at 1 and increment")
 
     if isinstance(summary, dict) and terminal_event is not None:
+        if terminal_event.get("timestamp") != summary.get("finishedAt"):
+            errors.append(
+                "bootstrap-events.jsonl: terminal event timestamp disagrees with "
+                "run-summary.json.finishedAt"
+            )
         consistent = (
             terminal_event.get("phase") == summary.get("phase")
             and terminal_event.get("status") == summary.get("status")
@@ -564,6 +741,12 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     ):
         errors.append(
             "run-summary.json.commandStatus: does not match an exact terminal command event"
+        )
+
+    _verify_publishable_snapshot(root, snapshot, errors)
+    if index_metadata is not None:
+        _verify_regular_snapshot(
+            root.parent.parent / "attempt-index.json", index_metadata, errors
         )
 
     return _finish_errors(errors)

@@ -64,6 +64,17 @@ class BundleValidationTests(CommandTestCase):
             command_status=7,
         )
 
+    def rebind_finalize_receipt(self):
+        receipt_path = self.root / "finalize-receipt.json"
+        receipt = self.read_json(receipt_path)
+        receipt_path.write_bytes(
+            run_evidence.receipts._make_finalize_receipt(
+                receipt["attemptRoot"],
+                receipt["requestFingerprint"],
+                (self.root / "run-summary.json").read_bytes(),
+            )
+        )
+
     def test_command_link_projection_does_not_retain_invalid_large_strings(self):
         large = "x" * 100_000
         projection = run_evidence.bundle._command_link_projection(
@@ -450,6 +461,11 @@ class BundleValidationTests(CommandTestCase):
         summary = self.read_json(summary_path)
         summary["artifacts"]["report"] = artifact.name
         summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        context_path = self.root / "run-context.json"
+        context = self.read_json(context_path)
+        context["artifacts"]["report"] = artifact.name
+        context_path.write_text(json.dumps(context), encoding="utf-8")
+        self.rebind_finalize_receipt()
 
         self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 
@@ -462,6 +478,11 @@ class BundleValidationTests(CommandTestCase):
         summary = self.read_json(summary_path)
         summary["artifacts"]["report"] = artifact.name
         summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        context_path = self.root / "run-context.json"
+        context = self.read_json(context_path)
+        context["artifacts"]["report"] = artifact.name
+        context_path.write_text(json.dumps(context), encoding="utf-8")
+        self.rebind_finalize_receipt()
 
         self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 

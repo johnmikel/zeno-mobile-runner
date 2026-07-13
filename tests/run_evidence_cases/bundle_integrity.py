@@ -224,6 +224,243 @@ class BundleIntegrityTests(CommandTestCase):
             "bootstrap-events.jsonl: terminal event disagrees with summary", errors
         )
 
+    def test_bundle_rejects_between_scan_and_validation_replacement(self):
+        self.make_bundle()
+        summary_path = self.root / "run-summary.json"
+        original_scan = run_evidence.bundle._scan_publishable_files
+
+        def replace_summary_after_scan(root, secrets, errors):
+            result = original_scan(root, secrets, errors)
+            summary_path.write_bytes(summary_path.read_bytes() + b" ")
+            return result
+
+        with mock.patch.object(
+            run_evidence.bundle,
+            "_scan_publishable_files",
+            side_effect=replace_summary_after_scan,
+        ):
+            errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertIn(
+            "$: publishable bundle changed during validation", errors
+        )
+
+    def test_summary_timing_is_bound_to_context_event_and_exact_delta(self):
+        self.make_bundle()
+        summary_path = self.root / "run-summary.json"
+        original = self.read_json(summary_path)
+        cases = (
+            (
+                lambda value: value.update(
+                    startedAt="2000-01-01T00:00:00.000Z"
+                ),
+                "run-summary.json.startedAt: disagrees with run-context.json",
+            ),
+            (
+                lambda value: value.update(
+                    finishedAt=value["startedAt"], durationMs=0
+                ),
+                "bootstrap-events.jsonl: terminal event timestamp disagrees with "
+                "run-summary.json.finishedAt",
+            ),
+            (
+                lambda value: value.update(durationMs=value["durationMs"] + 1),
+                "run-summary.json.durationMs: must equal the exact "
+                "startedAt/finishedAt delta",
+            ),
+        )
+        for mutate, expected in cases:
+            with self.subTest(expected=expected):
+                errors = self.tamper_json(summary_path, original, mutate)
+                self.assertIn(expected, errors)
+
+    def test_summary_artifacts_are_exact_context_projection_and_regular_files(self):
+        self.make_bundle()
+        summary_path = self.root / "run-summary.json"
+        context_path = self.root / "run-context.json"
+        original_summary = self.read_json(summary_path)
+        original_context = self.read_json(context_path)
+        alternate_report = self.root / "reports" / "alternate.html"
+        alternate_report.write_text("safe alternate report", encoding="utf-8")
+
+        errors = self.tamper_json(
+            summary_path,
+            original_summary,
+            lambda value: value["artifacts"].update(
+                report="reports/alternate.html"
+            ),
+        )
+        self.assertIn(
+            "run-summary.json.artifacts: disagrees with run-context.json", errors
+        )
+
+        invalid_context = copy.deepcopy(original_context)
+        invalid_context["artifacts"]["screenshots"] = "screenshots"
+        context_path.write_text(json.dumps(invalid_context), encoding="utf-8")
+        try:
+            errors = run_evidence.validate_bundle(self.root, secrets=[])
+        finally:
+            context_path.write_text(
+                json.dumps(original_context), encoding="utf-8"
+            )
+        self.assertIn(
+            "run-context.json.artifacts: contains unsupported fields", errors
+        )
+
+        trace_directory = self.root / "traces" / "directory-target"
+        trace_directory.mkdir(parents=True)
+        context = copy.deepcopy(original_context)
+        summary = copy.deepcopy(original_summary)
+        context["artifacts"]["trace"] = "traces/directory-target"
+        summary["artifacts"]["trace"] = "traces/directory-target"
+        context_path.write_text(json.dumps(context), encoding="utf-8")
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        try:
+            errors = run_evidence.validate_bundle(self.root, secrets=[])
+        finally:
+            context_path.write_text(
+                json.dumps(original_context), encoding="utf-8"
+            )
+            summary_path.write_text(
+                json.dumps(original_summary), encoding="utf-8"
+            )
+        self.assertIn(
+            "run-summary.json.artifacts.trace: referenced path must be a file",
+            errors,
+        )
+
+    def test_attempt_index_decoded_strings_are_safety_scanned_without_attempt_walk(self):
+        self.make_bundle()
+        secret = "index-only-known-secret"
+        index_path = self.publication_root / "attempt-index.json"
+        index = self.read_json(index_path)
+        index["executions"].append(
+            {
+                "executionId": secret,
+                "comparabilityTuple": {
+                    "fixtureId": "https://user:password@example.test/private",
+                    "fixtureVersion": "/private/host/workspace",
+                },
+                "attempts": [
+                    {
+                        "runId": "unrelated-run",
+                        "attempt": 1,
+                        "summary": (
+                            "attempts/unrelated-run/run-summary.json"
+                        ),
+                    }
+                ],
+            }
+        )
+        index_path.write_text(json.dumps(index), encoding="utf-8")
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[secret])
+
+        self.assertIn(
+            "attempt-index.json: contains a current known secret value", errors
+        )
+        self.assertIn("attempt-index.json: contains a credential URL", errors)
+        self.assertIn("attempt-index.json: contains a raw absolute path", errors)
+        self.assertFalse((self.root.parent / "unrelated-run").exists())
+
+    def test_attempt_index_replacement_after_scan_is_rejected(self):
+        self.make_bundle()
+        index_path = self.publication_root / "attempt-index.json"
+        original_scan = run_evidence.bundle._scan_publishable_files
+
+        def replace_index_after_scan(root, secrets, errors):
+            result = original_scan(root, secrets, errors)
+            index_path.write_bytes(index_path.read_bytes() + b" ")
+            return result
+
+        with mock.patch.object(
+            run_evidence.bundle,
+            "_scan_publishable_files",
+            side_effect=replace_index_after_scan,
+        ):
+            errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertIn(
+            "$: publishable bundle changed during validation", errors
+        )
+
+    def test_finalize_receipt_is_bound_to_summary_digest(self):
+        self.make_bundle()
+        receipt_path = self.root / "finalize-receipt.json"
+        self.assertTrue(receipt_path.is_file())
+        receipt = self.read_json(receipt_path)
+        receipt["resultSha256"] = "sha256:" + ("0" * 64)
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertIn(
+            "finalize-receipt.json: finalize receipt result hash "
+            "disagrees with summary",
+            errors,
+        )
+
+    def test_lone_surrogate_json_is_reported_without_exception(self):
+        self.make_bundle()
+        (self.root / "surrogate.json").write_bytes(b'{"value":"\\udcff"}')
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertIn(
+            "surrogate.json: contains non-Unicode scalar text", errors
+        )
+
+    def test_scanner_inputs_are_accepted_at_caps_and_rejected_beyond_them(self):
+        self.make_bundle()
+        diagnostic = "$: public-safety scan inputs exceed supported limits"
+        scan = run_evidence.bundle_scan
+        count_cap = scan._MAX_SCAN_SECRET_COUNT
+        term_cap = scan._MAX_SCAN_TERM_BYTES
+        total_cap = scan._MAX_SCAN_SECRET_TOTAL_BYTES
+        root_cap = scan._MAX_SCAN_ROOT_TOTAL_BYTES
+
+        at_count_cap = [f"absent-secret-{index:02d}" for index in range(count_cap)]
+        self.assertEqual(
+            run_evidence.validate_bundle(self.root, secrets=at_count_cap), []
+        )
+        self.assertIn(
+            diagnostic,
+            run_evidence.validate_bundle(
+                self.root, secrets=at_count_cap + ["one-too-many"]
+            ),
+        )
+        self.assertEqual(
+            run_evidence.validate_bundle(self.root, secrets=["s" * term_cap]),
+            [],
+        )
+        self.assertIn(
+            diagnostic,
+            run_evidence.validate_bundle(
+                self.root, secrets=["s" * (term_cap + 1)]
+            ),
+        )
+        self.assertIn(
+            diagnostic,
+            run_evidence.validate_bundle(
+                self.root,
+                secrets=[
+                    chr(ord("a") + index) * (total_cap // 2)
+                    for index in range(3)
+                ],
+            ),
+        )
+
+        scanner = scan._RawSemanticScanner(
+            roots={"workspace": "r" * root_cap}, secrets=[]
+        )
+        self.assertLessEqual(scanner.carry_bytes, term_cap + 4)
+        with self.assertRaisesRegex(
+            ValueError, "public-safety scan inputs exceed supported limits"
+        ):
+            scan._RawSemanticScanner(
+                roots={"workspace": "r" * (root_cap + 1)}, secrets=[]
+            )
+
     def test_summary_root_and_context_identity_are_reconciled(self):
         self.make_bundle()
         summary_path = self.root / "run-summary.json"

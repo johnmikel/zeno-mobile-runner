@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import stat
 from collections.abc import Iterator
@@ -12,6 +13,7 @@ from . import bounded_io
 from . import constants as _limits
 from .journal import _ATOMIC_WRITE_TEMP_RE
 from .sanitization import _sanitization_roots, _utf8_byte_length
+from .safe_io import _evidence_is_file, _evidence_is_symlink, _evidence_stat
 
 
 _PUBLIC_DENY_SUBSTRINGS = (
@@ -83,6 +85,107 @@ _POSIX_DISALLOWED_PREDECESSORS = frozenset(
         ord("<"),
     )
 )
+
+_MAX_SCAN_SECRET_COUNT = 64
+_MAX_SCAN_ROOT_COUNT = 8
+_MAX_SCAN_TERM_BYTES = 128 * 1024
+_MAX_SCAN_SECRET_TOTAL_BYTES = 256 * 1024
+_MAX_SCAN_ROOT_TOTAL_BYTES = 64 * 1024
+_SCAN_INPUT_LIMIT_DIAGNOSTIC = (
+    "public-safety scan inputs exceed supported limits"
+)
+
+
+def _normalize_bounded_scan_values(
+    values: list[Any], *, maximum_count: int, maximum_total_bytes: int
+) -> list[str]:
+    """Return deterministic unique scalar strings within fixed scan bounds."""
+
+    if len(values) > maximum_count:
+        raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+    normalized: dict[bytes, str] = {}
+    total_bytes = 0
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        if len(value) > _MAX_SCAN_TERM_BYTES:
+            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+        try:
+            encoded = value.encode("utf-8")
+        except UnicodeError as exc:
+            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC) from exc
+        if len(encoded) > _MAX_SCAN_TERM_BYTES:
+            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+        if encoded in normalized:
+            continue
+        total_bytes += len(encoded)
+        if total_bytes > maximum_total_bytes:
+            raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+        normalized[encoded] = value
+    return [normalized[encoded] for encoded in sorted(normalized)]
+
+
+def _normalize_scan_inputs(
+    *, roots: dict[str, str], secrets: list[str]
+) -> tuple[dict[str, str], list[str]]:
+    """Normalize roots and secrets before allocating scanner state."""
+
+    if not isinstance(roots, dict) or not isinstance(secrets, list):
+        raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+    if len(roots) > _MAX_SCAN_ROOT_COUNT:
+        raise ValueError(_SCAN_INPUT_LIMIT_DIAGNOSTIC)
+    normalized_roots = _normalize_bounded_scan_values(
+        list(roots.values()),
+        maximum_count=_MAX_SCAN_ROOT_COUNT,
+        maximum_total_bytes=_MAX_SCAN_ROOT_TOTAL_BYTES,
+    )
+    normalized_secrets = _normalize_bounded_scan_values(
+        secrets,
+        maximum_count=_MAX_SCAN_SECRET_COUNT,
+        maximum_total_bytes=_MAX_SCAN_SECRET_TOTAL_BYTES,
+    )
+    return (
+        {
+            f"root-{index}": value
+            for index, value in enumerate(normalized_roots)
+        },
+        normalized_secrets,
+    )
+
+
+def _metadata_signature(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_mode,
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+class _BundleSnapshot:
+    """Bounded identity snapshot captured by the public-safety pass."""
+
+    def __init__(self, entries: dict[str, os.stat_result]) -> None:
+        self._entries = dict(entries)
+
+    def metadata(self, relative: str) -> os.stat_result | None:
+        return self._entries.get(relative)
+
+    def relatives(self) -> set[str]:
+        return set(self._entries)
+
+    def regular_files(self, directory: str, suffix: str) -> list[str]:
+        prefix = directory.rstrip("/") + "/"
+        return sorted(
+            relative
+            for relative, metadata in self._entries.items()
+            if relative.startswith(prefix)
+            and "/" not in relative[len(prefix) :]
+            and relative.endswith(suffix)
+            and stat.S_ISREG(metadata.st_mode)
+        )
 
 
 def _contains_public_deny_pattern(text: str) -> bool:
@@ -184,6 +287,9 @@ class _RawSemanticScanner:
     _TAIL_BYTES = 64
 
     def __init__(self, *, roots: dict[str, str], secrets: list[str]) -> None:
+        roots, secrets = _normalize_scan_inputs(
+            roots=roots, secrets=secrets
+        )
         self._secrets = sorted(
             {
                 value.encode("utf-8")
@@ -581,13 +687,42 @@ def _scan_structured_file(
     return False
 
 
+def _scan_publishable_index(
+    root: Path, secrets: list[str], errors: list[str]
+) -> tuple[Any, os.stat_result] | None:
+    """Decode and safety-scan only the sibling publication index."""
+
+    index_path = Path(root).parent.parent / "attempt-index.json"
+    if not _evidence_is_file(index_path) or _evidence_is_symlink(index_path):
+        errors.append("attempt-index.json: publication index is missing or unsafe")
+        return None
+    metadata = _evidence_stat(index_path)
+    try:
+        value, _byte_count = bounded_io._read_json_bounded(
+            index_path, expected_metadata=metadata
+        )
+    except ValueError as exc:
+        errors.append(f"attempt-index.json: {exc}")
+        return None, metadata
+    for text in _iter_json_strings(value):
+        _scan_semantic_text("attempt-index.json", text, secrets, errors)
+    return value, metadata
+
+
 def _scan_publishable_files(
     root: Path, secrets: list[str], errors: list[str]
-) -> bool:
-    roots = _sanitization_roots(root)
+) -> _BundleSnapshot | None:
+    try:
+        roots, secrets = _normalize_scan_inputs(
+            roots=_sanitization_roots(root), secrets=secrets
+        )
+    except ValueError:
+        errors.append(f"$: {_SCAN_INPUT_LIMIT_DIAGNOSTIC}")
+        return None
     inspected_bytes = 0
     file_count = 0
     publishable_names_safe = True
+    snapshot_entries: dict[str, os.stat_result] = {}
     try:
         entries = bounded_io._iter_rooted_tree(
             root,
@@ -595,6 +730,7 @@ def _scan_publishable_files(
         )
         for path, metadata in entries:
             relative = path.relative_to(root).as_posix()
+            snapshot_entries[relative] = metadata
             is_directory = stat.S_ISDIR(metadata.st_mode)
             is_regular = stat.S_ISREG(metadata.st_mode)
             if not is_directory:
@@ -604,7 +740,7 @@ def _scan_publishable_files(
                         "$: publishable bundle exceeds maximum file count "
                         f"({_limits.MAX_BUNDLE_FILE_COUNT})"
                     )
-                    return False
+                    return None
                 if is_regular:
                     if (
                         inspected_bytes + metadata.st_size
@@ -614,7 +750,7 @@ def _scan_publishable_files(
                             "$: publishable bundle exceeds maximum inspected bytes "
                             f"({_limits.MAX_BUNDLE_INSPECTED_BYTES})"
                         )
-                        return False
+                        return None
                     inspected_bytes += metadata.st_size
             if _scan_publishable_entry_name(relative, secrets, errors):
                 publishable_names_safe = False
@@ -654,8 +790,65 @@ def _scan_publishable_files(
             "$: publishable bundle exceeds maximum directory count "
             f"({max(4096, _limits.MAX_BUNDLE_FILE_COUNT)})"
         )
-        return False
-    return publishable_names_safe
+        return None
+    if not publishable_names_safe:
+        return None
+    return _BundleSnapshot(snapshot_entries)
+
+
+def _verify_publishable_snapshot(
+    root: Path, snapshot: _BundleSnapshot, errors: list[str]
+) -> bool:
+    """Recheck every bounded entry immediately before bundle acceptance."""
+
+    remaining = snapshot.relatives()
+    changed = False
+    file_count = 0
+    try:
+        entries = bounded_io._iter_rooted_tree(
+            root,
+            maximum_directories=max(4096, _limits.MAX_BUNDLE_FILE_COUNT),
+        )
+        for path, metadata in entries:
+            relative = path.relative_to(root).as_posix()
+            if not stat.S_ISDIR(metadata.st_mode):
+                file_count += 1
+                if file_count > _limits.MAX_BUNDLE_FILE_COUNT:
+                    changed = True
+                    break
+            expected = snapshot.metadata(relative)
+            if expected is None or _metadata_signature(metadata) != (
+                _metadata_signature(expected)
+            ):
+                changed = True
+            remaining.discard(relative)
+    except (ValueError, OSError):
+        changed = True
+    if remaining:
+        changed = True
+    if changed:
+        errors.append("$: publishable bundle changed during validation")
+    return not changed
+
+
+def _verify_regular_snapshot(
+    path: Path, expected: os.stat_result | None, errors: list[str]
+) -> bool:
+    """Recheck one sibling regular file without scanning sibling directories."""
+
+    changed = expected is None
+    if expected is not None:
+        try:
+            current = _evidence_stat(path)
+            changed = (
+                not stat.S_ISREG(current.st_mode)
+                or _metadata_signature(current) != _metadata_signature(expected)
+            )
+        except (ValueError, OSError):
+            changed = True
+    if changed:
+        errors.append("$: publishable bundle changed during validation")
+    return not changed
 
 
 __all__ = (
@@ -667,6 +860,12 @@ __all__ = (
     "_json_strings",
     "_scan_semantic_text",
     "_scan_publishable_entry_name",
+    "_SCAN_INPUT_LIMIT_DIAGNOSTIC",
+    "_normalize_scan_inputs",
+    "_BundleSnapshot",
     "_RawSemanticScanner",
+    "_scan_publishable_index",
     "_scan_publishable_files",
+    "_verify_publishable_snapshot",
+    "_verify_regular_snapshot",
 )

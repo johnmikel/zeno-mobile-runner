@@ -76,7 +76,7 @@ Zeno must therefore compete on the complete external-client workflow:
 
 > Requirement → protected journey → exact build → runtime evidence → disclosed gaps → client decision
 
-No single feature is assumed to be an enduring moat. The defensible advantage is the integrated workflow, first-party mobile evidence, accumulated mappings between scope and critical journeys, agency-specific templates, and repeatable client release history.
+No single feature is assumed to be an enduring moat. The defensible advantage is the integrated workflow, Zeno-runner mobile evidence, accumulated mappings between scope and critical journeys, agency-specific templates, and repeatable client release history.
 
 ## 3. Goals and non-goals
 
@@ -128,7 +128,7 @@ The MVP will not include:
 6. **Published records are immutable.** Material changes create new snapshots rather than rewriting history.
 7. **Privacy is visible.** Agencies control which evidence leaves CI and which artifacts clients see.
 8. **Every status is explainable.** A user can inspect the rule, evidence, build, and decision that produced a status.
-9. **Supporting a source is described honestly.** Zeno distinguishes first-party verification, official integrations, and generic imports.
+9. **Supporting a source is described honestly.** Zeno distinguishes Zeno-runner evidence, official-adapter evidence, and generic imports without treating producer identity as independent attestation.
 
 ## 5. Terminology
 
@@ -142,6 +142,7 @@ The MVP will not include:
 | Protected journey | A critical journey whose verification policy and scenario changes require explicit review |
 | Scope item | A requirement or acceptance criterion promised in a release |
 | Target build | An exact deployment or mobile artifact being reviewed |
+| Target fingerprint | A mandatory canonical digest that binds evidence to one exact surface-specific build identity |
 | Evidence run | One normalised execution result from a runner or importer |
 | Evidence item | A journey- or test-level result within an evidence run |
 | Artifact | A screenshot, recording, trace, log, snapshot, or report |
@@ -313,19 +314,34 @@ Journey IDs must remain stable when display names change.
 - release ID;
 - surface;
 - environment;
+- mandatory canonical target fingerprint;
 - commit SHA;
 - deployment ID, build ID, or artifact ID;
-- artifact or deployment digest where available;
+- artifact or deployment digest;
 - application identifier or URL;
+- non-secret environment-configuration digest where required by policy;
 - OS/device/browser policy;
 - created and registered timestamps; and
 - current or superseded state.
 
-At least one immutable target identity is required for evidence to qualify as Verified.
+Evidence can qualify for the coverage status Verified only when its target fingerprint exactly matches the registered target fingerprint.
+
+The fingerprint is surface-specific:
+
+- **iOS and Android:** application artifact SHA-256, application identifier, version, and build number.
+- **Web:** immutable deployment-provider ID, source commit SHA, build-output manifest SHA-256, environment name, and an allowlisted non-secret configuration SHA-256.
+
+The fingerprint input is a surface-specific JSON object using the exact fields above, serialised as UTF-8 with RFC 8785 JSON Canonicalization Scheme and then hashed with SHA-256. The stored value uses lower-case hexadecimal with the sha256: prefix. Missing required fields are errors rather than empty strings. A future fingerprint recipe requires a new recipe version and cannot reinterpret an existing fingerprint.
+
+A mutable URL, commit SHA alone, human build label, or locally generated run ID is insufficient. When the required fingerprint inputs are unavailable, evidence may be retained as context but cannot produce Verified coverage.
+
+The fingerprint establishes identity, not authenticity. It does not prove who executed a runner or that a submitted manifest is truthful.
 
 #### EvidenceRun
 
-- source type and trust level;
+- source type and provenance class;
+- submitting user or automation identity;
+- attestation state;
 - adapter and schema versions;
 - ingestion ID;
 - target build ID;
@@ -359,7 +375,8 @@ At least one immutable target identity is required for evidence to qualify as Ve
 - redaction state;
 - disclosure state;
 - derived preview reference;
-- retention deadline; and
+- retention deadline;
+- retention state and tombstone metadata; and
 - upload verification state.
 
 #### CoverageEvaluation
@@ -415,7 +432,26 @@ At least one immutable target identity is required for evidence to qualify as Ve
 - timestamp; and
 - idempotency key.
 
-### 7.3 Append-only and immutability rules
+### 7.3 Authorisation and human-control invariants
+
+Internal roles are:
+
+| Role | Allowed material actions |
+|---|---|
+| Owner | Manage tenant security, members, retention, projects, and all Delivery Lead actions |
+| Delivery Lead | Manage scope and targets; approve protected-journey/policy changes; exclude scope; accept risk; publish, revoke, and supersede Passports; appoint reviewers |
+| Contributor | Upload and link evidence; draft scope, journeys, tests, and proposed resolutions; cannot exclude, accept risk, publish, or approve policy changes |
+| Viewer | Read internal project and release information |
+| Automation identity | Ingest evidence and report processing state only; cannot change scope/policy, resolve risk, publish, or decide |
+| External reviewer | View an assigned Passport and record Approve or Request changes after email verification |
+
+Only an Owner or Delivery Lead may exclude scope, accept risk, publish a Passport, or approve a protected-journey/policy change. An external reviewer acknowledges disclosed risks by approving the snapshot but cannot create an internal exclusion or risk acceptance.
+
+Protected-journey and release-policy changes never become active merely because an automation identity or coding agent submitted them. A human Owner or Delivery Lead must record an explicit approval after the most recent change. Until then, affected evidence is Stale or Unverified according to the deterministic rule.
+
+The MVP separates automation from human authority but does not require two distinct human approvers, because the initial agencies may have very small delivery teams. A future project policy may require human author and approver separation. All privileged actions are enforced server-side and included in the snapshot/audit history.
+
+### 7.4 Append-only, retention, and immutability rules
 
 - Evidence runs and published Passport snapshots are append-only.
 - A normalisation correction creates a replacement evidence version and preserves the original.
@@ -424,12 +460,17 @@ At least one immutable target identity is required for evidence to qualify as Ve
 - Previous approvals remain associated with the exact snapshot reviewed.
 - Decisions are never moved from one snapshot to another.
 - Audit events record material changes, risk acceptance, exclusions, publishing, verification, decisions, revocation, and supersession.
+- Snapshot canonical content includes artifact digests and disclosure metadata, not a guarantee that artifact bytes are retained forever.
+- Retention deletion removes stored artifact bytes but leaves an immutable tombstone containing the digest, original type, deletion timestamp, retention-policy version, and deletion reason.
+- Artifact deletion never recalculates or mutates the snapshot content hash.
+- Historical views show that an artifact expired under retention policy rather than pretending it remains downloadable.
+- Where privacy law or tenant policy requires removal of reviewer personal data, identity fields may be irreversibly pseudonymised while preserving the decision type, snapshot, role, verification fact, and timestamp.
 
 ## 8. Evidence Contract
 
 ### 8.1 Purpose
 
-The Evidence Contract normalises source-specific execution output without pretending that every source has the same level of trust.
+The Evidence Contract normalises source-specific execution output without pretending that producer format establishes independent authenticity.
 
 The contract must:
 
@@ -443,15 +484,23 @@ The contract must:
 - preserve source-specific extensions under a namespaced field; and
 - reject ambiguous status or identity values.
 
-### 8.2 Trust levels
+### 8.2 Provenance classes and attestation
 
-| Level | Meaning | May verify release scope? |
+| Provenance class | Meaning | May contribute to Verified coverage? |
 |---|---|---|
-| Verified | Executed by Zeno using a first-party supported runner and valid target identity | Yes |
-| Integrated | Produced through an official supported adapter with valid provenance and target identity | Yes, subject to project policy |
-| Imported | Normalised generic or third-party result with weaker provenance | No by default; policy may allow explicit acceptance |
+| Zeno runner | Normalised from a valid Zeno Mobile Runner bundle submitted by an authorised tenant user or CI identity | Yes, subject to exact target match and project policy |
+| Official adapter | Produced through a supported Zeno adapter such as Playwright and submitted by an authorised identity | Yes, subject to exact target match and project policy |
+| Imported | Normalised generic or third-party result with weaker semantics | No; it may support investigation, while a human may separately resolve the resulting gap as Accepted risk |
 
-The names describe evidence provenance, not whether the underlying test passed.
+Provenance class describes the processing path. It does not describe test outcome and does not independently prove that the claimed execution occurred.
+
+The MVP records a separate attestation state:
+
+- **Unattested:** authorised tenant or CI submission with validated schema and digests, but no independently verified execution signature;
+- **CI-attested:** optional future state in which a supported CI identity signs build and execution claims; and
+- **Signature-verified:** optional future state in which Zeno validates a supported producer signature.
+
+Only Unattested is required for the MVP. User-facing copy must say “Zeno runner evidence” or “official adapter evidence,” never “independently verified execution,” unless a supported attestation was actually validated. Coverage status Verified means the stored evidence satisfies the project policy for the exact target; it is not a third-party audit opinion.
 
 ### 8.3 Conceptual manifest
 
@@ -462,17 +511,19 @@ The names describe evidence provenance, not whether the underlying test passed.
     "name": "zeno-mobile-runner",
     "version": "0.x",
     "adapterVersion": "1.x",
-    "trustLevel": "verified"
+    "provenanceClass": "zeno_runner",
+    "attestationState": "unattested"
   },
   "release": {
     "externalId": "agency-release-id",
-    "commitSha": "full-sha",
-    "buildId": "284",
-    "artifactDigest": "sha256:..."
+    "commitSha": "full-sha"
   },
   "target": {
     "surface": "android",
     "environment": "staging",
+    "buildId": "284",
+    "artifactDigest": "sha256:...",
+    "targetFingerprint": "sha256:...",
     "device": "Pixel 9",
     "os": "Android 16"
   },
@@ -534,11 +585,11 @@ Playwright remains the execution engine.
 
 JUnit or CTRF import provides compatibility for other tools. Generic imports:
 
-- receive Imported trust by default;
+- receive the Imported provenance class by default;
 - must preserve their source format and importer version;
-- must not silently infer missing build identity;
+- must not silently infer a missing target fingerprint;
 - may contribute context and failure evidence;
-- cannot verify protected release scope unless a project policy and authorised actor explicitly permit it; and
+- cannot produce Verified coverage for protected release scope; an Owner or Delivery Lead may instead resolve the resulting gap as Accepted risk when policy permits; and
 - must display the weaker provenance in both internal and client views where relevant.
 
 ## 9. Coverage and Evidence Gap Engine
@@ -553,14 +604,16 @@ Each required combination receives exactly one calculated status:
 
 | Status | Definition |
 |---|---|
-| Verified | Qualifying passing evidence exists for the exact target and active scenario/policy |
+| Verified | Policy-qualifying passing evidence exists for the exact target fingerprint and active scenario/policy |
 | Failed | Relevant qualifying evidence ran and failed |
 | Stale | Relevant evidence exists but belongs to an older target, scenario, or policy |
 | Unverified | No qualifying evidence exists |
-| Excluded | An authorised actor intentionally removed the requirement with a reason |
-| Accepted risk | An authorised actor explicitly accepted the unresolved condition |
+| Excluded | An Owner or Delivery Lead intentionally removed the requirement with a reason |
+| Accepted risk | An Owner or Delivery Lead explicitly accepted the unresolved condition |
 
 Excluded and Accepted risk are human resolutions layered over the underlying deterministic condition. The original condition must remain visible.
+
+Verified is a coverage result, not a provenance or attestation label.
 
 ### 9.2 Severity
 
@@ -576,7 +629,7 @@ Project policies map criticality and rule codes to severity.
 
 The engine evaluates in this order:
 
-1. **Target identity:** reject evidence that cannot be bound to the reviewed build.
+1. **Target identity:** reject evidence whose mandatory surface-specific fingerprint is missing or does not exactly match the reviewed build.
 2. **Schema and provenance:** reject unsupported, invalid, or disallowed sources.
 3. **Freshness:** compare commit/build, scenario hash, journey version, policy version, and evidence time.
 4. **Scope linkage:** confirm every included criterion has an approved verification route.
@@ -594,7 +647,7 @@ The MVP should support at least:
 
 - missing target identity;
 - unsupported evidence schema;
-- insufficient evidence trust;
+- disallowed provenance or attestation state;
 - evidence from a superseded build;
 - scenario or policy mismatch;
 - acceptance criterion with no linked journey or verification method;
@@ -709,8 +762,7 @@ Publishing creates an immutable Passport snapshot with a canonical content hash.
 
 The current approval becomes historical and a new pending snapshot is required when any of the following changes:
 
-- web deployment identity;
-- iOS or Android build identity;
+- registered target fingerprint for any surface;
 - included release scope;
 - required surface;
 - protected journey or scenario hash;
@@ -721,6 +773,8 @@ The current approval becomes historical and a new pending snapshot is required w
 - disclosed evidence in a way that changes the reviewed substance.
 
 Comments, link expiry, reviewer notification settings, and cosmetic wording that does not alter scope or risk do not invalidate approval.
+
+Artifact-byte deletion under an already disclosed retention policy does not invalidate or mutate the snapshot. The historical view replaces availability with the tombstone defined in section 7.4.
 
 The old snapshot and decision remain permanently associated.
 
@@ -826,9 +880,9 @@ Examples:
 
 1. Agency creates the release and target builds.
 2. A local or CI adapter reads supported runner output.
-3. The adapter validates local files and computes content digests.
-4. The adapter creates an Evidence Manifest.
-5. Zeno Cloud validates the manifest and creates an ingestion session.
+3. The adapter validates local files, computes content digests, and constructs the mandatory surface-specific target fingerprint.
+4. The adapter creates an Evidence Manifest containing that fingerprint and the submitting identity context.
+5. Zeno Cloud validates the schema, provenance class, fingerprint shape, and release-target match before creating an ingestion session.
 6. Cloud issues short-lived upload locations only for permitted artifacts.
 7. The adapter uploads redacted/selected artifacts directly to private storage.
 8. The adapter finalises the ingestion using an idempotency key.
@@ -851,7 +905,7 @@ Examples:
 |---|---|
 | Malformed manifest | Reject before upload and return precise field errors |
 | Unsupported schema | Quarantine; show supported versions and upgrade guidance |
-| Missing build identity | Store as Imported context; do not verify scope |
+| Missing or mismatched target fingerprint | Store as non-qualifying context when safe; do not verify scope |
 | Digest mismatch | Quarantine affected artifact and evidence item |
 | Partial upload | Preserve session for retry; do not evaluate incomplete evidence |
 | Duplicate upload | Return existing evidence result |
@@ -863,7 +917,7 @@ Examples:
 | New build after review | Preserve old snapshot; create new pending release state |
 | Expired/revoked review link | Deny review and offer safe agency contact/reissue path |
 
-Silent fallback is prohibited for evidence identity, trust, status, redaction, or approval.
+Silent fallback is prohibited for target identity, provenance, attestation, status, redaction, or approval.
 
 ## 13. Security, privacy, and trust
 
@@ -882,7 +936,7 @@ Silent fallback is prohibited for evidence identity, trust, status, redaction, o
 - rate limiting on authentication, upload, review, and decision operations;
 - secret and token filtering;
 - append-only decision/audit storage;
-- configurable artifact retention and deletion;
+- configurable artifact retention and tombstone-preserving deletion;
 - no public indexing or predictable Passport identifiers;
 - Content Security Policy and safe content-disposition headers;
 - malicious archive and path-traversal protection;
@@ -894,12 +948,13 @@ Silent fallback is prohibited for evidence identity, trust, status, redaction, o
 - Raw trace archives remain private by default.
 - A Passport discloses only explicitly selected derived previews and artifacts.
 - Redacted and original artifacts, if both retained, use separate storage references and permissions.
+- A retained snapshot whose artifact bytes were deleted shows an immutable expiry tombstone; it never silently removes the artifact reference or recalculates the snapshot hash.
 - Clients cannot enumerate other project or agency resources.
 - Revoking a review link removes access immediately without changing snapshot history.
 
 ### 13.3 Claims
 
-Initial messaging may describe a Passport as an auditable, versioned release record. It must not claim formal compliance, legal non-repudiation, or exhaustive assurance without appropriate controls and independent review.
+Initial messaging may describe a Passport as an auditable, versioned release record. It must not claim formal compliance, legal non-repudiation, independently attested execution, or exhaustive assurance without the corresponding controls and independent review. In the MVP, evidence is submitted by an authorised agency user or CI identity and remains self-reported even when its schema, target fingerprint, and uploaded digests validate.
 
 ## 14. Integrations
 
@@ -1021,11 +1076,11 @@ Essential cases:
 2. A new web deployment makes only relevant web evidence stale.
 3. A new Android build does not invalidate unrelated web evidence.
 4. A protected scenario change invalidates affected evidence.
-5. Missing build identity cannot verify scope.
-6. Imported evidence follows project trust policy.
+5. Missing or mismatched target fingerprint cannot verify scope.
+6. Imported evidence follows project provenance and human-resolution policy.
 7. Failed critical journeys block review.
 8. Retry-only success follows flake policy.
-9. Exclusion requires a reason and authorised actor.
+9. Exclusion requires a reason and an Owner or Delivery Lead.
 10. Risk acceptance retains the original unresolved condition.
 11. AI availability never changes deterministic status.
 12. Re-evaluation with identical inputs produces identical output.
@@ -1045,7 +1100,9 @@ Verify:
 - cross-agency access is denied;
 - direct object URLs expire;
 - hidden artifacts never appear in Passport payloads;
-- deletion/retention jobs honour policy; and
+- automation identities cannot exclude scope, accept risk, approve protected changes, publish, or decide;
+- privileged actions require the roles defined in section 7.3;
+- deletion/retention jobs preserve immutable digests, tombstones, and snapshot hashes; and
 - audit records exist for all material transitions.
 
 ### 16.4 End-to-end acceptance journey

@@ -109,6 +109,7 @@ def _build_summary(
     hint: str | None,
     command_status: int | None,
     finished_at: str,
+    finalize_request_fingerprint: str | None = None,
 ) -> dict:
     started_at = context.get("startedAt")
     computed = comparability(context)
@@ -144,6 +145,8 @@ def _build_summary(
         "toolchain": context.get("toolchain"),
         "artifacts": _summary_artifacts(context),
     }
+    if finalize_request_fingerprint is not None:
+        summary["finalizeRequestFingerprint"] = finalize_request_fingerprint
     if status != "passed":
         summary.update(
             errorCode=error_code,
@@ -162,7 +165,12 @@ def _valid_nullable_string(value: Any) -> str | None:
 
 
 def _fallback_summary(
-    root: Path, context: dict, finished_at: str, command_status: int | None
+    root: Path,
+    context: dict,
+    finished_at: str,
+    command_status: int | None,
+    *,
+    finalize_request_fingerprint: str | None = None,
 ) -> dict:
     run_id = _valid_or_default_string(context.get("runId"), root.name or "unknown-run")
     if not _safe_run_segment(run_id):
@@ -267,6 +275,7 @@ def _fallback_summary(
         hint="Inspect the sanitized invalid-summary diagnostics",
         command_status=command_status if _is_integer(command_status) else None,
         finished_at=finished_at,
+        finalize_request_fingerprint=finalize_request_fingerprint,
     )
     errors = validate_summary(fallback)
     if errors:
@@ -495,6 +504,7 @@ def _finalize_attempt(
                         hint=hint,
                         command_status=command_status,
                         finished_at=finished_at,
+                        finalize_request_fingerprint=request_fingerprint,
                     )
                     validation_errors = validate_summary(candidate)
                     if tuple_mismatch:
@@ -514,6 +524,7 @@ def _finalize_attempt(
                             ),
                             finished_at,
                             command_status,
+                            finalize_request_fingerprint=request_fingerprint,
                         )
                     else:
                         terminal = candidate

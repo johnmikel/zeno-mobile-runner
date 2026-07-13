@@ -298,6 +298,14 @@ else:
         summary = json.loads(
             base64.b64decode(summary_target["contentBase64"], validate=True)
         )
+        summary.pop("finalizeRequestFingerprint", None)
+        summary_content = run_evidence._json_bytes(summary)
+        summary_target["contentBase64"] = base64.b64encode(
+            summary_content
+        ).decode("ascii")
+        summary_target["sha256"] = (
+            "sha256:" + hashlib.sha256(summary_content).hexdigest()
+        )
         events = [
             json.loads(line)
             for line in base64.b64decode(
@@ -817,6 +825,12 @@ else:
                     )
                 summary = run_evidence._finalize_attempt(root, "passed")
                 self.assertEqual(run_evidence.validate_summary(summary), [])
+                self.assertEqual(
+                    summary["finalizeRequestFingerprint"],
+                    self.read_json(root / "finalize-receipt.json")[
+                        "requestFingerprint"
+                    ],
+                )
                 self.assertEqual(len(self.terminal_events(root, summary)), 1)
                 self.assertEqual(self.transaction_files(), [])
                 self.assertEqual(
@@ -843,6 +857,10 @@ else:
         self.assertEqual(self.transaction_files(), [])
         committed = self.read_json(root / "run-summary.json")
         receipt_path = root / "finalize-receipt.json"
+        self.assertEqual(
+            committed["finalizeRequestFingerprint"],
+            self.read_json(receipt_path)["requestFingerprint"],
+        )
         receipt_before_mismatch = receipt_path.read_bytes()
         with self.assertRaisesRegex(ValueError, "request fingerprint"):
             run_evidence._finalize_attempt(
@@ -884,6 +902,12 @@ else:
         self.assertIsNone(journal_path)
         committed = self.read_json(root / "run-summary.json")
         self.assertTrue((root / "finalize-receipt.json").is_file())
+        self.assertEqual(
+            committed["finalizeRequestFingerprint"],
+            self.read_json(root / "finalize-receipt.json")[
+                "requestFingerprint"
+            ],
+        )
         retried = run_evidence._finalize_attempt(
             root, "passed", command_status=0
         )
@@ -919,6 +943,10 @@ else:
         self.assertEqual(
             receipt["resultPath"], f"attempts/{root.name}/run-summary.json"
         )
+        self.assertEqual(
+            committed["finalizeRequestFingerprint"],
+            receipt["requestFingerprint"],
+        )
 
         malformed = dict(receipt)
         malformed["unexpected"] = True
@@ -951,6 +979,18 @@ else:
             committed,
         )
 
+        rebound_summary = dict(committed)
+        rebound_summary["finalizeRequestFingerprint"] = "sha256:" + "0" * 64
+        rebound_summary_bytes = run_evidence._json_bytes(rebound_summary)
+        summary_path.write_bytes(rebound_summary_bytes)
+        rebound_receipt = dict(receipt)
+        rebound_receipt["resultSha256"] = (
+            "sha256:" + hashlib.sha256(rebound_summary_bytes).hexdigest()
+        )
+        receipt_path.write_bytes(run_evidence._json_bytes(rebound_receipt))
+        with self.assertRaisesRegex(ValueError, "request fingerprint"):
+            run_evidence._finalize_attempt(root, "passed", command_status=0)
+
     def test_finalize_journal_receipt_is_bound_to_request_and_summary(self):
         root = self.attempt_root("finalize-receipt-journal-binding")
         context = valid_context(
@@ -978,10 +1018,79 @@ else:
         receipt = json.loads(
             base64.b64decode(receipt_target["contentBase64"], validate=True)
         )
+        summary = json.loads(
+            base64.b64decode(summary_target["contentBase64"], validate=True)
+        )
         self.assertEqual(
             receipt["requestFingerprint"], journal["requestFingerprint"]
         )
         self.assertEqual(receipt["resultSha256"], summary_target["sha256"])
+        self.assertEqual(
+            summary["finalizeRequestFingerprint"],
+            journal["requestFingerprint"],
+        )
+
+        def journal_with_summary_binding(value):
+            candidate = copy.deepcopy(journal)
+            candidate_summary_target = next(
+                target
+                for target in candidate["targets"]
+                if target["path"].endswith("/run-summary.json")
+            )
+            candidate_summary = json.loads(
+                base64.b64decode(
+                    candidate_summary_target["contentBase64"], validate=True
+                )
+            )
+            if value is None:
+                candidate_summary.pop("finalizeRequestFingerprint", None)
+            else:
+                candidate_summary["finalizeRequestFingerprint"] = value
+            candidate_summary_content = run_evidence._json_bytes(
+                candidate_summary
+            )
+            candidate_summary_target["contentBase64"] = base64.b64encode(
+                candidate_summary_content
+            ).decode("ascii")
+            candidate_summary_target["sha256"] = (
+                "sha256:"
+                + hashlib.sha256(candidate_summary_content).hexdigest()
+            )
+            candidate_receipt_target = next(
+                target
+                for target in candidate["targets"]
+                if target["path"].endswith("/finalize-receipt.json")
+            )
+            candidate_receipt = json.loads(
+                base64.b64decode(
+                    candidate_receipt_target["contentBase64"], validate=True
+                )
+            )
+            candidate_receipt["resultSha256"] = candidate_summary_target[
+                "sha256"
+            ]
+            candidate_receipt_content = run_evidence._json_bytes(
+                candidate_receipt
+            )
+            candidate_receipt_target["contentBase64"] = base64.b64encode(
+                candidate_receipt_content
+            ).decode("ascii")
+            candidate_receipt_target["sha256"] = (
+                "sha256:"
+                + hashlib.sha256(candidate_receipt_content).hexdigest()
+            )
+            return candidate
+
+        for value in (None, "sha256:" + "0" * 64):
+            with self.subTest(summary_binding=value), run_evidence._rooted_io(
+                self.publication_root, mutation=False
+            ), self.assertRaisesRegex(
+                ValueError, "summary finalize request fingerprint"
+            ):
+                run_evidence._validate_transaction_journal(
+                    self.publication_root,
+                    journal_with_summary_binding(value),
+                )
 
         mismatched = copy.deepcopy(journal)
         mismatched_target = next(
@@ -989,8 +1098,9 @@ else:
             for target in mismatched["targets"]
             if target["path"].endswith("/finalize-receipt.json")
         )
-        receipt["requestFingerprint"] = "sha256:" + "0" * 64
-        content = run_evidence._json_bytes(receipt)
+        mismatched_receipt = dict(receipt)
+        mismatched_receipt["requestFingerprint"] = "sha256:" + "0" * 64
+        content = run_evidence._json_bytes(mismatched_receipt)
         mismatched_target["contentBase64"] = base64.b64encode(content).decode(
             "ascii"
         )
@@ -1077,6 +1187,13 @@ else:
                         root, fallback=fallback
                     )
                 )
+                upgraded_fingerprint = (
+                    run_evidence._legacy_finalize_receipt_request_fingerprint(
+                        journal["requestFingerprint"]
+                    )
+                )
+                expected = dict(expected)
+                expected["finalizeRequestFingerprint"] = upgraded_fingerprint
 
                 recovered = run_evidence._finalize_attempt(
                     root, "passed", command_status=0
@@ -1100,9 +1217,11 @@ else:
                 receipt = self.read_json(receipt_path)
                 self.assertEqual(
                     receipt["requestFingerprint"],
-                    run_evidence._legacy_finalize_receipt_request_fingerprint(
-                        journal["requestFingerprint"]
-                    ),
+                    upgraded_fingerprint,
+                )
+                self.assertEqual(
+                    recovered["finalizeRequestFingerprint"],
+                    receipt["requestFingerprint"],
                 )
                 self.assertEqual(
                     receipt["resultSha256"],
@@ -1143,6 +1262,12 @@ else:
                 self.assertEqual(self.transaction_files(publication), [])
                 self.assertTrue((root / "finalize-receipt.json").is_file())
                 committed = self.read_json(root / "run-summary.json")
+                self.assertEqual(
+                    committed["finalizeRequestFingerprint"],
+                    self.read_json(root / "finalize-receipt.json")[
+                        "requestFingerprint"
+                    ],
+                )
                 before_mismatch = self.attempt_evidence_snapshot(root)
                 with self.assertRaisesRegex(ValueError, "request fingerprint"):
                     run_evidence._finalize_attempt(
@@ -1197,6 +1322,12 @@ else:
                 committed = self.read_json(root / "run-summary.json")
                 self.assertTrue((root / "finalize-receipt.json").is_file())
                 self.assertEqual(
+                    committed["finalizeRequestFingerprint"],
+                    self.read_json(root / "finalize-receipt.json")[
+                        "requestFingerprint"
+                    ],
+                )
+                self.assertEqual(
                     self.read_events(root)[-1]["timestamp"],
                     committed["finishedAt"],
                 )
@@ -1241,6 +1372,12 @@ else:
                 summary = run_evidence._finalize_attempt(root, "passed")
                 self.assertEqual(summary["errorCode"], "runner.evidence_invalid")
                 self.assertEqual(run_evidence.validate_summary(summary), [])
+                self.assertEqual(
+                    summary["finalizeRequestFingerprint"],
+                    self.read_json(root / "finalize-receipt.json")[
+                        "requestFingerprint"
+                    ],
+                )
                 self.assertEqual(len(self.terminal_events(root, summary)), 1)
                 self.assertTrue((root / "run-summary.invalid.json").is_file())
                 self.assertTrue(

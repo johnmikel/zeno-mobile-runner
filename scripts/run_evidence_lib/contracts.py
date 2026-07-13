@@ -328,6 +328,17 @@ def validate_summary(summary: dict) -> list[str]:
     key = summary.get("comparabilityKey")
     if key is not None and (not isinstance(key, str) or not _DIGEST_RE.fullmatch(key)):
         _error(errors, "$.comparabilityKey", "must be null or a lowercase sha256 digest")
+    if "finalizeRequestFingerprint" in summary:
+        fingerprint = summary["finalizeRequestFingerprint"]
+        if (
+            not isinstance(fingerprint, str)
+            or not _DIGEST_RE.fullmatch(fingerprint)
+        ):
+            _error(
+                errors,
+                "$.finalizeRequestFingerprint",
+                "must be a lowercase sha256 digest",
+            )
     if not isinstance(summary.get("certificationEligible"), bool):
         _error(errors, "$.certificationEligible", "must be a boolean")
     reasons = summary.get("ineligibilityReasons")

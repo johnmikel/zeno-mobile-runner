@@ -150,12 +150,20 @@ def _validate_transaction_operation(
     if terminal.get("runId") != run_id:
         raise ValueError("finalize transaction summary runId is invalid")
     if has_receipt_target:
+        summary_request_fingerprint = terminal.get(
+            "finalizeRequestFingerprint"
+        )
+        if summary_request_fingerprint != request_fingerprint:
+            raise ValueError(
+                "finalize transaction summary finalize request fingerprint "
+                "disagrees with transaction"
+            )
         summary_target = next(
             target for target in decoded_targets if target["path"] == summary_path
         )
         _validate_finalize_receipt_binding(
             values[receipt_path],
-            request_fingerprint=request_fingerprint,
+            request_fingerprint=summary_request_fingerprint,
             result_sha256=summary_target["sha256"],
         )
     if has_context_target:

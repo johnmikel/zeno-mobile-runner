@@ -256,6 +256,40 @@ class ValidationTests(unittest.TestCase):
         summary["ci"] = {"job": "ios", "matrix": {"runner": "macos-15"}}
         self.assertEqual(run_evidence.validate_summary(summary), [])
 
+    def test_summary_finalize_request_fingerprint_is_optional_and_validated(self):
+        legacy = valid_summary()
+        self.assertNotIn("finalizeRequestFingerprint", legacy)
+        self.assertEqual(run_evidence.validate_summary(legacy), [])
+
+        bound = valid_summary()
+        bound["finalizeRequestFingerprint"] = "sha256:" + "d" * 64
+        self.assertEqual(run_evidence.validate_summary(bound), [])
+
+        for value in (None, "", "sha256:" + "D" * 64, "sha256:" + "d" * 63):
+            with self.subTest(value=value):
+                invalid = valid_summary()
+                invalid["finalizeRequestFingerprint"] = value
+                self.assertPathError(
+                    run_evidence.validate_summary(invalid),
+                    "$.finalizeRequestFingerprint",
+                )
+
+    def test_public_summary_schema_declares_optional_finalize_request_fingerprint(self):
+        schema = json.loads(
+            (REPOSITORY_ROOT / "schemas" / "run-summary.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertNotIn("finalizeRequestFingerprint", schema["required"])
+        self.assertEqual(
+            schema["properties"]["finalizeRequestFingerprint"],
+            {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$",
+            },
+        )
+
     def test_summary_validates_required_types_formats_and_enums(self):
         mutations = {
             "schemaVersion": 2,

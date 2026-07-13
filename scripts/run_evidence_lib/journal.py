@@ -21,6 +21,7 @@ from .receipts import (
     _legacy_finalize_receipt_request_fingerprint,
     _make_finalize_receipt,
     _read_finalize_receipt,
+    _validate_finalize_receipt_binding,
     _validate_finalize_receipt_content,
 )
 from .safe_io import *  # noqa: F401,F403
@@ -319,16 +320,35 @@ def _upgrade_legacy_finalize_transaction(transaction: dict) -> None:
             legacy_request_fingerprint
         )
     )
+    migrated_summary = dict(summary_target["value"])
+    migrated_summary["finalizeRequestFingerprint"] = (
+        receipt_request_fingerprint
+    )
+    migrated_summary_content = _json_bytes(migrated_summary)
+    if len(migrated_summary_content) > MAX_STRUCTURED_JSON_BYTES:
+        raise ValueError(
+            "upgraded terminal summary exceeds "
+            f"{MAX_STRUCTURED_JSON_BYTES} bytes"
+        )
+    migrated_summary_target = _decoded_transaction_target(
+        summary_path, migrated_summary_content
+    )
     receipt_target = _decoded_transaction_target(
         receipt_path,
         _make_finalize_receipt(
             attempt_relative,
             receipt_request_fingerprint,
-            summary_target["content"],
+            migrated_summary_content,
         ),
     )
     transaction["targets"] = [
-        migrated_event_target if target["path"] == event_path else target
+        (
+            migrated_event_target
+            if target["path"] == event_path
+            else migrated_summary_target
+            if target["path"] == summary_path
+            else target
+        )
         for target in transaction["targets"]
     ] + [receipt_target]
     transaction["requestFingerprint"] = receipt_request_fingerprint
@@ -752,9 +772,14 @@ def _completed_finalize_result(
     receipt = _read_finalize_receipt(receipt_path, receipt_relative)
     result_content = _read_bounded_bytes(result_path, MAX_STRUCTURED_JSON_BYTES)
     result_sha256 = "sha256:" + hashlib.sha256(result_content).hexdigest()
-    if receipt["resultSha256"] != result_sha256:
-        raise ValueError("finalize receipt result hash does not match summary")
     result = _validate_transaction_target_content(result_relative, result_content)
+    if not isinstance(result, dict):
+        raise ValueError("finalize receipt result must be an object")
+    _validate_finalize_receipt_binding(
+        receipt,
+        request_fingerprint=result.get("finalizeRequestFingerprint"),
+        result_sha256=result_sha256,
+    )
     if receipt["requestFingerprint"] not in (
         request_fingerprint,
         *compatible_request_fingerprints,
@@ -762,8 +787,6 @@ def _completed_finalize_result(
         raise ValueError(
             "completed finalize request fingerprint does not match retry"
         )
-    if not isinstance(result, dict):
-        raise ValueError("finalize receipt result must be an object")
     return result
 
 

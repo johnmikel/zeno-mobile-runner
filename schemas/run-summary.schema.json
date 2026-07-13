@@ -53,6 +53,10 @@
         { "type": "null" }
       ]
     },
+    "finalizeRequestFingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "certificationEligible": { "type": "boolean" },
     "ineligibilityReasons": {
       "type": "array",

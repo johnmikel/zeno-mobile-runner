@@ -367,6 +367,12 @@ class LifecycleTests(StorageTestCase):
         self.assertEqual(summary["status"], "passed")
         self.assertEqual(summary["classification"], "passed")
         self.assertGreaterEqual(summary["durationMs"], 0)
+        self.assertEqual(
+            summary["finalizeRequestFingerprint"],
+            self.read_json(root / "finalize-receipt.json")[
+                "requestFingerprint"
+            ],
+        )
         terminal = self.read_events(root)[-1]
         self.assertEqual(
             (terminal["phase"], terminal["status"]), ("complete", "passed")
@@ -410,10 +416,29 @@ class LifecycleTests(StorageTestCase):
         run_evidence._initialize_attempt(
             self.index_path, over_root, over_context
         )
+        stored_context = self.read_json(exact_root / "run-context.json")
+        request_fingerprint = run_evidence._request_fingerprint(
+            self.publication_root,
+            "finalize",
+            exact_root,
+            {
+                "context": stored_context,
+                "terminal": {
+                    "status": "failed",
+                    "classification": finalize_arguments["classification"],
+                    "phase": finalize_arguments["phase"],
+                    "errorCode": finalize_arguments["error_code"],
+                    "summary": finalize_arguments["summary_text"],
+                    "hint": finalize_arguments["hint"],
+                    "commandStatus": finalize_arguments["command_status"],
+                },
+            },
+        )
         expected = run_evidence._build_summary(
-            self.read_json(exact_root / "run-context.json"),
+            stored_context,
             "failed",
             finished_at=finished_at,
+            finalize_request_fingerprint=request_fingerprint,
             **finalize_arguments,
         )
         exact_size = len(run_evidence._json_bytes(expected))
@@ -521,6 +546,12 @@ class LifecycleTests(StorageTestCase):
         self.assertEqual(fallback["classification"], "runner_failure")
         self.assertEqual(fallback["phase"], "evidence.finalize")
         self.assertEqual(fallback["errorCode"], "runner.evidence_invalid")
+        self.assertEqual(
+            fallback["finalizeRequestFingerprint"],
+            self.read_json(root / "finalize-receipt.json")[
+                "requestFingerprint"
+            ],
+        )
         self.assertTrue((root / "run-summary.invalid.json").is_file())
         diagnostics = self.read_json(root / "run-summary.invalid.errors.json")
         self.assertTrue(diagnostics["errors"])

@@ -443,6 +443,7 @@ def _validate_finalize_receipt_for_bundle(
     root: Path,
     snapshot: _BundleSnapshot,
     summary_metadata: Any,
+    summary: Any,
     errors: list[str],
 ) -> None:
     """Validate an optional durable receipt against the snapshotted summary."""
@@ -482,9 +483,16 @@ def _validate_finalize_receipt_for_bundle(
             _limits.MAX_STRUCTURED_JSON_BYTES,
             expected_metadata=summary_metadata,
         )
+        if not isinstance(summary, dict) or not isinstance(
+            summary.get("finalizeRequestFingerprint"), str
+        ):
+            raise ValueError(
+                "run-summary.json.finalizeRequestFingerprint is required "
+                "when a finalize receipt exists"
+            )
         _validate_finalize_receipt_binding(
             receipt,
-            request_fingerprint=receipt["requestFingerprint"],
+            request_fingerprint=summary["finalizeRequestFingerprint"],
             result_sha256=(
                 "sha256:" + hashlib.sha256(summary_content).hexdigest()
             ),
@@ -548,7 +556,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
 
     if summary_metadata is not None and stat.S_ISREG(summary_metadata.st_mode):
         _validate_finalize_receipt_for_bundle(
-            root, snapshot, summary_metadata, errors
+            root, snapshot, summary_metadata, summary, errors
         )
 
     if isinstance(summary, dict) and (

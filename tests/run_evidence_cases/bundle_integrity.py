@@ -1,5 +1,6 @@
 """Adversarial integrity cases for publishable evidence bundles."""
 
+import hashlib
 import shutil
 import time
 
@@ -443,6 +444,58 @@ class BundleIntegrityTests(CommandTestCase):
             "disagrees with summary",
             errors,
         )
+
+    def test_finalize_receipt_request_fingerprint_is_bound_to_summary(self):
+        self.make_bundle()
+        receipt_path = self.root / "finalize-receipt.json"
+        summary_path = self.root / "run-summary.json"
+        receipt = self.read_json(receipt_path)
+        summary = self.read_json(summary_path)
+        self.assertEqual(
+            summary["finalizeRequestFingerprint"],
+            receipt["requestFingerprint"],
+        )
+
+        receipt["requestFingerprint"] = "sha256:" + "0" * 64
+        receipt_path.write_bytes(run_evidence._json_bytes(receipt))
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertTrue(
+            any("request fingerprint disagrees" in error for error in errors),
+            errors,
+        )
+
+    def test_finalize_summary_request_binding_cannot_be_rebound_by_result_hash(self):
+        self.make_bundle()
+        receipt_path = self.root / "finalize-receipt.json"
+        summary_path = self.root / "run-summary.json"
+        receipt = self.read_json(receipt_path)
+        summary = self.read_json(summary_path)
+        summary["finalizeRequestFingerprint"] = "sha256:" + "0" * 64
+        summary_content = run_evidence._json_bytes(summary)
+        summary_path.write_bytes(summary_content)
+        receipt["resultSha256"] = (
+            "sha256:" + hashlib.sha256(summary_content).hexdigest()
+        )
+        receipt_path.write_bytes(run_evidence._json_bytes(receipt))
+
+        errors = run_evidence.validate_bundle(self.root, secrets=[])
+
+        self.assertTrue(
+            any("request fingerprint disagrees" in error for error in errors),
+            errors,
+        )
+
+    def test_receiptless_legacy_summary_remains_bundle_compatible(self):
+        self.make_bundle()
+        summary_path = self.root / "run-summary.json"
+        summary = self.read_json(summary_path)
+        summary.pop("finalizeRequestFingerprint", None)
+        summary_path.write_bytes(run_evidence._json_bytes(summary))
+        (self.root / "finalize-receipt.json").unlink()
+
+        self.assertEqual(run_evidence.validate_bundle(self.root, secrets=[]), [])
 
     def test_lone_surrogate_json_is_reported_without_exception(self):
         self.make_bundle()

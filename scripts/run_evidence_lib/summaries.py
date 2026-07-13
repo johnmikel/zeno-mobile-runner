@@ -28,6 +28,7 @@ from .sanitization import *  # noqa: F401,F403
 from .sanitization import _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
+from .receipts import _finalize_receipt_relative, _make_finalize_receipt
 from .lifecycle import *  # noqa: F401,F403
 
 _MAX_INVALID_SUMMARY_DIAGNOSTICS = 256
@@ -300,8 +301,6 @@ def _finalize_attempt(
             with _exclusive_lock(root / ".lifecycle.lock"):
                 with _exclusive_lock(root / ".events.lock"):
                     summary_path = root / "run-summary.json"
-                    if not recovered and _evidence_exists(summary_path):
-                        raise FileExistsError("terminal run summary already exists")
                     context = _read_json(root / "run-context.json")
                     roots = _sanitization_roots(root)
                     secrets = _collect_secret_values()
@@ -434,6 +433,13 @@ def _finalize_attempt(
                     )
                     if recovered_result is not None:
                         return recovered_result
+                    completed_result = _completed_finalize_result(
+                        publication_root,
+                        attempt_relative,
+                        request_fingerprint,
+                    )
+                    if completed_result is not None:
+                        return completed_result
                     if _evidence_exists(summary_path):
                         raise FileExistsError(
                             "terminal run summary already exists"
@@ -473,6 +479,13 @@ def _finalize_attempt(
                     else:
                         terminal = candidate
 
+                    summary_bytes = _json_bytes(terminal)
+                    if len(summary_bytes) > MAX_STRUCTURED_JSON_BYTES:
+                        raise ValueError(
+                            "terminal summary exceeds "
+                            f"{MAX_STRUCTURED_JSON_BYTES} bytes"
+                        )
+
                     event_metadata = {
                         "commandStatus": terminal.get("commandStatus")
                     }
@@ -486,6 +499,7 @@ def _finalize_attempt(
                             root,
                             terminal["phase"],
                             terminal["status"],
+                            _timestamp=terminal["finishedAt"],
                             **event_metadata,
                         )
                     )
@@ -519,9 +533,16 @@ def _finalize_attempt(
                         )
                     )
                     targets.append(
+                        (attempt_relative + "/run-summary.json", summary_bytes)
+                    )
+                    targets.append(
                         (
-                            attempt_relative + "/run-summary.json",
-                            _json_bytes(terminal),
+                            _finalize_receipt_relative(attempt_relative),
+                            _make_finalize_receipt(
+                                attempt_relative,
+                                request_fingerprint,
+                                summary_bytes,
+                            ),
                         )
                     )
                     transaction = _make_transaction(

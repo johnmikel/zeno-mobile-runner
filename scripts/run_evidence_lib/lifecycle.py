@@ -402,13 +402,14 @@ def _event_stream_candidate(
     status: str,
     *,
     events: list[dict] | None = None,
+    _timestamp: str | None = None,
     **metadata: Any,
 ) -> tuple[dict, bytes, list[dict]]:
     events = _read_bootstrap_events(root) if events is None else list(events)
     event = {
         "schemaVersion": 1,
         "seq": len(events) + 1,
-        "timestamp": _utc_now(),
+        "timestamp": _utc_now() if _timestamp is None else _timestamp,
         "phase": phase,
         "status": status,
     }

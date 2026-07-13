@@ -5,6 +5,7 @@ from . import sanitization
 from . import contracts
 from . import safe_io
 from . import bounded_io
+from . import receipts
 from . import journal
 from . import lifecycle
 from . import summaries
@@ -19,6 +20,7 @@ from .sanitization import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .safe_io import *  # noqa: F401,F403
 from .bounded_io import *  # noqa: F401,F403
+from .receipts import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
 from .summaries import *  # noqa: F401,F403
@@ -34,6 +36,7 @@ __all__ = [
     "contracts",
     "safe_io",
     "bounded_io",
+    "receipts",
     "journal",
     "lifecycle",
     "summaries",
@@ -47,6 +50,7 @@ __all__ = [
     *contracts.__all__,
     *safe_io.__all__,
     *bounded_io.__all__,
+    *receipts.__all__,
     *journal.__all__,
     *lifecycle.__all__,
     *summaries.__all__,

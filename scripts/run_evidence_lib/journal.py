@@ -14,6 +14,13 @@ from typing import Any
 
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
+from .bounded_io import _read_bounded_bytes
+from .receipts import (
+    MAX_FINALIZE_RECEIPT_BYTES,
+    _finalize_receipt_relative,
+    _read_finalize_receipt,
+    _validate_finalize_receipt_content,
+)
 from .safe_io import *  # noqa: F401,F403
 from .journal_validation import _validate_transaction_operation
 from . import safe_io as _safe_io_owner
@@ -140,6 +147,8 @@ def _validate_transaction_target_content(path: str, content: bytes) -> Any:
             value = json.loads(content.decode("utf-8"))
             if not isinstance(value, dict) or not isinstance(value.get("errors"), list):
                 raise ValueError("invalid diagnostics must contain errors")
+        elif path.endswith("/finalize-receipt.json"):
+            value = _validate_finalize_receipt_content(path, content)
         elif path.endswith("/bootstrap-events.jsonl"):
             events = []
             for line in content.decode("utf-8").splitlines():
@@ -221,8 +230,19 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
         seen_paths.add(relative)
         if _evidence_exists(candidate) and not _evidence_is_file(candidate):
             raise ValueError("transaction target exists but is not a file")
+        encoded_content = target.get("contentBase64")
+        if (
+            isinstance(relative, str)
+            and relative.endswith("/finalize-receipt.json")
+            and isinstance(encoded_content, str)
+            and len(encoded_content)
+            > ((MAX_FINALIZE_RECEIPT_BYTES + 2) // 3) * 4
+        ):
+            raise ValueError(
+                f"finalize receipt exceeds {MAX_FINALIZE_RECEIPT_BYTES} bytes"
+            )
         try:
-            content = base64.b64decode(target.get("contentBase64"), validate=True)
+            content = base64.b64decode(encoded_content, validate=True)
         except (TypeError, ValueError, binascii.Error) as exc:
             raise ValueError("transaction target contentBase64 is invalid") from exc
         digest = "sha256:" + hashlib.sha256(content).hexdigest()
@@ -243,6 +263,7 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
         attempt_relative,
         required_directories,
         decoded_targets,
+        request_fingerprint,
     )
 
     return {
@@ -442,7 +463,18 @@ def _apply_transaction(
         )
     for index, (target, path, temporaries) in enumerate(prepared_targets):
         _remove_target_temporaries(path, temporaries)
-        existing = _evidence_read_bytes(path) if _evidence_is_file(path) else None
+        existing = None
+        if _evidence_is_file(path):
+            if target["path"].endswith("/finalize-receipt.json"):
+                receipt_metadata = _evidence_stat(path)
+                if receipt_metadata.st_size <= MAX_FINALIZE_RECEIPT_BYTES:
+                    existing = _read_bounded_bytes(
+                        path,
+                        MAX_FINALIZE_RECEIPT_BYTES,
+                        expected_metadata=receipt_metadata,
+                    )
+            else:
+                existing = _evidence_read_bytes(path)
         if existing is None or hashlib.sha256(existing).digest() != hashlib.sha256(
             target["content"]
         ).digest():
@@ -452,7 +484,13 @@ def _apply_transaction(
         )
         if not _evidence_is_file(path) or _evidence_is_symlink(path):
             raise ValueError("transaction target was not written safely")
-        if "sha256:" + hashlib.sha256(_evidence_read_bytes(path)).hexdigest() != target["sha256"]:
+        if target["path"].endswith("/finalize-receipt.json"):
+            written_content = _read_bounded_bytes(
+                path, MAX_FINALIZE_RECEIPT_BYTES
+            )
+        else:
+            written_content = _evidence_read_bytes(path)
+        if "sha256:" + hashlib.sha256(written_content).hexdigest() != target["sha256"]:
             raise ValueError("transaction target failed hash verification")
         _transaction_checkpoint("target", index)
 
@@ -460,7 +498,13 @@ def _apply_transaction(
         path = _contained_transaction_path(
             publication_root, target["path"], "transaction final target"
         )
-        if "sha256:" + hashlib.sha256(_evidence_read_bytes(path)).hexdigest() != target["sha256"]:
+        if target["path"].endswith("/finalize-receipt.json"):
+            current_content = _read_bounded_bytes(
+                path, MAX_FINALIZE_RECEIPT_BYTES
+            )
+        else:
+            current_content = _evidence_read_bytes(path)
+        if "sha256:" + hashlib.sha256(current_content).hexdigest() != target["sha256"]:
             raise ValueError("transaction final hash verification failed")
     _safe_io_owner._rooted_io_checkpoint(
         "journal", "before_unlink", journal_path
@@ -476,6 +520,7 @@ def _apply_transaction(
             )
     _evidence_unlink(journal_path)
     _fsync_directory(journal_path.parent)
+    _transaction_checkpoint("committed", -1)
 
 
 def _recover_pending_transactions_unlocked(publication_root: Path) -> list[dict]:
@@ -603,6 +648,53 @@ def _recovered_result(
     return result
 
 
+def _completed_finalize_result(
+    publication_root: Path,
+    attempt_relative: str,
+    request_fingerprint: str,
+) -> dict | None:
+    """Reconcile a durably committed finalize after its journal was removed."""
+
+    receipt_relative = _finalize_receipt_relative(attempt_relative)
+    result_relative = attempt_relative + "/run-summary.json"
+    receipt_path = _contained_transaction_path(
+        publication_root, receipt_relative, "finalize receipt"
+    )
+    result_path = _contained_transaction_path(
+        publication_root, result_relative, "finalize receipt result"
+    )
+    receipt_exists = _evidence_exists(receipt_path) or _evidence_is_symlink(
+        receipt_path
+    )
+    result_exists = _evidence_exists(result_path) or _evidence_is_symlink(
+        result_path
+    )
+    if not receipt_exists:
+        return None
+    if _evidence_is_symlink(receipt_path) or not _evidence_is_file(receipt_path):
+        raise ValueError("finalize receipt is not a safe regular file")
+    if (
+        not result_exists
+        or _evidence_is_symlink(result_path)
+        or not _evidence_is_file(result_path)
+    ):
+        raise ValueError("finalize receipt result is not a safe regular file")
+
+    receipt = _read_finalize_receipt(receipt_path, receipt_relative)
+    result_content = _read_bounded_bytes(result_path, MAX_STRUCTURED_JSON_BYTES)
+    result_sha256 = "sha256:" + hashlib.sha256(result_content).hexdigest()
+    if receipt["resultSha256"] != result_sha256:
+        raise ValueError("finalize receipt result hash does not match summary")
+    result = _validate_transaction_target_content(result_relative, result_content)
+    if receipt["requestFingerprint"] != request_fingerprint:
+        raise ValueError(
+            "completed finalize request fingerprint does not match retry"
+        )
+    if not isinstance(result, dict):
+        raise ValueError("finalize receipt result must be an object")
+    return result
+
+
 def _pending_transaction_errors_for_attempt(root: Path) -> list[str]:
     root = Path(root)
     publication_root = _publication_root_for_attempt(root)
@@ -650,5 +742,6 @@ __all__ = (
     "_make_transaction",
     "_commit_transaction_unlocked",
     "_recovered_result",
+    "_completed_finalize_result",
     "_pending_transaction_errors_for_attempt",
 )

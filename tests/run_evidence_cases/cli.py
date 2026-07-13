@@ -330,6 +330,9 @@ raise SystemExit(module.main([
                 self.assertEqual(
                     recovered, self.read_json(root / "run-summary.json")
                 )
+                committed_summary_bytes = (
+                    root / "run-summary.json"
+                ).read_bytes()
                 self.assertEqual(
                     recovered["artifacts"]["trace"], "traces/final.json"
                 )
@@ -361,7 +364,12 @@ raise SystemExit(module.main([
                     "--report",
                     "reports/final.html",
                 )
-                self.assertEqual(duplicate.returncode, 2)
+                self.assertEqual(duplicate.returncode, 0, duplicate.stderr)
+                self.assertEqual(json.loads(duplicate.stdout), recovered)
+                self.assertEqual(
+                    (root / "run-summary.json").read_bytes(),
+                    committed_summary_bytes,
+                )
 
         root = self.attempt_root("cli-finalize-wal-mismatch")
         run_evidence._initialize_attempt(
@@ -420,6 +428,27 @@ raise SystemExit(module.main([
             self.read_json(root / "run-summary.json")["artifacts"]["trace"],
             "traces/final.json",
         )
+        receipt_path = root / "finalize-receipt.json"
+        receipt_after_mismatch = receipt_path.read_bytes()
+        corrected = self.cli(
+            "finalize",
+            "--root",
+            root,
+            "--status",
+            "passed",
+            "--command-status",
+            "0",
+            "--trace",
+            "traces/final.json",
+            "--report",
+            "reports/final.html",
+        )
+        self.assertEqual(corrected.returncode, 0, corrected.stderr)
+        self.assertEqual(
+            json.loads(corrected.stdout),
+            self.read_json(root / "run-summary.json"),
+        )
+        self.assertEqual(receipt_path.read_bytes(), receipt_after_mismatch)
 
     def test_aggregate_retains_all_attempts_and_is_deterministic(self):
         first = self.attempt_root("run-1")

@@ -5,6 +5,10 @@ from __future__ import annotations
 import re
 
 from .contracts import _comparability_tuple, _valid_datetime
+from .receipts import (
+    _finalize_receipt_relative,
+    _validate_finalize_receipt_binding,
+)
 
 
 def _registrations_for_run(index: dict, run_id: str) -> list[tuple[dict, dict]]:
@@ -21,12 +25,14 @@ def _validate_transaction_operation(
     attempt_relative: str,
     required_directories: list[str],
     decoded_targets: list[dict],
+    request_fingerprint: str,
 ) -> None:
     event_path = attempt_relative + "/bootstrap-events.jsonl"
     context_path = attempt_relative + "/run-context.json"
     summary_path = attempt_relative + "/run-summary.json"
     invalid_path = attempt_relative + "/run-summary.invalid.json"
     diagnostic_path = attempt_relative + "/run-summary.invalid.errors.json"
+    receipt_path = _finalize_receipt_relative(attempt_relative)
     ordered_paths = [target["path"] for target in decoded_targets]
     values = {target["path"]: target["value"] for target in decoded_targets}
     run_id = attempt_relative.split("/")[-1]
@@ -132,13 +138,26 @@ def _validate_transaction_operation(
     ]
     has_context_target = bool(ordered_paths and ordered_paths[0] == context_path)
     terminal_paths = ordered_paths[1:] if has_context_target else ordered_paths
-    if terminal_paths not in (expected_paths, invalid_expected_paths):
+    has_receipt_target = bool(
+        terminal_paths and terminal_paths[-1] == receipt_path
+    )
+    lifecycle_paths = terminal_paths[:-1] if has_receipt_target else terminal_paths
+    if lifecycle_paths not in (expected_paths, invalid_expected_paths):
         raise ValueError("finalize transaction contains an invalid target set")
     if required_directories != [attempt_relative]:
         raise ValueError("finalize transaction directory set is invalid")
     terminal = values[summary_path]
     if terminal.get("runId") != run_id:
         raise ValueError("finalize transaction summary runId is invalid")
+    if has_receipt_target:
+        summary_target = next(
+            target for target in decoded_targets if target["path"] == summary_path
+        )
+        _validate_finalize_receipt_binding(
+            values[receipt_path],
+            request_fingerprint=request_fingerprint,
+            result_sha256=summary_target["sha256"],
+        )
     if has_context_target:
         context = values[context_path]
         context_artifacts = context.get("artifacts")
@@ -165,12 +184,16 @@ def _validate_transaction_operation(
     if not events:
         raise ValueError("finalize transaction event stream is empty")
     final_event = events[-1]
+    if final_event.get("timestamp") != terminal.get("finishedAt"):
+        raise ValueError(
+            "finalize transaction event timestamp disagrees with terminal summary"
+        )
     for field in ("phase", "status", "errorCode", "summary", "commandStatus"):
         if final_event.get(field) != terminal.get(field):
             raise ValueError(
                 "finalize transaction event disagrees with terminal summary"
             )
-    if terminal_paths == invalid_expected_paths:
+    if lifecycle_paths == invalid_expected_paths:
         diagnostics = values[diagnostic_path]
         errors = diagnostics.get("errors")
         if (

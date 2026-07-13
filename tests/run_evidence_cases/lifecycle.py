@@ -350,7 +350,18 @@ class LifecycleTests(StorageTestCase):
 
     def test_finalize_passed_once_and_terminal_event_matches(self):
         root = self.initialize()
-        summary = run_evidence._finalize_attempt(root, "passed", command_status=0)
+        finished_at = "2026-07-11T10:00:01.000Z"
+        independently_sampled_event_time = "2026-07-11T10:00:02.000Z"
+        with mock.patch.object(
+            run_evidence.summaries, "_utc_now", return_value=finished_at
+        ), mock.patch.object(
+            run_evidence.lifecycle,
+            "_utc_now",
+            return_value=independently_sampled_event_time,
+        ):
+            summary = run_evidence._finalize_attempt(
+                root, "passed", command_status=0
+            )
         self.assertEqual(run_evidence.validate_summary(summary), [])
         self.assertEqual(self.read_json(root / "run-summary.json"), summary)
         self.assertEqual(summary["status"], "passed")
@@ -360,13 +371,94 @@ class LifecycleTests(StorageTestCase):
         self.assertEqual(
             (terminal["phase"], terminal["status"]), ("complete", "passed")
         )
-        with self.assertRaises(FileExistsError):
+        self.assertEqual(terminal["timestamp"], summary["finishedAt"])
+        self.assertEqual(
+            run_evidence._finalize_attempt(root, "passed", command_status=0),
+            summary,
+        )
+        with self.assertRaisesRegex(ValueError, "request fingerprint"):
             run_evidence._finalize_attempt(root, "passed")
 
         before = (root / "bootstrap-events.jsonl").read_bytes()
         with self.assertRaises(ValueError):
             run_evidence._append_event(root, "cleanup", "passed")
         self.assertEqual((root / "bootstrap-events.jsonl").read_bytes(), before)
+
+    def test_finalize_summary_size_cap_is_exact_and_precedes_writes(self):
+        finished_at = "2026-07-11T10:00:01.000Z"
+        finalize_arguments = {
+            "classification": "app_failure",
+            "phase": "scenario.execute",
+            "error_code": "app.assertion_failed",
+            "summary_text": "Assertion failed",
+            "hint": "Inspect the report",
+            "command_status": 1,
+        }
+        exact_context = valid_context(
+            runId="summary-bound-a",
+            executionId="summary-bound-a-execution",
+        )
+        exact_root = self.attempt_root(exact_context["runId"])
+        run_evidence._initialize_attempt(
+            self.index_path, exact_root, exact_context
+        )
+        over_context = valid_context(
+            runId="summary-bound-b",
+            executionId="summary-bound-b-execution",
+        )
+        over_root = self.attempt_root(over_context["runId"])
+        run_evidence._initialize_attempt(
+            self.index_path, over_root, over_context
+        )
+        expected = run_evidence._build_summary(
+            self.read_json(exact_root / "run-context.json"),
+            "failed",
+            finished_at=finished_at,
+            **finalize_arguments,
+        )
+        exact_size = len(run_evidence._json_bytes(expected))
+
+        with mock.patch.object(
+            run_evidence.summaries,
+            "MAX_STRUCTURED_JSON_BYTES",
+            exact_size,
+        ), mock.patch.object(
+            run_evidence.journal,
+            "MAX_STRUCTURED_JSON_BYTES",
+            exact_size,
+        ), mock.patch.object(
+            run_evidence.summaries, "_utc_now", return_value=finished_at
+        ):
+            finalized = run_evidence._finalize_attempt(
+                exact_root, "failed", **finalize_arguments
+            )
+            retried = run_evidence._finalize_attempt(
+                exact_root, "failed", **finalize_arguments
+            )
+        self.assertEqual(len(run_evidence._json_bytes(finalized)), exact_size)
+        self.assertEqual(retried, finalized)
+
+        events_before = (over_root / "bootstrap-events.jsonl").read_bytes()
+        with mock.patch.object(
+            run_evidence.summaries,
+            "MAX_STRUCTURED_JSON_BYTES",
+            exact_size - 1,
+        ), mock.patch.object(
+            run_evidence.summaries, "_utc_now", return_value=finished_at
+        ), self.assertRaisesRegex(ValueError, "terminal summary exceeds"):
+            run_evidence._finalize_attempt(
+                over_root, "failed", **finalize_arguments
+            )
+        self.assertEqual(
+            (over_root / "bootstrap-events.jsonl").read_bytes(), events_before
+        )
+        self.assertFalse((over_root / "run-summary.json").exists())
+        self.assertFalse((over_root / "finalize-receipt.json").exists())
+        transaction_root = self.publication_root / ".transactions"
+        self.assertEqual(
+            list(transaction_root.iterdir()) if transaction_root.exists() else [],
+            [],
+        )
 
     def test_finalize_rejects_classification_that_disagrees_with_error_owner(self):
         root = self.initialize()

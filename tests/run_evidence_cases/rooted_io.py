@@ -627,3 +627,40 @@ class RootedIOContainmentTests(CommandTestCase):
             any("contains a current known secret value" in error for error in errors),
             errors,
         )
+
+    def test_long_lived_lease_is_exclusive_cloexec_and_inode_bound(self):
+        lease_path = self.root / ".supervisor.lease"
+        lease_path.write_bytes(b"")
+        initial_identity = (lease_path.stat().st_dev, lease_path.stat().st_ino)
+
+        with run_evidence._exclusive_lease(lease_path) as lease:
+            self.assertEqual(lease.identity, f"{initial_identity[0]}:{initial_identity[1]}")
+            self.assertEqual(
+                (os.fstat(lease.descriptor).st_dev, os.fstat(lease.descriptor).st_ino),
+                initial_identity,
+            )
+            self.assertFalse(os.get_inheritable(lease.descriptor))
+            with self.assertRaises(TimeoutError):
+                with run_evidence._exclusive_lease(lease_path):
+                    self.fail("a second lease unexpectedly acquired the same inode")
+
+        with self.assertRaises(OSError):
+            os.fstat(lease.descriptor)
+        with run_evidence._exclusive_lease(lease_path) as reacquired:
+            self.assertEqual(reacquired.identity, lease.identity)
+        self.assertEqual(
+            (lease_path.stat().st_dev, lease_path.stat().st_ino), initial_identity
+        )
+
+    def test_long_lived_lease_rejects_symlink_without_touching_target(self):
+        outside = Path(self.temporary.name) / "outside-lease"
+        outside.write_text("untouched", encoding="utf-8")
+        lease_path = self.root / ".supervisor.lease"
+        lease_path.symlink_to(outside)
+        before = outside.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, _CONTAINMENT_DIAGNOSTIC):
+            with run_evidence._exclusive_lease(lease_path):
+                self.fail("symlinked lease unexpectedly acquired")
+
+        self.assertEqual(outside.read_bytes(), before)

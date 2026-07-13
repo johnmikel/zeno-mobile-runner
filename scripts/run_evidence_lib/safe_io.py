@@ -17,7 +17,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 if os.name == "posix":
     import fcntl
@@ -30,6 +30,13 @@ ROOTED_IO_CONTAINMENT_ERROR = "evidence rooted I/O containment changed"
 
 class RootedIOError(ValueError):
     """A trusted evidence root or one of its directory bindings changed."""
+
+
+class _EvidenceLease(NamedTuple):
+    """One held, descriptor-bound long-lived ownership lease."""
+
+    descriptor: int
+    identity: str
 
 
 def _replace_supports_dir_fds() -> bool:
@@ -608,6 +615,73 @@ class _RootedIO:
                 os.close(descriptor)
             os.close(parent)
 
+    @contextmanager
+    def lease(self, path: Path | str, timeout: float = 0.0):
+        """Hold one stable regular-file inode as a long-lived ownership lease."""
+
+        parent, name, parent_relative, relative = self._parent(path)
+        descriptor = -1
+        locked = False
+        deadline = time.monotonic() + min(max(timeout, 0.0), 5.0)
+        try:
+            _rooted_io_checkpoint("lease", "before_open", self.path(relative))
+            self._validate_directory(parent_relative, parent)
+            descriptor = os.open(
+                name,
+                os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=parent,
+            )
+            os.set_inheritable(descriptor, False)
+            metadata = os.fstat(descriptor)
+            visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            identity = (metadata.st_dev, metadata.st_ino)
+            if not stat.S_ISREG(metadata.st_mode) or (
+                visible.st_dev,
+                visible.st_ino,
+            ) != identity:
+                raise self._error("lease file binding changed")
+            if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
+                raise self._error("lease file has an unsafe owner")
+            os.fchmod(descriptor, 0o600)
+            while not locked:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locked = True
+                except OSError as exc:
+                    if exc.errno not in (
+                        errno.EACCES,
+                        errno.EAGAIN,
+                        errno.EWOULDBLOCK,
+                    ):
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out acquiring lease {name}"
+                        ) from exc
+                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+            self._validate_directory(parent_relative, parent)
+            visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if (visible.st_dev, visible.st_ino) != identity:
+                raise self._error("lease file changed while waiting")
+            yield _EvidenceLease(
+                descriptor=descriptor,
+                identity=f"{identity[0]}:{identity[1]}",
+            )
+            self._validate_directory(parent_relative, parent)
+            visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if (visible.st_dev, visible.st_ino) != identity:
+                raise self._error("lease file changed while held")
+        except (RootedIOError, TimeoutError):
+            raise
+        except OSError as exc:
+            raise self._error("descriptor-relative lease failed", exc) from exc
+        finally:
+            if locked:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            if descriptor >= 0:
+                os.close(descriptor)
+            os.close(parent)
+
 
 @contextmanager
 def _rooted_io(publication_root: Path, *, mutation: bool = True):
@@ -812,6 +886,19 @@ def _exclusive_lock(path: Path, timeout: float = 5.0):
         yield
 
 
+@contextmanager
+def _exclusive_lease(path: Path, timeout: float = 0.0):
+    """Acquire a stable, long-lived lease and expose its inode identity."""
+
+    if _ACTIVE_ROOTED_IO.get() is None:
+        with _rooted_io(_publication_root_for_path(Path(path)), mutation=True):
+            with _active_rooted_io().lease(Path(path), timeout) as lease:
+                yield lease
+        return
+    with _active_rooted_io().lease(Path(path), timeout) as lease:
+        yield lease
+
+
 __all__ = (
     "ROOTED_IO_CONTAINMENT_ERROR",
     "RootedIOError",
@@ -845,4 +932,6 @@ __all__ = (
     "_atomic_write_json",
     "_read_json",
     "_exclusive_lock",
+    "_EvidenceLease",
+    "_exclusive_lease",
 )

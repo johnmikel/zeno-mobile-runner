@@ -147,9 +147,17 @@ def _print_json(value: Any) -> None:
 
 def _parse_json_argument(value: str, label: str) -> dict:
     try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{label} must be valid JSON: {exc.msg}") from exc
+        encoded = value.encode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"{label} must be valid UTF-8 JSON") from exc
+    if len(encoded) > _limits.MAX_STRUCTURED_JSON_BYTES:
+        raise ValueError(
+            f"{label} exceeds {_limits.MAX_STRUCTURED_JSON_BYTES} UTF-8 bytes"
+        )
+    try:
+        parsed = bounded_io._decode_json_bytes(encoded)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be valid JSON: {exc}") from exc
     if not isinstance(parsed, dict):
         raise ValueError(f"{label} must be a JSON object")
     return parsed

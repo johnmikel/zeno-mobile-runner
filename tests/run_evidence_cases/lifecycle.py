@@ -4,6 +4,33 @@ from .support import *  # noqa: F401,F403
 
 
 class AttemptIndexTests(StorageTestCase):
+    def test_index_reads_reject_duplicate_keys_and_oversized_documents(self):
+        self.index_path.write_bytes(
+            b'{"schemaVersion":"1.0","schemaVersion":"1.0","executions":[]}'
+        )
+        with run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(ValueError, "duplicate object key"):
+            run_evidence.lifecycle._load_index(self.index_path)
+
+        self.index_path.write_bytes(
+            b'{"schemaVersion":"1.0","executions":[]}'
+        )
+        with mock.patch.object(
+            run_evidence.constants, "MAX_STRUCTURED_JSON_BYTES", 1
+        ), run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(ValueError, "structured JSON exceeds 1 bytes"):
+            run_evidence.lifecycle._load_index(self.index_path)
+
+        self.index_path.write_bytes(
+            b'{"schemaVersion":NaN,"executions":[]}'
+        )
+        with run_evidence._rooted_io(
+            self.publication_root, mutation=False
+        ), self.assertRaisesRegex(ValueError, "non-finite JSON number"):
+            run_evidence.lifecycle._load_index(self.index_path)
+
     def test_registers_two_monotonic_attempts_with_normalized_summary_refs(self):
         first_context = valid_context()
         first_root = self.create_attempt_root("run-1")
@@ -188,6 +215,15 @@ class LifecycleTests(StorageTestCase):
         run_evidence._initialize_attempt(self.index_path, root, context)
         return root
 
+    def test_jsonl_line_encoder_rejects_invalid_limits_deterministically(self):
+        for limit in (-1, True, 1.5):
+            with self.subTest(limit=limit), self.assertRaisesRegex(
+                ValueError, "JSONL line limit must be a non-negative integer"
+            ):
+                run_evidence.bounded_io._jsonl_line_bytes_bounded(
+                    {"value": "x"}, maximum=limit
+                )
+
     def test_init_creates_context_commands_index_and_ordered_init_events(self):
         root = self.initialize()
         self.assertTrue((root / "commands").is_dir())
@@ -203,6 +239,178 @@ class LifecycleTests(StorageTestCase):
         self.assertTrue(all(run_evidence.validate_event(event) == [] for event in events))
         index = self.read_json(self.index_path)
         self.assertEqual(index["executions"][0]["attempts"][0]["runId"], "run-1")
+
+    def test_context_reads_reject_duplicate_keys_without_mutation(self):
+        root = self.initialize()
+        context_path = root / "run-context.json"
+        original = context_path.read_bytes()
+        duplicate = original.replace(
+            b'"fixtureId":"fixture-ios"',
+            b'"fixtureId":"fixture-ios","fixtureId":"fixture-ios"',
+            1,
+        )
+        self.assertNotEqual(duplicate, original)
+        context_path.write_bytes(duplicate)
+        index_before = self.index_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "duplicate object key"):
+            run_evidence.update_context(
+                root, {"artifacts": {"trace": "traces/strict.json"}}
+            )
+
+        self.assertEqual(context_path.read_bytes(), duplicate)
+        self.assertEqual(self.index_path.read_bytes(), index_before)
+
+    def test_finalize_context_read_rejects_duplicate_keys_without_mutation(self):
+        root = self.initialize()
+        context_path = root / "run-context.json"
+        original = context_path.read_bytes()
+        duplicate = original.replace(
+            b'"fixtureId":"fixture-ios"',
+            b'"fixtureId":"fixture-ios","fixtureId":"fixture-ios"',
+            1,
+        )
+        context_path.write_bytes(duplicate)
+        events_path = root / "bootstrap-events.jsonl"
+        events_before = events_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "duplicate object key"):
+            run_evidence._finalize_attempt(root, "passed", command_status=0)
+
+        self.assertEqual(context_path.read_bytes(), duplicate)
+        self.assertEqual(events_path.read_bytes(), events_before)
+        self.assertFalse((root / "run-summary.json").exists())
+
+    def test_finalize_bounds_invalid_candidate_before_wal_creation(self):
+        root = self.initialize()
+        original_validate = run_evidence.summaries.validate_summary
+
+        def force_fallback(summary):
+            if summary.get("errorCode") == "runner.evidence_invalid":
+                return original_validate(summary)
+            return ["forced invalid candidate"]
+
+        with mock.patch.object(
+            run_evidence.constants, "MAX_STRUCTURED_JSON_BYTES", 4096
+        ), mock.patch.object(
+            run_evidence.summaries, "MAX_STRUCTURED_JSON_BYTES", 4096
+        ), mock.patch.object(
+            run_evidence.summaries,
+            "validate_summary",
+            side_effect=force_fallback,
+        ), self.assertRaisesRegex(
+            ValueError, "run-summary.invalid.json exceeds 4096 bytes"
+        ):
+            run_evidence._finalize_attempt(
+                root,
+                "failed",
+                phase="scenario.execute",
+                error_code="runner.unclassified",
+                summary_text="x" * 8192,
+                hint="Inspect report",
+                command_status=1,
+            )
+
+        self.assertFalse((root / "run-summary.json").exists())
+        transaction_root = self.publication_root / ".transactions"
+        self.assertEqual(
+            list(transaction_root.iterdir()) if transaction_root.exists() else [],
+            [],
+        )
+
+    def test_event_reads_reject_duplicate_keys_without_mutation(self):
+        root = self.initialize()
+        events_path = root / "bootstrap-events.jsonl"
+        original = events_path.read_bytes()
+        duplicate = original.replace(b'"seq":1', b'"seq":1,"seq":1', 1)
+        self.assertNotEqual(duplicate, original)
+        events_path.write_bytes(duplicate)
+
+        with self.assertRaisesRegex(ValueError, "duplicate object key"):
+            run_evidence._append_event(
+                root, "device.acquire", "passed", summary="ready"
+            )
+
+        self.assertEqual(events_path.read_bytes(), duplicate)
+
+    def test_event_writer_enforces_line_and_stream_byte_limits_before_mutation(self):
+        root = self.initialize()
+        events_path = root / "bootstrap-events.jsonl"
+        original = events_path.read_bytes()
+        timestamp = "2026-07-13T12:00:00Z"
+        next_event = {
+            "schemaVersion": 1,
+            "seq": 3,
+            "timestamp": timestamp,
+            "phase": "device.acquire",
+            "status": "passed",
+            "summary": "x" * 64,
+        }
+        line_bytes = len(run_evidence._json_bytes(next_event))
+        payload_bytes = line_bytes - 1
+
+        with mock.patch.object(
+            run_evidence.lifecycle, "MAX_JSONL_LINE_BYTES", payload_bytes - 1
+        ), mock.patch.object(
+            run_evidence.lifecycle, "_utc_now", return_value=timestamp
+        ), self.assertRaisesRegex(
+            ValueError, "JSONL line exceeds"
+        ):
+            run_evidence._append_event(
+                root,
+                "device.acquire",
+                "passed",
+                summary="x" * 64,
+            )
+        self.assertEqual(events_path.read_bytes(), original)
+
+        with mock.patch.object(
+            run_evidence.lifecycle, "MAX_JSONL_LINE_BYTES", payload_bytes
+        ), mock.patch.object(
+            run_evidence.lifecycle, "_utc_now", return_value=timestamp
+        ):
+            try:
+                accepted = run_evidence._append_event(
+                    root,
+                    "device.acquire",
+                    "passed",
+                    summary="x" * 64,
+                )
+            except ValueError as exc:
+                self.fail(f"exact JSONL payload boundary was rejected: {exc}")
+        self.assertEqual(accepted, next_event)
+
+        events_path.write_bytes(original)
+
+        with mock.patch.object(
+            run_evidence.lifecycle,
+            "MAX_LIFECYCLE_EVENT_STREAM_BYTES",
+            len(original),
+        ), self.assertRaisesRegex(
+            ValueError, "event stream exceeds"
+        ):
+            run_evidence._append_event(
+                root, "device.acquire", "passed", summary="ready"
+            )
+        self.assertEqual(events_path.read_bytes(), original)
+
+    def test_init_rejects_oversized_structured_targets_before_partial_mutation(self):
+        root = self.attempt_root("bounded-init")
+        context = valid_context(
+            runId=root.name, executionId="bounded-init-execution"
+        )
+        with mock.patch.object(
+            run_evidence.constants, "MAX_STRUCTURED_JSON_BYTES", 1
+        ), self.assertRaisesRegex(ValueError, "exceeds 1 bytes"):
+            run_evidence._initialize_attempt(self.index_path, root, context)
+
+        self.assertFalse(root.exists())
+        self.assertFalse(self.index_path.exists())
+        transaction_root = self.publication_root / ".transactions"
+        self.assertEqual(
+            list(transaction_root.iterdir()) if transaction_root.exists() else [],
+            [],
+        )
 
     def test_init_never_overwrites_existing_root_or_summary(self):
         existing = self.attempt_root("run-1")

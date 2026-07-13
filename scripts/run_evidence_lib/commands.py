@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import bounded_io
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -369,11 +370,38 @@ def _execute_command_during_lifecycle(
     roots = _sanitization_roots(root)
     secrets = _collect_secret_values()
     sanitized_argv = _sanitize_argv(argv, roots=roots, secrets=secrets)
-    started = _append_event_during_lifecycle(root, phase, "started")
-    stem = f"{started['seq']:06d}-{name}"
+    next_sequence = len(_read_bootstrap_events(root)) + 1
+    stem = f"{next_sequence:06d}-{name}"
     stdout_relative = f"commands/{stem}.stdout.log"
     stderr_relative = f"commands/{stem}.stderr.log"
     metadata_relative = f"commands/{stem}.json"
+    maximum_counter = 10**20
+    def preflight_stream(path: str) -> dict[str, Any]:
+        return {
+            "path": path,
+            "originalBytes": maximum_counter,
+            "sanitizedBytes": maximum_counter,
+            "storedBytes": _LOG_LIMIT,
+            "truncated": True,
+        }
+    preflight_metadata = {
+        "schemaVersion": 1,
+        "source": "subprocess",
+        "argv": sanitized_argv,
+        "phase": phase,
+        "name": name,
+        "failureCode": failure_code,
+        "exitStatus": maximum_counter,
+        "signal": maximum_counter,
+        "stdout": preflight_stream(stdout_relative),
+        "stderr": preflight_stream(stderr_relative),
+    }
+    bounded_io._json_bytes_bounded(
+        preflight_metadata, label="command metadata"
+    )
+    started = _append_event_during_lifecycle(root, phase, "started")
+    if started["seq"] != next_sequence:
+        raise RuntimeError("command event sequence changed while locked")
 
     if stdout_stream is None:
         stdout_stream = sys.stdout
@@ -433,9 +461,6 @@ def _execute_command_during_lifecycle(
     stored_stderr, sanitized_stderr_size, stderr_truncated = (
         stderr_capture.collector.finish()
     )
-    _atomic_write_bytes(root / stdout_relative, stored_stdout)
-    _atomic_write_bytes(root / stderr_relative, stored_stderr)
-
     exit_status = return_code if return_code >= 0 else None
     signal_number = -return_code if return_code < 0 else None
     metadata = {
@@ -463,7 +488,12 @@ def _execute_command_during_lifecycle(
         ),
     }
     metadata = _sanitize_value(metadata, roots=roots, secrets=secrets)
-    _atomic_write_json(root / metadata_relative, metadata)
+    metadata_content = bounded_io._json_bytes_bounded(
+        metadata, label="command metadata"
+    )
+    _atomic_write_bytes(root / stdout_relative, stored_stdout)
+    _atomic_write_bytes(root / stderr_relative, stored_stderr)
+    _atomic_write_bytes(root / metadata_relative, metadata_content)
 
     if return_code == 0:
         event_status = "passed"
@@ -597,8 +627,8 @@ def _record_external_during_lifecycle(
     if not _evidence_is_dir(commands_root) or _evidence_is_symlink(commands_root):
         raise ValueError("attempt commands directory is missing or unsafe")
 
-    started = _append_event_during_lifecycle(root, phase, "started")
-    stem = f"{started['seq']:06d}-{name}"
+    next_sequence = len(_read_bootstrap_events(root)) + 1
+    stem = f"{next_sequence:06d}-{name}"
     stdout_relative = f"commands/{stem}.stdout.log"
     stderr_relative = f"commands/{stem}.stderr.log"
     metadata_relative = f"commands/{stem}.json"
@@ -610,8 +640,6 @@ def _record_external_during_lifecycle(
         f"synthetic outcome: {outcome}. This record does not claim hosted log capture.\n"
         f"remediation: {sanitized_remediation}\n"
     ).encode("utf-8")
-    _atomic_write_bytes(root / stdout_relative, stdout_content)
-    _atomic_write_bytes(root / stderr_relative, stderr_content)
     metadata = {
         "schemaVersion": 1,
         "source": "github-action",
@@ -639,7 +667,15 @@ def _record_external_during_lifecycle(
         ),
         "limitation": "Synthetic metadata only; hosted log content was not captured.",
     }
-    _atomic_write_json(root / metadata_relative, metadata)
+    metadata_content = bounded_io._json_bytes_bounded(
+        metadata, label="command metadata"
+    )
+    started = _append_event_during_lifecycle(root, phase, "started")
+    if started["seq"] != next_sequence:
+        raise RuntimeError("external command event sequence changed while locked")
+    _atomic_write_bytes(root / stdout_relative, stdout_content)
+    _atomic_write_bytes(root / stderr_relative, stderr_content)
+    _atomic_write_bytes(root / metadata_relative, metadata_content)
     event_status = {
         "success": "passed",
         "failure": "failed",

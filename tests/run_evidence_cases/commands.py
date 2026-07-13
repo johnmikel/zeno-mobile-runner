@@ -14,6 +14,32 @@ except ImportError:  # pragma: no cover - non-POSIX portability
 
 
 class CommandCaptureTests(CommandTestCase):
+    def test_subprocess_metadata_is_bounded_before_event_or_spawn(self):
+        events_path = self.root / "bootstrap-events.jsonl"
+        events_before = events_path.read_bytes()
+        commands_before = sorted((self.root / "commands").iterdir())
+
+        with mock.patch.object(
+            run_evidence.constants, "MAX_STRUCTURED_JSON_BYTES", 1
+        ), mock.patch.object(
+            run_evidence.commands.subprocess,
+            "Popen",
+            wraps=subprocess.Popen,
+        ) as popen, self.assertRaisesRegex(
+            ValueError, "command metadata exceeds 1 bytes"
+        ):
+            run_evidence._run_command(
+                self.root,
+                "scenario.execute",
+                "bounded-command",
+                "runner.unclassified",
+                [sys.executable, "-c", "pass"],
+            )
+
+        self.assertEqual(popen.call_count, 0)
+        self.assertEqual(events_path.read_bytes(), events_before)
+        self.assertEqual(sorted((self.root / "commands").iterdir()), commands_before)
+
     @staticmethod
     def _process_is_running(pid):
         try:
@@ -1634,6 +1660,27 @@ class ExternalCaptureTests(CommandTestCase):
         report.parent.mkdir()
         report.write_text("<html>sanitized report</html>", encoding="utf-8")
         return root
+
+    def test_external_metadata_json_is_bounded_before_lifecycle_mutation(self):
+        root = self._external_root("metadata-bound")
+        events_path = root / "bootstrap-events.jsonl"
+        events_before = events_path.read_bytes()
+        commands_before = sorted((root / "commands").iterdir())
+
+        with mock.patch.object(
+            run_evidence.constants, "MAX_STRUCTURED_JSON_BYTES", 1
+        ), self.assertRaisesRegex(ValueError, "command metadata exceeds 1 bytes"):
+            run_evidence._record_external(
+                root,
+                "app.build",
+                "bounded-external",
+                "success",
+                "runner.unclassified",
+                "Retry the hosted action",
+            )
+
+        self.assertEqual(events_path.read_bytes(), events_before)
+        self.assertEqual(sorted((root / "commands").iterdir()), commands_before)
 
     def test_external_rejects_unknown_or_outcome_mismatched_codes_before_writes(self):
         cases = (

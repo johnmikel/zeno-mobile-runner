@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import bounded_io
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .contracts import _comparability_tuple
@@ -314,7 +315,9 @@ def _finalize_attempt(
             with _exclusive_lock(root / ".lifecycle.lock"):
                 with _exclusive_lock(root / ".events.lock"):
                     summary_path = root / "run-summary.json"
-                    context = _read_json(root / "run-context.json")
+                    context, _context_bytes = bounded_io._read_json_bounded(
+                        root / "run-context.json"
+                    )
                     roots = _sanitization_roots(root)
                     secrets = _collect_secret_values()
                     context = _sanitize_value(
@@ -324,6 +327,10 @@ def _finalize_attempt(
                     )
                     sanitized_artifact_patch = None
                     if artifact_patch is not None:
+                        bounded_io._json_bytes_bounded(
+                            {"artifacts": artifact_patch},
+                            label="finalize artifact patch",
+                        )
                         patch = _sanitize_value(
                             {"artifacts": artifact_patch},
                             roots=roots,
@@ -333,6 +340,9 @@ def _finalize_attempt(
                         sanitized_artifact_patch = patch["artifacts"]
                         context = _deep_merge(context, patch)
                         _validate_context_identity(context)
+                        bounded_io._json_bytes_bounded(
+                            context, label="run-context.json"
+                        )
                     index = _load_index(index_path)
                     execution = _execution_for_run(index, context.get("runId"))
                     current_tuple = _comparability_tuple(context)
@@ -529,12 +539,11 @@ def _finalize_attempt(
                     else:
                         terminal = candidate
 
-                    summary_bytes = _json_bytes(terminal)
-                    if len(summary_bytes) > MAX_STRUCTURED_JSON_BYTES:
-                        raise ValueError(
-                            "terminal summary exceeds "
-                            f"{MAX_STRUCTURED_JSON_BYTES} bytes"
-                        )
+                    summary_bytes = bounded_io._json_bytes_bounded(
+                        terminal,
+                        maximum=MAX_STRUCTURED_JSON_BYTES,
+                        label="terminal summary",
+                    )
 
                     event_metadata = {
                         "commandStatus": terminal.get("commandStatus")
@@ -558,7 +567,9 @@ def _finalize_attempt(
                         targets.append(
                             (
                                 attempt_relative + "/run-context.json",
-                                _json_bytes(context),
+                                bounded_io._json_bytes_bounded(
+                                    context, label="run-context.json"
+                                ),
                             )
                         )
                     if validation_errors:
@@ -567,12 +578,18 @@ def _finalize_attempt(
                                 (
                                     attempt_relative
                                     + "/run-summary.invalid.json",
-                                    _json_bytes(candidate),
+                                    bounded_io._json_bytes_bounded(
+                                        candidate,
+                                        label="run-summary.invalid.json",
+                                    ),
                                 ),
                                 (
                                     attempt_relative
                                     + "/run-summary.invalid.errors.json",
-                                    _json_bytes({"errors": validation_errors}),
+                                    bounded_io._json_bytes_bounded(
+                                        {"errors": validation_errors},
+                                        label="run-summary.invalid.errors.json",
+                                    ),
                                 ),
                             ]
                         )

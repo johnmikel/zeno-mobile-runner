@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import bounded_io
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .contracts import _comparability_tuple
@@ -31,7 +32,7 @@ from .journal import *  # noqa: F401,F403
 def _load_index(index_path: Path) -> dict:
     if not _evidence_exists(Path(index_path)):
         return {"schemaVersion": "1.0", "executions": []}
-    index = _read_json(index_path)
+    index, _byte_count = bounded_io._read_json_bounded(index_path)
     _validate_index(index)
     return index
 
@@ -101,7 +102,14 @@ def _register_attempt_unlocked(
         "register",
         attempt_root,
         [attempt_relative],
-        [("attempt-index.json", _json_bytes(index))],
+        [
+            (
+                "attempt-index.json",
+                bounded_io._json_bytes_bounded(
+                    index, label="attempt-index.json"
+                ),
+            )
+        ],
         request_fingerprint=request_fingerprint,
     )
     _commit_transaction_unlocked(publication_root, transaction)
@@ -124,6 +132,7 @@ def register_attempt(index_path: Path, attempt_root: Path, context: dict) -> dic
         secrets=_collect_secret_values(),
     )
     _validate_context_identity(context)
+    bounded_io._json_bytes_bounded(context, label="run context request")
     request_fingerprint = _request_fingerprint(
         publication_root, "register", attempt_root, context
     )
@@ -274,6 +283,7 @@ def update_context(
             secrets=_collect_secret_values(),
         )
         _validate_context_patch(patch)
+        bounded_io._json_bytes_bounded(patch, label="context patch")
         request_fingerprint = _request_fingerprint(
             publication_root, "context", root, patch
         )
@@ -303,7 +313,9 @@ def update_context(
                     sibling_context_path = sibling_root / "run-context.json"
                     if not _evidence_is_file(sibling_context_path):
                         raise ValueError("registered sibling attempt context is missing")
-                    contexts[run_id] = _read_json(sibling_context_path)
+                    contexts[run_id], _byte_count = (
+                        bounded_io._read_json_bounded(sibling_context_path)
+                    )
 
                 context = contexts[root.name]
                 updated = _deep_merge(context, patch)
@@ -353,11 +365,20 @@ def update_context(
                 targets = list(
                     (
                         f"attempts/{run_id}/run-context.json",
-                        _json_bytes(value),
+                        bounded_io._json_bytes_bounded(
+                            value, label=f"run-context.json for {run_id}"
+                        ),
                     )
                     for run_id, value in sorted(changed_contexts.items())
                 )
-                targets.append(("attempt-index.json", _json_bytes(index)))
+                targets.append(
+                    (
+                        "attempt-index.json",
+                        bounded_io._json_bytes_bounded(
+                            index, label="attempt-index.json"
+                        ),
+                    )
+                )
                 required_directories = [
                     f"attempts/{run_id}" for run_id in sorted(changed_contexts)
                 ]
@@ -380,16 +401,29 @@ def _read_bootstrap_events(root: Path) -> list[dict]:
     events = []
     if _evidence_exists(path):
         try:
-            for line_number, line in enumerate(
-                _evidence_read_text(path).splitlines(), 1
+            metadata = _evidence_stat(path)
+            if metadata.st_size > MAX_LIFECYCLE_EVENT_STREAM_BYTES:
+                raise ValueError(
+                    "bootstrap event stream exceeds "
+                    f"{MAX_LIFECYCLE_EVENT_STREAM_BYTES} bytes"
+                )
+            for line_number, encoded_line in bounded_io._iter_bounded_jsonl_lines(
+                path,
+                maximum=MAX_JSONL_LINE_BYTES,
+                expected_metadata=metadata,
             ):
-                if not line.strip():
+                if encoded_line is None:
+                    raise ValueError(
+                        "bootstrap event JSONL line exceeds "
+                        f"{MAX_JSONL_LINE_BYTES} bytes at line {line_number}"
+                    )
+                if not encoded_line.strip():
                     continue
-                event = json.loads(line)
+                event = bounded_io._decode_json_bytes(encoded_line)
                 if validate_event(event):
                     raise ValueError(f"invalid existing event at line {line_number}")
                 events.append(event)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, ValueError) as exc:
             raise ValueError(f"invalid bootstrap event log: {exc}") from exc
     if [item["seq"] for item in events] != list(range(1, len(events) + 1)):
         raise ValueError("bootstrap event sequence is not contiguous")
@@ -413,6 +447,11 @@ def _event_stream_candidate(
         "phase": phase,
         "status": status,
     }
+    bounded_io._json_bytes_bounded(
+        metadata,
+        maximum=MAX_JSONL_LINE_BYTES,
+        label="bootstrap event metadata",
+    )
     metadata = _sanitize_value(
         metadata,
         roots=_sanitization_roots(root),
@@ -425,7 +464,22 @@ def _event_stream_candidate(
     if errors:
         raise ValueError("invalid bootstrap event: " + "; ".join(errors))
     events.append(event)
-    content = b"".join(_json_bytes(item) for item in events)
+    encoded_events = []
+    total_bytes = 0
+    for item in events:
+        encoded = bounded_io._jsonl_line_bytes_bounded(
+            item,
+            maximum=MAX_JSONL_LINE_BYTES,
+            label="bootstrap event JSONL line",
+        )
+        total_bytes += len(encoded)
+        if total_bytes > MAX_LIFECYCLE_EVENT_STREAM_BYTES:
+            raise ValueError(
+                "bootstrap event stream exceeds "
+                f"{MAX_LIFECYCLE_EVENT_STREAM_BYTES} bytes"
+            )
+        encoded_events.append(encoded)
+    content = b"".join(encoded_events)
     return event, content, events
 
 
@@ -471,6 +525,7 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
         secrets=_collect_secret_values(),
     )
     _validate_context_identity(context)
+    bounded_io._json_bytes_bounded(context, label="run context request")
     _validate_attempt_root(index_path, root, context["runId"])
     request_fingerprint = _request_fingerprint(
         publication_root, "init", root, context
@@ -507,9 +562,19 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
                 root,
                 ["attempts", attempt_relative, attempt_relative + "/commands"],
                 [
-                    (attempt_relative + "/run-context.json", _json_bytes(stored)),
+                    (
+                        attempt_relative + "/run-context.json",
+                        bounded_io._json_bytes_bounded(
+                            stored, label="run-context.json"
+                        ),
+                    ),
                     (attempt_relative + "/bootstrap-events.jsonl", event_bytes),
-                    ("attempt-index.json", _json_bytes(index)),
+                    (
+                        "attempt-index.json",
+                        bounded_io._json_bytes_bounded(
+                            index, label="attempt-index.json"
+                        ),
+                    ),
                 ],
                 request_fingerprint=request_fingerprint,
             )

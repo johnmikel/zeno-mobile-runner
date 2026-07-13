@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import stat
 from contextlib import contextmanager
@@ -33,6 +34,10 @@ def _reject_duplicate_object_pairs(
     return value
 
 
+def _reject_non_finite_constant(_value: str) -> Any:
+    raise ValueError("non-finite JSON number")
+
+
 def _validate_json_nesting(
     value: Any, maximum: int = _MAX_JSON_NESTING_DEPTH
 ) -> None:
@@ -45,6 +50,8 @@ def _validate_json_nesting(
     parents: list[tuple[Iterator[Any], int]] = []
     while True:
         children: Iterator[Any] | None = None
+        if isinstance(current, float) and not math.isfinite(current):
+            raise ValueError("non-finite JSON number")
         if isinstance(current, list):
             children = iter(current)
         elif isinstance(current, dict):
@@ -81,6 +88,7 @@ def _decode_json_bytes(content: bytes) -> Any:
         value = json.loads(
             content.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_object_pairs,
+            parse_constant=_reject_non_finite_constant,
         )
     except RecursionError as exc:
         raise ValueError("nesting exceeds supported depth") from exc
@@ -88,6 +96,50 @@ def _decode_json_bytes(content: bytes) -> Any:
         raise ValueError(str(exc)) from exc
     _validate_json_nesting(value)
     return value
+
+
+def _json_bytes_bounded(
+    value: Any,
+    maximum: int | None = None,
+    *,
+    label: str = "structured JSON",
+) -> bytes:
+    """Canonically encode one JSON value within a deterministic byte budget."""
+
+    limit = _limits.MAX_STRUCTURED_JSON_BYTES if maximum is None else maximum
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+        raise ValueError("structured JSON limit must be a non-negative integer")
+    _validate_json_nesting(value)
+    try:
+        content = safe_io._json_bytes(value)
+    except RecursionError as exc:
+        raise ValueError("nesting exceeds supported depth") from exc
+    if len(content) > limit:
+        raise ValueError(f"{label} exceeds {limit} bytes")
+    return content
+
+
+def _jsonl_line_bytes_bounded(
+    value: Any,
+    maximum: int | None = None,
+    *,
+    label: str = "JSONL line",
+) -> bytes:
+    """Encode canonical JSONL while applying the public cap to its payload."""
+
+    limit = _limits.MAX_JSONL_LINE_BYTES if maximum is None else maximum
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+        raise ValueError("JSONL line limit must be a non-negative integer")
+    content = _json_bytes_bounded(
+        value,
+        maximum=limit + 1,
+        label=label,
+    )
+    if not content.endswith(b"\n"):
+        raise RuntimeError("canonical JSON encoding must end with a newline")
+    if len(content) - 1 > limit:
+        raise ValueError(f"{label} exceeds {limit} bytes")
+    return content
 
 
 @contextmanager
@@ -373,6 +425,8 @@ __all__ = (
     "_MAX_JSON_NESTING_DEPTH",
     "_validate_json_nesting",
     "_decode_json_bytes",
+    "_json_bytes_bounded",
+    "_jsonl_line_bytes_bounded",
     "_rooted_regular_descriptor",
     "_iter_regular_chunks",
     "_iter_rooted_tree",

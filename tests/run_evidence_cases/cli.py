@@ -21,6 +21,56 @@ class CliAndAggregateTests(StorageTestCase):
             check=False,
         )
 
+    def test_json_arguments_use_strict_bounded_decoding(self):
+        with self.assertRaisesRegex(ValueError, "duplicate object key"):
+            run_evidence.cli._parse_json_argument(
+                '{"fixtureId":"first","fixtureId":"second"}',
+                "--context-json",
+            )
+
+        nested = '{"value":' * 257 + "null" + "}" * 257
+        with self.assertRaisesRegex(
+            ValueError, "nesting exceeds supported depth"
+        ):
+            run_evidence.cli._parse_json_argument(nested, "--context-json")
+
+        for raw in ('{"value":NaN}', '{"value":Infinity}', '{"value":1e999}'):
+            with self.subTest(raw=raw), self.assertRaisesRegex(
+                ValueError, "non-finite JSON number"
+            ):
+                run_evidence.cli._parse_json_argument(raw, "--context-json")
+
+        self.assertEqual(
+            run_evidence.cli._parse_json_argument(
+                '{"value":1.25}', "--context-json"
+            ),
+            {"value": 1.25},
+        )
+        with self.assertRaisesRegex(ValueError, "Out of range float values"):
+            run_evidence._json_bytes({"value": float("nan")})
+
+        exact = '{"value":"x"}'
+        exact_bytes = len(exact.encode("utf-8"))
+        with mock.patch.object(
+            run_evidence.constants,
+            "MAX_STRUCTURED_JSON_BYTES",
+            exact_bytes,
+        ):
+            self.assertEqual(
+                run_evidence.cli._parse_json_argument(
+                    exact, "--context-json"
+                ),
+                {"value": "x"},
+            )
+        with mock.patch.object(
+            run_evidence.constants,
+            "MAX_STRUCTURED_JSON_BYTES",
+            exact_bytes - 1,
+        ), self.assertRaisesRegex(
+            ValueError, "--context-json exceeds"
+        ):
+            run_evidence.cli._parse_json_argument(exact, "--context-json")
+
     def test_cli_init_context_event_finalize_and_validate_exit_contract(self):
         root = self.attempt_root("run-1")
         initialized = self.cli(

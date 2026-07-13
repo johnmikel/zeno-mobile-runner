@@ -79,6 +79,7 @@ def _json_bytes(value: Any) -> bytes:
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
+            allow_nan=False,
         )
         + "\n"
     ).encode("utf-8")

@@ -633,16 +633,29 @@ class _RootedIO:
             )
             os.set_inheritable(descriptor, False)
             metadata = os.fstat(descriptor)
-            visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
             identity = (metadata.st_dev, metadata.st_ino)
-            if not stat.S_ISREG(metadata.st_mode) or (
-                visible.st_dev,
-                visible.st_ino,
-            ) != identity:
-                raise self._error("lease file binding changed")
-            if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
-                raise self._error("lease file has an unsafe owner")
-            os.fchmod(descriptor, 0o600)
+
+            def validate_binding(message: str) -> None:
+                opened = os.fstat(descriptor)
+                current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or not stat.S_ISREG(current.st_mode)
+                    or (opened.st_dev, opened.st_ino) != identity
+                    or (current.st_dev, current.st_ino) != identity
+                    or stat.S_IMODE(opened.st_mode) != 0o600
+                    or stat.S_IMODE(current.st_mode) != 0o600
+                    or (
+                        hasattr(os, "geteuid")
+                        and (
+                            opened.st_uid != os.geteuid()
+                            or current.st_uid != os.geteuid()
+                        )
+                    )
+                ):
+                    raise self._error(message)
+
+            validate_binding("lease file binding or mode changed")
             while not locked:
                 try:
                     fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -660,17 +673,15 @@ class _RootedIO:
                         ) from exc
                     time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
             self._validate_directory(parent_relative, parent)
-            visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if (visible.st_dev, visible.st_ino) != identity:
-                raise self._error("lease file changed while waiting")
-            yield _EvidenceLease(
-                descriptor=descriptor,
-                identity=f"{identity[0]}:{identity[1]}",
-            )
-            self._validate_directory(parent_relative, parent)
-            visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if (visible.st_dev, visible.st_ino) != identity:
-                raise self._error("lease file changed while held")
+            validate_binding("lease file changed while waiting")
+            try:
+                yield _EvidenceLease(
+                    descriptor=descriptor,
+                    identity=f"{identity[0]}:{identity[1]}",
+                )
+            finally:
+                self._validate_directory(parent_relative, parent)
+                validate_binding("lease file changed while held")
         except (RootedIOError, TimeoutError):
             raise
         except OSError as exc:

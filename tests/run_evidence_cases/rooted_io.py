@@ -3,6 +3,7 @@
 import errno
 import io
 import shutil
+import stat
 
 from .support import *  # noqa: F401,F403
 
@@ -631,6 +632,7 @@ class RootedIOContainmentTests(CommandTestCase):
     def test_long_lived_lease_is_exclusive_cloexec_and_inode_bound(self):
         lease_path = self.root / ".supervisor.lease"
         lease_path.write_bytes(b"")
+        lease_path.chmod(0o600)
         initial_identity = (lease_path.stat().st_dev, lease_path.stat().st_ino)
 
         with run_evidence._exclusive_lease(lease_path) as lease:
@@ -664,3 +666,43 @@ class RootedIOContainmentTests(CommandTestCase):
                 self.fail("symlinked lease unexpectedly acquired")
 
         self.assertEqual(outside.read_bytes(), before)
+
+    def test_long_lived_lease_rejects_non_private_mode_without_repair(self):
+        lease_path = self.root / ".supervisor.lease"
+        lease_path.write_bytes(b"")
+        lease_path.chmod(0o700)
+        before_mode = stat.S_IMODE(lease_path.stat().st_mode)
+
+        with self.assertRaisesRegex(ValueError, _CONTAINMENT_DIAGNOSTIC):
+            with run_evidence._exclusive_lease(lease_path):
+                self.fail("wrong-mode lease unexpectedly acquired")
+
+        self.assertEqual(stat.S_IMODE(lease_path.stat().st_mode), before_mode)
+
+    def test_long_lived_lease_detects_mode_change_while_held(self):
+        lease_path = self.root / ".supervisor.lease"
+        lease_path.write_bytes(b"")
+        lease_path.chmod(0o600)
+
+        with self.assertRaisesRegex(ValueError, _CONTAINMENT_DIAGNOSTIC):
+            with run_evidence._exclusive_lease(lease_path):
+                lease_path.chmod(0o700)
+
+        self.assertEqual(stat.S_IMODE(lease_path.stat().st_mode), 0o700)
+        lease_path.chmod(0o600)
+        with run_evidence._exclusive_lease(lease_path):
+            pass
+
+    def test_long_lived_lease_revalidates_after_exceptional_body_exit(self):
+        lease_path = self.root / ".supervisor.lease"
+        lease_path.write_bytes(b"")
+        lease_path.chmod(0o600)
+
+        with self.assertRaisesRegex(ValueError, _CONTAINMENT_DIAGNOSTIC):
+            with run_evidence._exclusive_lease(lease_path):
+                lease_path.chmod(0o700)
+                raise RuntimeError("injected body failure")
+
+        lease_path.chmod(0o600)
+        with run_evidence._exclusive_lease(lease_path):
+            pass

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import stat
 from collections.abc import Iterator
@@ -45,9 +44,6 @@ _PUBLIC_BOUNDARY_DENY_RE = re.compile(
     r"(?:^|[^a-z])" + "ren" + r"tly(?:[^a-z]|$)", re.IGNORECASE
 )
 
-_CREDENTIAL_URL_BYTES_RE = re.compile(
-    rb"[A-Za-z][A-Za-z0-9+.-]{0,31}://[^/@\s]+@"
-)
 _FILE_URL_BYTES_RE = re.compile(
     rb"file:///(?:[^\s\x00\"'<>|,;]+)", re.IGNORECASE
 )
@@ -57,7 +53,6 @@ _WINDOWS_ABSOLUTE_BYTES_RE = re.compile(
 _POSIX_ABSOLUTE_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_}$/<])/(?!/)(?:[^\s\x00\"'<>|,;]+)"
 )
-_URL_START_BYTES_RE = re.compile(rb"[A-Za-z][A-Za-z0-9+.-]{0,31}://")
 _WINDOWS_START_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\)"
 )
@@ -65,7 +60,21 @@ _POSIX_START_BYTES_RE = re.compile(
     rb"(?<![A-Za-z0-9_}$/<])/(?!/)[^\s\x00\"'<>|,;]"
 )
 _TOKEN_FRAGMENT_RE = re.compile(rb"[^\s\x00\"'<>|,;]+")
+_TOKEN_DELIMITER_BYTES = frozenset(b" \t\r\n\v\f\x00\"'<>|,;")
+_TOKEN_STATE_MARKERS = (b":", b"/", b"\\", b"@", b"?", b"#")
 _ASCII_LETTERS = frozenset(range(ord("a"), ord("z") + 1))
+_POSIX_DISALLOWED_PREDECESSORS = frozenset(
+    (
+        *range(ord("a"), ord("z") + 1),
+        *range(ord("A"), ord("Z") + 1),
+        *range(ord("0"), ord("9") + 1),
+        ord("_"),
+        ord("$"),
+        ord("}"),
+        ord("/"),
+        ord("<"),
+    )
+)
 
 
 def _contains_public_deny_pattern(text: str) -> bool:
@@ -105,16 +114,57 @@ def _scan_semantic_text(
         if isinstance(secret, str) and secret
     ):
         errors.append(f"{relative}: contains a current known secret value")
-    if _limits._CREDENTIAL_URL_RE.search(text):
+    scanner = _RawSemanticScanner(roots={}, secrets=[])
+    encoded = text.encode("utf-8")
+    for offset in range(0, len(encoded), _limits._BUNDLE_SCAN_CHUNK_BYTES):
+        scanner.feed(encoded[offset : offset + _limits._BUNDLE_SCAN_CHUNK_BYTES])
+    flags = scanner.finish()
+    if "credential_url" in flags:
         errors.append(f"{relative}: contains a credential URL")
-    if (
-        _limits._FILE_URL_RE.search(text)
-        or _limits._WINDOWS_ABSOLUTE_RE.search(text)
-        or _limits._POSIX_ABSOLUTE_RE.search(text)
-    ):
+    if "absolute_path" in flags:
         errors.append(f"{relative}: contains a raw absolute path")
-    if _contains_public_deny_pattern(text):
+    if "deny" in flags:
         errors.append(f"{relative}: contains a public safety deny pattern")
+    if "semantic_limit" in flags:
+        errors.append(f"{relative}: semantic token exceeds scan limit")
+
+
+def _scan_publishable_entry_name(
+    relative: str, secrets: list[str], errors: list[str]
+) -> bool:
+    """Reject unsafe relative entry names without reflecting their contents."""
+
+    unsafe = any(
+        secret in relative
+        for secret in secrets
+        if isinstance(secret, str) and secret
+    ) or _contains_public_deny_pattern(relative)
+    components = relative.split("/")
+    for index, component in enumerate(components):
+        if any(
+            ord(character) < 0x20
+            or ord(character) == 0x7F
+            or 0xD800 <= ord(character) <= 0xDFFF
+            for character in component
+        ):
+            unsafe = True
+        if (
+            len(component) >= 3
+            and component[0].isascii()
+            and component[0].isalpha()
+            and component[1] == ":"
+            and component[2] == "\\"
+        ) or component.startswith("\\\\") or (
+            len(component) == 2
+            and component[0].isascii()
+            and component[0].isalpha()
+            and component[1] == ":"
+            and index < len(components) - 1
+        ):
+            unsafe = True
+    if unsafe:
+        errors.append("$: unsafe publishable entry name detected")
+    return unsafe
 
 
 class _RawSemanticScanner:
@@ -154,6 +204,13 @@ class _RawSemanticScanner:
         self._token_length = 0
         self._token_sensitive = False
         self._token_tail = b""
+        self._token_prefix = b""
+        self._scheme_state = 0
+        self._scheme_prefix = bytearray()
+        self._authority_active = False
+        self._authority_is_file = False
+        self._authority_characters = 0
+        self._posix_prefix_allowed = True
 
     @staticmethod
     def _is_new_match(
@@ -243,13 +300,6 @@ class _RawSemanticScanner:
             window, absolute_start=absolute_start, new_start=new_start
         )
         self._mark_regex(
-            "credential_url",
-            _CREDENTIAL_URL_BYTES_RE,
-            window,
-            absolute_start=absolute_start,
-            new_start=new_start,
-        )
-        self._mark_regex(
             "absolute_path",
             _FILE_URL_BYTES_RE,
             window,
@@ -279,31 +329,143 @@ class _RawSemanticScanner:
             final=final,
         )
 
-    def _reset_token(self) -> None:
+    def _reset_token(self, predecessor: int | None = None) -> None:
         self._token_length = 0
         self._token_sensitive = False
         self._token_tail = b""
+        self._token_prefix = b""
+        self._scheme_state = 0
+        self._scheme_prefix.clear()
+        self._authority_active = False
+        self._authority_is_file = False
+        self._authority_characters = 0
+        self._posix_prefix_allowed = (
+            predecessor is None
+            or predecessor not in _POSIX_DISALLOWED_PREDECESSORS
+        )
+
+    @staticmethod
+    def _is_scheme_character(value: int) -> bool:
+        return (
+            ord("a") <= value <= ord("z")
+            or ord("A") <= value <= ord("Z")
+            or ord("0") <= value <= ord("9")
+            or value in (ord("+"), ord("-"), ord("."))
+        )
+
+    def _mark_absolute_prefix(self, fragment: bytes) -> None:
+        if len(self._token_prefix) < 3:
+            needed = 3 - len(self._token_prefix)
+            self._token_prefix += fragment[:needed]
+        prefix = self._token_prefix
+        if self._posix_prefix_allowed and prefix.startswith(b"/"):
+            self._token_sensitive = True
+            self._flags.add("absolute_path")
+        elif prefix.startswith(b"\\\\"):
+            self._token_sensitive = True
+            self._flags.add("absolute_path")
+        elif (
+            len(prefix) >= 3
+            and (
+                ord("a") <= prefix[0] <= ord("z")
+                or ord("A") <= prefix[0] <= ord("Z")
+            )
+            and prefix[1:2] == b":"
+            and prefix[2:3] in (b"/", b"\\")
+        ):
+            self._token_sensitive = True
+            self._flags.add("absolute_path")
+
+    def _restart_scheme(self, value: int) -> None:
+        self._scheme_prefix.clear()
+        if (
+            ord("a") <= value <= ord("z")
+            or ord("A") <= value <= ord("Z")
+        ):
+            self._scheme_prefix.append(value)
+            self._scheme_state = 1
+        else:
+            self._scheme_state = 0
+
+    def _track_unbounded_scheme(self, fragment: bytes) -> None:
+        """Recognize URI schemes without retaining or limiting their length."""
+
+        for value in fragment:
+            if self._authority_active:
+                if value == ord("@") and self._authority_characters:
+                    self._flags.add("credential_url")
+                if value in (ord("/"), ord("?"), ord("#")):
+                    if (
+                        value == ord("/")
+                        and self._authority_is_file
+                        and self._authority_characters == 0
+                    ):
+                        self._flags.add("absolute_path")
+                    self._authority_active = False
+                else:
+                    self._authority_characters += 1
+
+            if self._scheme_state == 0:
+                self._restart_scheme(value)
+            elif self._scheme_state == 1:
+                if self._is_scheme_character(value):
+                    if len(self._scheme_prefix) <= 4:
+                        self._scheme_prefix.append(value)
+                elif value == ord(":"):
+                    self._scheme_state = 2
+                else:
+                    self._restart_scheme(value)
+            elif self._scheme_state == 2:
+                if value == ord("/"):
+                    self._scheme_state = 3
+                else:
+                    self._restart_scheme(value)
+            elif self._scheme_state == 3:
+                if value == ord("/"):
+                    self._token_sensitive = True
+                    self._authority_active = True
+                    self._authority_is_file = (
+                        bytes(self._scheme_prefix).lower() == b"file"
+                    )
+                    self._authority_characters = 0
+                    self._scheme_state = 0
+                    self._scheme_prefix.clear()
+                else:
+                    self._restart_scheme(value)
+
+    def _track_fragment(self, fragment: bytes) -> None:
+        self._mark_absolute_prefix(fragment)
+        self._track_unbounded_scheme(fragment)
+        combined = self._token_tail + fragment
+        if not self._token_sensitive and (
+            _WINDOWS_START_BYTES_RE.search(combined)
+            or _POSIX_START_BYTES_RE.search(combined)
+        ):
+            self._token_sensitive = True
+        self._token_length += len(fragment)
+        if self._token_sensitive and self._token_length > self.carry_bytes:
+            self._flags.add("semantic_limit")
+        self._token_tail = combined[-self._TAIL_BYTES :]
 
     def _track_tokens(self, chunk: bytes) -> None:
+        if (
+            chunk
+            and chunk[-1] in _TOKEN_DELIMITER_BYTES
+            and not self._token_sensitive
+            and not self._authority_active
+            and not any(marker in chunk for marker in _TOKEN_STATE_MARKERS)
+        ):
+            self._reset_token(chunk[-1])
+            return
         cursor = 0
         for match in _TOKEN_FRAGMENT_RE.finditer(chunk):
             if match.start() > cursor:
-                self._reset_token()
+                self._reset_token(chunk[match.start() - 1])
             fragment = match.group(0)
-            combined = self._token_tail + fragment
-            self._token_length += len(fragment)
-            if not self._token_sensitive and (
-                _URL_START_BYTES_RE.search(combined)
-                or _WINDOWS_START_BYTES_RE.search(combined)
-                or _POSIX_START_BYTES_RE.search(combined)
-            ):
-                self._token_sensitive = True
-            if self._token_sensitive and self._token_length > self.carry_bytes:
-                self._flags.add("semantic_limit")
-            self._token_tail = combined[-self._TAIL_BYTES :]
+            self._track_fragment(fragment)
             cursor = match.end()
         if cursor < len(chunk):
-            self._reset_token()
+            self._reset_token(chunk[-1])
 
     def feed(self, chunk: bytes) -> None:
         previous_total = self._total_bytes
@@ -361,8 +523,7 @@ def _scan_structured_file(
                 path, expected_metadata=metadata
             )
         except ValueError as exc:
-            if str(exc).startswith("structured JSON exceeds"):
-                errors.append(f"{relative}: {exc}")
+            errors.append(f"{relative}: {exc}")
             return False
         for text in _iter_json_strings(value):
             _scan_semantic_text(relative, text, secrets, errors)
@@ -382,9 +543,10 @@ def _scan_structured_file(
             if not line.strip():
                 continue
             try:
-                value = json.loads(line.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError):
+                value = bounded_io._decode_json_bytes(line)
+            except ValueError as exc:
                 complete = False
+                errors.append(f"{relative}:{line_number}: invalid JSON: {exc}")
                 continue
             for text in _iter_json_strings(value):
                 _scan_semantic_text(relative, text, secrets, errors)
@@ -398,6 +560,7 @@ def _scan_publishable_files(
     roots = _sanitization_roots(root)
     inspected_bytes = 0
     file_count = 0
+    publishable_names_safe = True
     try:
         entries = bounded_io._iter_rooted_tree(
             root,
@@ -405,6 +568,30 @@ def _scan_publishable_files(
         )
         for path, metadata in entries:
             relative = path.relative_to(root).as_posix()
+            is_directory = stat.S_ISDIR(metadata.st_mode)
+            is_regular = stat.S_ISREG(metadata.st_mode)
+            if not is_directory:
+                file_count += 1
+                if file_count > _limits.MAX_BUNDLE_FILE_COUNT:
+                    errors.append(
+                        "$: publishable bundle exceeds maximum file count "
+                        f"({_limits.MAX_BUNDLE_FILE_COUNT})"
+                    )
+                    return False
+                if is_regular:
+                    if (
+                        inspected_bytes + metadata.st_size
+                        > _limits.MAX_BUNDLE_INSPECTED_BYTES
+                    ):
+                        errors.append(
+                            "$: publishable bundle exceeds maximum inspected bytes "
+                            f"({_limits.MAX_BUNDLE_INSPECTED_BYTES})"
+                        )
+                        return False
+                    inspected_bytes += metadata.st_size
+            if _scan_publishable_entry_name(relative, secrets, errors):
+                publishable_names_safe = False
+                continue
             if _ATOMIC_WRITE_TEMP_RE.fullmatch(path.name):
                 errors.append(
                     f"{relative}: publishable bundle contains an atomic-write temporary"
@@ -412,27 +599,13 @@ def _scan_publishable_files(
             if stat.S_ISLNK(metadata.st_mode):
                 errors.append(f"{relative}: publishable bundle contains a symlink")
                 continue
-            if stat.S_ISDIR(metadata.st_mode):
+            if is_directory:
                 continue
-            file_count += 1
-            if file_count > _limits.MAX_BUNDLE_FILE_COUNT:
-                errors.append(
-                    "$: publishable bundle exceeds maximum file count "
-                    f"({_limits.MAX_BUNDLE_FILE_COUNT})"
-                )
-                return False
-            if not stat.S_ISREG(metadata.st_mode):
+            if not is_regular:
                 errors.append(
                     f"{relative}: publishable bundle contains an unsupported file type"
                 )
                 continue
-            if inspected_bytes + metadata.st_size > _limits.MAX_BUNDLE_INSPECTED_BYTES:
-                errors.append(
-                    "$: publishable bundle exceeds maximum inspected bytes "
-                    f"({_limits.MAX_BUNDLE_INSPECTED_BYTES})"
-                )
-                return False
-            inspected_bytes += metadata.st_size
             structured_complete = _scan_structured_file(
                 path, metadata, relative, secrets, errors
             )
@@ -455,16 +628,18 @@ def _scan_publishable_files(
             f"({max(4096, _limits.MAX_BUNDLE_FILE_COUNT)})"
         )
         return False
-    return True
+    return publishable_names_safe
 
 
 __all__ = (
     "_PUBLIC_DENY_SUBSTRINGS",
     "_PUBLIC_BOUNDARY_DENY_RE",
+    "_POSIX_DISALLOWED_PREDECESSORS",
     "_contains_public_deny_pattern",
     "_iter_json_strings",
     "_json_strings",
     "_scan_semantic_text",
+    "_scan_publishable_entry_name",
     "_RawSemanticScanner",
     "_scan_publishable_files",
 )

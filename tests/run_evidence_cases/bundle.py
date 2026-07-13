@@ -316,7 +316,7 @@ class BundleValidationTests(CommandTestCase):
     def test_deep_bounded_json_is_scanned_without_recursive_python_walk(self):
         self.make_bundle()
         artifact = self.root / "deep-structure.json"
-        depth = 1_100
+        depth = 200
         artifact.write_text("[" * depth + '"safe"' + "]" * depth, encoding="utf-8")
         summary_path = self.root / "run-summary.json"
         summary = self.read_json(summary_path)
@@ -587,3 +587,6 @@ class BundleValidationTests(CommandTestCase):
         self.assertFalse(
             any(error.startswith("unrelated-binary:") for error in errors), errors
         )
+
+
+from .bundle_integrity import BundleIntegrityTests  # noqa: E402,F401

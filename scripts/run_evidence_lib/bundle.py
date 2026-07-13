@@ -32,6 +32,7 @@ from .summaries import *  # noqa: F401,F403
 from .commands import *  # noqa: F401,F403
 from .bounded_io import *  # noqa: F401,F403
 from .bundle_scan import *  # noqa: F401,F403
+from .bundle_consistency import *  # noqa: F401,F403
 
 
 _MAX_VALIDATION_DIAGNOSTICS = 4096
@@ -152,6 +153,20 @@ def _validate_command_metadata(
         if signal_number is not None:
             errors.append(f"{label}.signal: external records must use null")
 
+    stream_paths = {
+        stream_name: (
+            metadata.get(stream_name, {}).get("path")
+            if isinstance(metadata.get(stream_name), dict)
+            else None
+        )
+        for stream_name in ("stdout", "stderr")
+    }
+    if (
+        isinstance(stream_paths["stdout"], str)
+        and stream_paths["stdout"] == stream_paths["stderr"]
+    ):
+        errors.append(f"{label}.stdout.path and stderr.path: must be distinct")
+
     for stream_name in ("stdout", "stderr"):
         stream_label = f"{label}.{stream_name}"
         record = metadata.get(stream_name)
@@ -170,8 +185,14 @@ def _validate_command_metadata(
             errors.append(f"{stream_label}.storedBytes: must be non-negative")
         if not isinstance(truncated, bool):
             errors.append(f"{stream_label}.truncated: must be a boolean")
+        stream_path = record.get("path")
+        expected_path = f"commands/{path.stem}.{stream_name}.log"
+        if isinstance(stream_path, str) and not stream_path.startswith("commands/"):
+            errors.append(f"{stream_label}.path: must be under commands/")
+        if stream_path != expected_path:
+            errors.append(f"{stream_label}.path: must equal {expected_path}")
         referenced = _resolve_bundle_reference(
-            root, record.get("path"), stream_label + ".path", errors, expected="file"
+            root, stream_path, stream_label + ".path", errors, expected="file"
         )
         if referenced is not None and _is_integer(stored):
             if _evidence_stat(referenced).st_size != stored:
@@ -319,15 +340,20 @@ def _validate_command_event_link(
 def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     """Validate a complete attempt bundle, including containment and redaction."""
 
-    root = Path(root)
-    errors: list[str] = _BoundedErrorList(
-        _pending_transaction_errors_for_attempt(root)
-    )
+    root = Path(root).absolute()
+    errors: list[str] = _BoundedErrorList()
+    if _has_pending_transaction_entries(root):
+        errors.append(
+            "transactions: pending transaction state prevents publication"
+        )
+        return _finish_errors(errors)
     if _evidence_is_symlink(root):
         errors.append("$: attempt root must not be a symlink")
         return _finish_errors(errors)
     if not _evidence_is_dir(root):
         errors.append("$: attempt root must be a directory")
+        return _finish_errors(errors)
+    if _scan_publishable_entry_name(root.name, secrets, errors):
         return _finish_errors(errors)
     if not _scan_publishable_files(root, secrets, errors):
         return _finish_errors(errors)
@@ -349,6 +375,14 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     if isinstance(summary, dict):
         artifacts = summary.get("artifacts")
         if isinstance(artifacts, dict):
+            for field, canonical in (
+                ("bootstrapEvents", "bootstrap-events.jsonl"),
+                ("commands", "commands"),
+            ):
+                if artifacts.get(field) != canonical:
+                    errors.append(
+                        f"run-summary.json.artifacts.{field}: must equal {canonical}"
+                    )
             for field, expected in (
                 ("bootstrapEvents", "file"),
                 ("commands", "directory"),
@@ -364,6 +398,8 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                     errors,
                     expected=expected,
                 )
+
+    _validate_bundle_consistency(root, summary, errors)
 
     commands_root = root / "commands"
     metadata_paths = []
@@ -416,10 +452,10 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                 if not line.strip():
                     continue
                 try:
-                    event = json.loads(line)
-                except json.JSONDecodeError as exc:
+                    event = _decode_json_bytes(encoded_line)
+                except ValueError as exc:
                     errors.append(
-                        f"bootstrap-events.jsonl:{line_number}: invalid JSON: {exc.msg}"
+                        f"bootstrap-events.jsonl:{line_number}: invalid JSON: {exc}"
                     )
                     continue
                 for error in validate_event(event):
@@ -466,6 +502,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             terminal_event.get("phase") == summary.get("phase")
             and terminal_event.get("status") == summary.get("status")
             and terminal_event.get("commandStatus") == summary.get("commandStatus")
+            and terminal_event.get("summary") == summary.get("summary")
         )
         if summary.get("status") != "passed":
             consistent = consistent and terminal_event.get("errorCode") == summary.get(

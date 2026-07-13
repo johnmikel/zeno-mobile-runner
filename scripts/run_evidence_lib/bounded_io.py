@@ -17,6 +17,63 @@ class _EntryLimitExceeded(ValueError):
     """Raised before a hostile directory tree can grow traversal state."""
 
 
+_MAX_JSON_NESTING_DEPTH = 256
+
+
+def _validate_json_nesting(
+    value: Any, maximum: int = _MAX_JSON_NESTING_DEPTH
+) -> None:
+    """Validate JSON depth iteratively with memory bounded by nesting depth."""
+
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum < 1:
+        raise ValueError("JSON nesting limit must be a positive integer")
+    current = value
+    depth = 0
+    parents: list[tuple[Iterator[Any], int]] = []
+    while True:
+        children: Iterator[Any] | None = None
+        if isinstance(current, list):
+            children = iter(current)
+        elif isinstance(current, dict):
+            children = iter(current.values())
+        if children is not None:
+            try:
+                child = next(children)
+            except StopIteration:
+                pass
+            else:
+                if depth >= maximum:
+                    raise ValueError("nesting exceeds supported depth")
+                parents.append((children, depth))
+                current = child
+                depth += 1
+                continue
+        while parents:
+            siblings, parent_depth = parents[-1]
+            try:
+                current = next(siblings)
+            except StopIteration:
+                parents.pop()
+                continue
+            depth = parent_depth + 1
+            break
+        else:
+            return
+
+
+def _decode_json_bytes(content: bytes) -> Any:
+    """Strictly decode one JSON document and enforce deterministic depth."""
+
+    try:
+        value = json.loads(content.decode("utf-8"))
+    except RecursionError as exc:
+        raise ValueError("nesting exceeds supported depth") from exc
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(str(exc)) from exc
+    _validate_json_nesting(value)
+    return value
+
+
 @contextmanager
 def _rooted_regular_descriptor(
     path: Path,
@@ -168,6 +225,28 @@ def _iter_rooted_tree(
             os.close(descriptor)
 
 
+def _has_pending_transaction_entries(root: Path) -> bool:
+    """Inspect only whether the publication transaction directory is non-empty."""
+
+    authority = safe_io._active_rooted_io()
+    transaction_directory = Path(root).parent.parent / ".transactions"
+    metadata = authority.stat(transaction_directory, missing_ok=True)
+    if metadata is None:
+        return False
+    if not stat.S_ISDIR(metadata.st_mode):
+        return True
+    relative = authority._relative(transaction_directory)
+    descriptor = authority._open_directory_unchecked(relative)
+    try:
+        authority._validate_directory(relative, descriptor)
+        with os.scandir(descriptor) as entries:
+            pending = next(entries, None) is not None
+        authority._validate_directory(relative, descriptor)
+        return pending
+    finally:
+        os.close(descriptor)
+
+
 def _read_bounded_bytes(
     path: Path,
     maximum: int,
@@ -231,8 +310,8 @@ def _read_json_bounded(
             raise
         raise ValueError(f"invalid JSON file {Path(path).name}: {exc}") from exc
     try:
-        return json.loads(content.decode("utf-8")), len(content)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+        return _decode_json_bytes(content), len(content)
+    except ValueError as exc:
         raise ValueError(f"invalid JSON file {Path(path).name}: {exc}") from exc
 
 
@@ -275,9 +354,13 @@ def _iter_bounded_jsonl_lines(
 
 __all__ = (
     "_EntryLimitExceeded",
+    "_MAX_JSON_NESTING_DEPTH",
+    "_validate_json_nesting",
+    "_decode_json_bytes",
     "_rooted_regular_descriptor",
     "_iter_regular_chunks",
     "_iter_rooted_tree",
+    "_has_pending_transaction_entries",
     "_read_bounded_bytes",
     "_read_json_bounded",
     "_iter_bounded_jsonl_lines",

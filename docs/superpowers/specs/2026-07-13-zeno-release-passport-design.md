@@ -1,7 +1,7 @@
 # Zeno Release Passport: Product and Technical Design
 
 **Date:** 2026-07-13  
-**Status:** Reviewed specification; awaiting final user sign-off  
+**Status:** Approved by the user on 2026-07-13<br>
 **Initial market:** UK digital product agencies shipping mobile and web products  
 **Initial surfaces:** Web, iOS, and Android
 

@@ -25,6 +25,7 @@ from . import bounded_io
 from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
+from .contracts import _comparability_tuple
 from .safe_io import *  # noqa: F401,F403
 
 def _summary_paths(inputs: list[Path]) -> list[Path]:
@@ -79,18 +80,19 @@ def _aggregate_summaries(inputs: list[Path]) -> dict:
         seen_run_ids.add(run_id)
         execution_id = summary["executionId"]
         computed = recompute_comparability(summary)
+        raw_tuple = _comparability_tuple(summary)
         group = groups.setdefault(
             execution_id,
             {
                 "executionId": execution_id,
-                "comparabilityTuple": computed["comparabilityTuple"],
+                "comparabilityTuple": raw_tuple,
                 "comparabilityKey": computed["comparabilityKey"],
                 "certificationEligible": computed["certificationEligible"],
                 "ineligibilityReasons": computed["ineligibilityReasons"],
                 "attempts": [],
             },
         )
-        if group["comparabilityTuple"] != computed["comparabilityTuple"]:
+        if group["comparabilityTuple"] != raw_tuple:
             raise ValueError("summaries in one execution have different comparability tuples")
         group["attempts"].append(summary)
     executions = []

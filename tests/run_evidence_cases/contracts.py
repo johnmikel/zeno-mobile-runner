@@ -57,16 +57,25 @@ class ComparabilityTests(unittest.TestCase):
         result = run_evidence.comparability(context)
         reordered = run_evidence.comparability(reversed_context)
 
+        self.assertEqual(
+            set(result),
+            {
+                "comparabilityKey",
+                "certificationEligible",
+                "ineligibilityReasons",
+            },
+        )
         self.assertTrue(result["certificationEligible"])
         self.assertEqual(result["ineligibilityReasons"], [])
         self.assertRegex(result["comparabilityKey"], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(result, reordered)
+        raw_tuple = run_evidence.contracts._comparability_tuple(context)
         self.assertEqual(
-            result["comparabilityTuple"]["host"],
+            raw_tuple["host"],
             {"os": "macos", "arch": "arm64", "class": "github-macos-15-arm64"},
         )
         self.assertEqual(
-            result["comparabilityTuple"]["toolchain"],
+            raw_tuple["toolchain"],
             {"xcode": "16.4", "zig": "0.16.0"},
         )
 
@@ -143,6 +152,14 @@ class ComparabilityTests(unittest.TestCase):
         summary["certificationEligible"] = False
         summary["ineligibilityReasons"] = ["$.candidateRevision"]
         result = run_evidence.recompute_comparability(summary)
+        self.assertEqual(
+            set(result),
+            {
+                "comparabilityKey",
+                "certificationEligible",
+                "ineligibilityReasons",
+            },
+        )
         self.assertEqual(result["comparabilityKey"], expected)
         self.assertTrue(result["certificationEligible"])
         self.assertEqual(result["ineligibilityReasons"], [])

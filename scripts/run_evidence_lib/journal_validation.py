@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .contracts import _valid_datetime, comparability
+from .contracts import _comparability_tuple, _valid_datetime
 
 
 def _registrations_for_run(index: dict, run_id: str) -> list[tuple[dict, dict]]:
@@ -75,7 +75,7 @@ def _validate_transaction_operation(
         if (
             execution["executionId"] != context["executionId"]
             or execution["comparabilityTuple"]
-            != comparability(context)["comparabilityTuple"]
+            != _comparability_tuple(context)
             or entry["attempt"] != context["attempt"]
         ):
             raise ValueError("init transaction index disagrees with context")
@@ -115,7 +115,7 @@ def _validate_transaction_operation(
                 or context.get("runId") != target_run_id
                 or context.get("executionId") != execution["executionId"]
                 or context.get("attempt") != entry["attempt"]
-                or comparability(context)["comparabilityTuple"]
+                or _comparability_tuple(context)
                 != execution["comparabilityTuple"]
             ):
                 raise ValueError(

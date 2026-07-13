@@ -22,7 +22,7 @@ class AttemptIndexTests(StorageTestCase):
         self.assertEqual(execution["executionId"], "execution-1")
         self.assertEqual(
             execution["comparabilityTuple"],
-            run_evidence.comparability(first_context)["comparabilityTuple"],
+            run_evidence.contracts._comparability_tuple(first_context),
         )
         self.assertEqual(
             execution["attempts"],
@@ -93,9 +93,11 @@ class AttemptIndexTests(StorageTestCase):
                 "executions": [
                     {
                         "executionId": "execution-1",
-                        "comparabilityTuple": run_evidence.comparability(
-                            valid_context()
-                        )["comparabilityTuple"],
+                        "comparabilityTuple": (
+                            run_evidence.contracts._comparability_tuple(
+                                valid_context()
+                            )
+                        ),
                         "attempts": [
                             {
                                 "runId": "run-1",
@@ -111,9 +113,11 @@ class AttemptIndexTests(StorageTestCase):
                 "executions": [
                     {
                         "executionId": "execution-1",
-                        "comparabilityTuple": run_evidence.comparability(
-                            valid_context()
-                        )["comparabilityTuple"],
+                        "comparabilityTuple": (
+                            run_evidence.contracts._comparability_tuple(
+                                valid_context()
+                            )
+                        ),
                         "attempts": [
                             {
                                 "runId": "run-1",

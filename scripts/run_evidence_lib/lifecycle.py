@@ -23,6 +23,7 @@ from typing import Any
 
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
+from .contracts import _comparability_tuple
 from .sanitization import *  # noqa: F401,F403
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
@@ -49,7 +50,7 @@ def _registered_index_candidate(
             if entry["runId"] == run_id:
                 raise ValueError("runId is already registered")
 
-    comparable = comparability(context)["comparabilityTuple"]
+    comparable = _comparability_tuple(context)
     execution = next(
         (
             item
@@ -314,13 +315,13 @@ def update_context(
                 registered_tuple = execution["comparabilityTuple"]
                 for run_id, sibling_context in contexts.items():
                     if (
-                        comparability(sibling_context)["comparabilityTuple"]
+                        _comparability_tuple(sibling_context)
                         != registered_tuple
                     ):
                         raise ValueError(
                             f"stored context for {run_id} disagrees with attempt index"
                         )
-                new_tuple = comparability(updated)["comparabilityTuple"]
+                new_tuple = _comparability_tuple(updated)
                 resolved_tuple = _merge_resolved_identity(
                     registered_tuple, new_tuple
                 )

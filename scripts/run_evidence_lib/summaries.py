@@ -23,6 +23,7 @@ from typing import Any
 
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
+from .contracts import _comparability_tuple
 from .sanitization import *  # noqa: F401,F403
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
@@ -265,7 +266,7 @@ def _finalize_attempt(
                     )
                     index = _load_index(index_path)
                     execution = _execution_for_run(index, context.get("runId"))
-                    current_tuple = comparability(context)["comparabilityTuple"]
+                    current_tuple = _comparability_tuple(context)
                     registered_tuple = execution["comparabilityTuple"]
                     tuple_mismatch = registered_tuple != current_tuple
 

@@ -36,14 +36,12 @@ def _present(value: Any) -> bool:
     return value is not None and (not isinstance(value, str) or bool(value))
 
 
-def comparability(context: dict) -> dict:
-    """Derive the canonical comparison tuple and its eligibility claims."""
+def _comparability_tuple(context: Any) -> dict:
+    """Derive the private canonical tuple used by persisted evidence indexes."""
 
     source = context if isinstance(context, dict) else {}
     host_source = source.get("host") if isinstance(source.get("host"), dict) else {}
     raw_toolchain = source.get("toolchain")
-    reasons = []
-
     comparable = {
         "candidateRevision": source.get("candidateRevision"),
         "fixtureId": source.get("fixtureId"),
@@ -64,6 +62,23 @@ def comparability(context: dict) -> dict:
         "toolchain": {},
     }
 
+    if isinstance(raw_toolchain, dict) and all(
+        isinstance(name, str) for name in raw_toolchain
+    ):
+        comparable["toolchain"] = {
+            name: raw_toolchain[name] for name in sorted(raw_toolchain)
+        }
+    return comparable
+
+
+def comparability(context: dict) -> dict:
+    """Derive the public canonical comparability claims."""
+
+    source = context if isinstance(context, dict) else {}
+    raw_toolchain = source.get("toolchain")
+    comparable = _comparability_tuple(source)
+    reasons = []
+
     for field in COMPARABILITY_FIELDS:
         if field == "toolchain":
             continue
@@ -76,9 +91,6 @@ def comparability(context: dict) -> dict:
     elif not all(isinstance(name, str) for name in raw_toolchain):
         reasons.append("$.toolchain")
     else:
-        comparable["toolchain"] = {
-            name: raw_toolchain[name] for name in sorted(raw_toolchain)
-        }
         for name, version in comparable["toolchain"].items():
             if not _present(version):
                 reasons.append("$.toolchain." + name)
@@ -96,7 +108,6 @@ def comparability(context: dict) -> dict:
         key = "sha256:" + hashlib.sha256(encoded).hexdigest()
 
     return {
-        "comparabilityTuple": comparable,
         "comparabilityKey": key,
         "certificationEligible": not reasons,
         "ineligibilityReasons": reasons,

@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from .bounded_io import _read_json_bounded
-from .contracts import _validate_context_identity, _validate_index, comparability
+from .contracts import (
+    _comparability_tuple,
+    _validate_context_identity,
+    _validate_index,
+)
 from .safe_io import _evidence_is_file, _evidence_is_symlink
 
 
@@ -122,7 +126,7 @@ def _validate_bundle_consistency(
             )
         if entry.get("attempt") != context.get("attempt"):
             errors.append("attempt-index.json: registration attempt disagrees with context")
-        expected_tuple = comparability(context)["comparabilityTuple"]
+        expected_tuple = _comparability_tuple(context)
         if execution.get("comparabilityTuple") != expected_tuple:
             errors.append(
                 "attempt-index.json: raw comparability tuple disagrees with context"

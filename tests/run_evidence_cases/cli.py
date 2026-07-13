@@ -223,6 +223,51 @@ raise SystemExit(module.main([
         self.assertEqual(cli.returncode, 0, cli.stderr)
         self.assertEqual(json.loads(cli.stdout), aggregate)
 
+    def test_aggregate_enforces_summary_count_before_reading_inputs(self):
+        with mock.patch.object(
+            run_evidence.constants, "MAX_AGGREGATE_SUMMARY_COUNT", 1
+        ):
+            with self.assertRaisesRegex(
+                ValueError, r"aggregate summary count exceeds maximum \(1\)"
+            ):
+                run_evidence._aggregate_summaries(
+                    [
+                        Path(self.temporary.name) / "missing-first.json",
+                        Path(self.temporary.name) / "missing-second.json",
+                    ]
+                )
+
+    def test_aggregate_enforces_cumulative_structured_input_bytes(self):
+        root = self.attempt_root("aggregate-byte-limit")
+        run_evidence._initialize_attempt(
+            self.index_path,
+            root,
+            valid_context(runId=root.name, executionId="aggregate-byte-execution"),
+        )
+        summary_path = root / "run-summary.json"
+        run_evidence._finalize_attempt(root, "passed")
+
+        with mock.patch.object(
+            run_evidence.constants, "MAX_AGGREGATE_INSPECTED_BYTES", 1
+        ):
+            with self.assertRaisesRegex(
+                ValueError, r"aggregate input exceeds maximum inspected bytes \(1\)"
+            ):
+                run_evidence._aggregate_summaries([summary_path])
+
+    def test_cli_help_discloses_validation_resource_limits(self):
+        result = self.cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for value in (
+            run_evidence.MAX_BUNDLE_FILE_COUNT,
+            run_evidence.MAX_BUNDLE_INSPECTED_BYTES,
+            run_evidence.MAX_STRUCTURED_JSON_BYTES,
+            run_evidence.MAX_JSONL_LINE_BYTES,
+            run_evidence.MAX_AGGREGATE_SUMMARY_COUNT,
+            run_evidence.MAX_AGGREGATE_INSPECTED_BYTES,
+        ):
+            self.assertIn(str(value), result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

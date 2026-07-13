@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import bounded_io
+from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -44,7 +46,16 @@ class _ArgumentParser(argparse.ArgumentParser):
 def _build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         description="Create and validate ZMR run evidence.",
-        epilog=EVIDENCE_MUTATION_REQUIREMENT + ".",
+        epilog=(
+            EVIDENCE_MUTATION_REQUIREMENT
+            + ". Validation limits: "
+            + f"{_limits.MAX_BUNDLE_FILE_COUNT} bundle files, "
+            + f"{_limits.MAX_BUNDLE_INSPECTED_BYTES} inspected bundle bytes, "
+            + f"{_limits.MAX_STRUCTURED_JSON_BYTES} bytes per JSON document, "
+            + f"{_limits.MAX_JSONL_LINE_BYTES} bytes per JSONL line, "
+            + f"{_limits.MAX_AGGREGATE_SUMMARY_COUNT} aggregate summaries, and "
+            + f"{_limits.MAX_AGGREGATE_INSPECTED_BYTES} aggregate input bytes."
+        ),
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
@@ -198,7 +209,17 @@ def _dispatch(args: argparse.Namespace) -> int:
         _print_json(result)
         return 0
     if args.action == "validate":
-        summary = _read_json(args.summary)
+        summary_path = args.summary.absolute()
+        publication_root = _publication_root_for_path(summary_path)
+        with _rooted_io(publication_root, mutation=False):
+            if _evidence_is_symlink(summary_path) or not _evidence_is_file(
+                summary_path
+            ):
+                raise ValueError("summary input is missing or unsafe")
+            metadata = _evidence_stat(summary_path)
+            summary, _summary_bytes = bounded_io._read_json_bounded(
+                summary_path, expected_metadata=metadata
+            )
         errors = validate_summary(summary)
         if errors:
             for error in errors:

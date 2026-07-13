@@ -51,6 +51,7 @@ POSIX_SAFE_DIRFD_AVAILABLE = bool(
         for function in (os.open, os.stat, os.mkdir, os.unlink)
     )
     and os.listdir in os.supports_fd
+    and os.scandir in os.supports_fd
     and _replace_supports_dir_fds()
 )
 

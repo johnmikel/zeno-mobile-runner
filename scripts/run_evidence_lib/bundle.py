@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -29,6 +30,41 @@ from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
 from .summaries import *  # noqa: F401,F403
 from .commands import *  # noqa: F401,F403
+from .bounded_io import *  # noqa: F401,F403
+from .bundle_scan import *  # noqa: F401,F403
+
+
+_MAX_VALIDATION_DIAGNOSTICS = 4096
+
+
+class _BoundedErrorList(list[str]):
+    """Deduplicate diagnostics and cap adversarial per-record error growth."""
+
+    def __init__(self, values=()) -> None:
+        super().__init__()
+        self._seen: set[str] = set()
+        self._overflowed = False
+        self.extend(values)
+
+    def append(self, value: str) -> None:
+        if value in self._seen or self._overflowed:
+            return
+        if len(self) >= _MAX_VALIDATION_DIAGNOSTICS:
+            overflow = (
+                "$: validation diagnostics exceed maximum "
+                f"({_MAX_VALIDATION_DIAGNOSTICS})"
+            )
+            super().append(overflow)
+            self._seen.add(overflow)
+            self._overflowed = True
+            return
+        super().append(value)
+        self._seen.add(value)
+
+    def extend(self, values) -> None:
+        for value in values:
+            self.append(value)
+
 
 def _resolve_bundle_reference(
     root: Path,
@@ -160,104 +196,123 @@ def _validate_command_metadata(
                 )
 
 
-_PUBLIC_DENY_SUBSTRINGS = (
-    "bri" + "ck",
-    "uk.co." + "ren" + "tly",
-    "ren" + "tly" + "test",
-    "zig" + "-mobile-runner",
-    "zig" + " mobile runner",
-    "zig" + "_mobile_runner",
-    "cod" + "ex",
-    "clau" + "de fable",
-    "noreply@" + "anthropic.com",
-    "co-authored-by:" + " claude",
-    "clau" + "de code",
-    "clau" + "de mcp add",
-    "app" + "ium",
-    "mae" + "stro",
-    "det" + "ox",
-    "browser" + "stack",
-    "sauce" + "labs",
-    "sauce" + " labs",
-    "firebase" + " test " + "lab",
-    "kobi" + "ton",
-    "perfect" + "o",
-    "testri" + "gor",
-    "kata" + "lon",
-    "lambda" + "test",
-)
-_PUBLIC_BOUNDARY_DENY_RE = re.compile(
-    r"(?:^|[^a-z])" + "ren" + r"tly(?:[^a-z]|$)", re.IGNORECASE
-)
+def _command_link_projection(metadata: dict) -> dict:
+    """Retain only constant-size fields needed after metadata validation."""
+
+    return {
+        "source": (
+            metadata.get("source")
+            if metadata.get("source") in ("subprocess", "github-action")
+            else None
+        ),
+        "failureCode": (
+            metadata.get("failureCode")
+            if isinstance(metadata.get("failureCode"), str)
+            and metadata.get("failureCode") in ERROR_CLASSIFICATION
+            else None
+        ),
+        "phase": metadata.get("phase") if metadata.get("phase") in PHASES else None,
+        "exitStatus": (
+            metadata.get("exitStatus")
+            if _is_integer(metadata.get("exitStatus"))
+            else None
+        ),
+        "signal": (
+            metadata.get("signal")
+            if _is_integer(metadata.get("signal"))
+            and metadata.get("signal") > 0
+            else None
+        ),
+        "outcome": (
+            metadata.get("outcome")
+            if metadata.get("outcome") in ("success", "failure", "cancelled")
+            else None
+        ),
+    }
 
 
-def _contains_public_deny_pattern(text: str) -> bool:
-    lowered = text.lower()
-    return _PUBLIC_BOUNDARY_DENY_RE.search(text) is not None or any(
-        term in lowered for term in _PUBLIC_DENY_SUBSTRINGS
-    )
+def _command_event_owns_summary(
+    event: dict, metadata: dict, summary: Any
+) -> bool:
+    if not isinstance(summary, dict) or summary.get("commandStatus") is None:
+        return False
+    command_status = summary.get("commandStatus")
+    if (
+        metadata.get("source") != "subprocess"
+        or metadata.get("exitStatus") != command_status
+        or event.get("commandStatus") != command_status
+        or event.get("status") != summary.get("status")
+    ):
+        return False
+    if summary.get("status") == "failed":
+        return (
+            event.get("phase") == summary.get("phase")
+            and event.get("errorCode") == summary.get("errorCode")
+        )
+    return summary.get("status") == "passed"
 
 
-def _json_strings(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
-        return [text for item in value for text in _json_strings(item)]
-    if isinstance(value, dict):
-        return list(value.keys()) + [
-            text for item in value.values() for text in _json_strings(item)
-        ]
-    return []
+def _validate_command_event_link(
+    root: Path,
+    line_number: int,
+    event: dict,
+    metadata_by_reference: dict[str, dict],
+    link_counts: dict[str, int],
+    summary: Any,
+    errors: list[str],
+) -> bool:
+    """Validate one command event and report whether it owns the summary."""
 
+    reference = event.get("command")
+    if reference is None:
+        return False
+    label = f"bootstrap-events.jsonl:{line_number}.command"
+    if not (
+        isinstance(reference, str)
+        and _valid_relative_path(reference)
+        and reference.startswith("commands/")
+        and reference.count("/") == 1
+        and reference.endswith(".json")
+    ):
+        errors.append(f"{label}: must be a command metadata reference")
+        return False
+    _resolve_bundle_reference(root, reference, label, errors, expected="file")
+    metadata = metadata_by_reference.get(reference)
+    if metadata is None:
+        errors.append(f"{label}: referenced command record is missing")
+        return False
+    link_counts[reference] += 1
+    if event.get("status") not in ("passed", "failed", "cancelled"):
+        errors.append(f"{label}: command metadata may only appear on a terminal event")
+        return False
+    if event.get("phase") != metadata.get("phase"):
+        errors.append(f"{label}: phase disagrees with command metadata")
 
-def _scan_publishable_files(root: Path, secrets: list[str], errors: list[str]) -> None:
-    for path in sorted(_evidence_rglob(root), key=lambda item: item.as_posix()):
-        relative = path.relative_to(root).as_posix()
-        if _ATOMIC_WRITE_TEMP_RE.fullmatch(path.name):
-            errors.append(
-                f"{relative}: publishable bundle contains an atomic-write temporary"
-            )
-            continue
-        if _evidence_is_symlink(path):
-            errors.append(f"{relative}: publishable bundle contains a symlink")
-            continue
-        if not _evidence_is_file(path):
-            continue
-        try:
-            raw = _evidence_read_bytes(path)
-        except OSError as exc:
-            errors.append(f"{relative}: cannot scan publishable file: {exc.strerror}")
-            continue
-        text = raw.decode("utf-8", errors="replace")
-        semantic_text = text
-        try:
-            if path.suffix.lower() == ".json":
-                semantic_text = "\n".join(_json_strings(json.loads(text)))
-            elif path.suffix.lower() == ".jsonl":
-                semantic_text = "\n".join(
-                    item
-                    for line in text.splitlines()
-                    if line.strip()
-                    for item in _json_strings(json.loads(line))
-                )
-        except json.JSONDecodeError:
-            semantic_text = text
-        for secret in sorted(
-            {item for item in secrets if isinstance(item, str) and item}
-        ):
-            if secret.encode("utf-8") in raw or secret in semantic_text:
-                errors.append(f"{relative}: contains a current known secret value")
-                break
-        if _CREDENTIAL_URL_RE.search(semantic_text):
-            errors.append(f"{relative}: contains a credential URL")
-        if (
-            _FILE_URL_RE.search(semantic_text)
-            or _WINDOWS_ABSOLUTE_RE.search(semantic_text)
-            or _POSIX_ABSOLUTE_RE.search(semantic_text)
-        ):
-            errors.append(f"{relative}: contains a raw absolute path")
-        if _contains_public_deny_pattern(semantic_text):
-            errors.append(f"{relative}: contains a public safety deny pattern")
+    expected_status = None
+    expected_command_status = None
+    if metadata.get("source") == "subprocess":
+        if metadata.get("signal") is not None:
+            expected_status = "cancelled"
+        elif _is_integer(metadata.get("exitStatus")):
+            expected_command_status = metadata.get("exitStatus")
+            expected_status = "passed" if expected_command_status == 0 else "failed"
+    elif metadata.get("source") == "github-action":
+        expected_status = {
+            "success": "passed",
+            "failure": "failed",
+            "cancelled": "cancelled",
+        }.get(metadata.get("outcome"))
+
+    if event.get("status") != expected_status:
+        errors.append(f"{label}: event status disagrees with command metadata")
+    if event.get("commandStatus") != expected_command_status:
+        errors.append(f"{label}: commandStatus disagrees with metadata exitStatus/outcome")
+    if expected_status == "passed":
+        if event.get("errorCode") is not None:
+            errors.append(f"{label}: passed command event must omit errorCode")
+    elif event.get("errorCode") != metadata.get("failureCode"):
+        errors.append(f"{label}: failureCode disagrees with command metadata")
+    return _command_event_owns_summary(event, metadata, summary)
 
 
 @_rooted_attempt_read
@@ -265,12 +320,16 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     """Validate a complete attempt bundle, including containment and redaction."""
 
     root = Path(root)
-    errors: list[str] = _pending_transaction_errors_for_attempt(root)
+    errors: list[str] = _BoundedErrorList(
+        _pending_transaction_errors_for_attempt(root)
+    )
     if _evidence_is_symlink(root):
         errors.append("$: attempt root must not be a symlink")
         return _finish_errors(errors)
     if not _evidence_is_dir(root):
         errors.append("$: attempt root must be a directory")
+        return _finish_errors(errors)
+    if not _scan_publishable_files(root, secrets, errors):
         return _finish_errors(errors)
 
     summary_path = root / "run-summary.json"
@@ -279,61 +338,13 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
         errors.append("run-summary.json: terminal summary is missing or unsafe")
     else:
         try:
-            summary = _read_json(summary_path)
+            summary, _summary_bytes = _read_json_bounded(summary_path)
             errors.extend(
                 "run-summary.json" + error[1:] if error.startswith("$") else error
                 for error in validate_summary(summary)
             )
         except ValueError as exc:
             errors.append(f"run-summary.json: {exc}")
-
-    events = []
-    events_path = root / "bootstrap-events.jsonl"
-    if not _evidence_is_file(events_path) or _evidence_is_symlink(events_path):
-        errors.append("bootstrap-events.jsonl: event log is missing or unsafe")
-    else:
-        try:
-            for line_number, line in enumerate(
-                _evidence_read_text(events_path).splitlines(), 1
-            ):
-                if not line.strip():
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    errors.append(
-                        f"bootstrap-events.jsonl:{line_number}: invalid JSON: {exc.msg}"
-                    )
-                    continue
-                for error in validate_event(event):
-                    errors.append(
-                        f"bootstrap-events.jsonl:{line_number}{error[1:]}"
-                        if error.startswith("$")
-                        else f"bootstrap-events.jsonl:{line_number}: {error}"
-                    )
-                events.append(event)
-        except (OSError, UnicodeError) as exc:
-            errors.append(f"bootstrap-events.jsonl: cannot read event log: {exc}")
-    if events:
-        actual_sequence = [event.get("seq") for event in events]
-        if actual_sequence != list(range(1, len(events) + 1)):
-            errors.append("bootstrap-events.jsonl: sequence must start at 1 and increment")
-    else:
-        errors.append("bootstrap-events.jsonl: must contain events")
-
-    if isinstance(summary, dict) and events:
-        terminal = events[-1]
-        consistent = (
-            terminal.get("phase") == summary.get("phase")
-            and terminal.get("status") == summary.get("status")
-            and terminal.get("commandStatus") == summary.get("commandStatus")
-        )
-        if summary.get("status") != "passed":
-            consistent = consistent and terminal.get("errorCode") == summary.get(
-                "errorCode"
-            )
-        if not consistent:
-            errors.append("bootstrap-events.jsonl: terminal event disagrees with summary")
 
     if isinstance(summary, dict):
         artifacts = summary.get("artifacts")
@@ -354,37 +365,6 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                     expected=expected,
                 )
 
-    for line_number, event in enumerate(events, 1):
-        artifact = event.get("artifact") if isinstance(event, dict) else None
-        if artifact is not None:
-            _resolve_bundle_reference(
-                root,
-                artifact,
-                f"bootstrap-events.jsonl:{line_number}.artifact",
-                errors,
-            )
-        command_ref = event.get("command") if isinstance(event, dict) else None
-        if command_ref is not None:
-            if not (
-                isinstance(command_ref, str)
-                and _valid_relative_path(command_ref)
-                and command_ref.startswith("commands/")
-                and command_ref.count("/") == 1
-                and command_ref.endswith(".json")
-            ):
-                errors.append(
-                    f"bootstrap-events.jsonl:{line_number}.command: "
-                    "must be a command metadata reference"
-                )
-            else:
-                _resolve_bundle_reference(
-                    root,
-                    command_ref,
-                    f"bootstrap-events.jsonl:{line_number}.command",
-                    errors,
-                    expected="file",
-                )
-
     commands_root = root / "commands"
     metadata_paths = []
     metadata_by_reference = {}
@@ -397,65 +377,102 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             )
             continue
         try:
-            metadata = _read_json(metadata_path)
+            metadata, _metadata_bytes = _read_json_bounded(metadata_path)
         except ValueError as exc:
             errors.append(
                 f"{metadata_path.relative_to(root).as_posix()}: {exc}"
             )
             continue
         if isinstance(metadata, dict):
-            metadata_by_reference[metadata_path.relative_to(root).as_posix()] = metadata
+            metadata_by_reference[metadata_path.relative_to(root).as_posix()] = (
+                _command_link_projection(metadata)
+            )
         _validate_command_metadata(root, metadata_path, metadata, errors)
 
-    linked_commands = []
     link_counts = {reference: 0 for reference in metadata_by_reference}
-    for line_number, event in enumerate(events, 1):
-        if not isinstance(event, dict) or event.get("command") is None:
-            continue
-        reference = event.get("command")
-        label = f"bootstrap-events.jsonl:{line_number}.command"
-        metadata = metadata_by_reference.get(reference)
-        if metadata is None:
-            if isinstance(reference, str) and reference in link_counts:
-                link_counts[reference] += 1
-            errors.append(f"{label}: referenced command record is missing")
-            continue
-        link_counts[reference] += 1
-        if event.get("status") not in ("passed", "failed", "cancelled"):
-            errors.append(f"{label}: command metadata may only appear on a terminal event")
-            continue
-        if event.get("phase") != metadata.get("phase"):
-            errors.append(f"{label}: phase disagrees with command metadata")
+    event_count = 0
+    terminal_event = None
+    sequence_error = False
+    summary_command_owner_found = False
+    events_path = root / "bootstrap-events.jsonl"
+    if not _evidence_is_file(events_path) or _evidence_is_symlink(events_path):
+        errors.append("bootstrap-events.jsonl: event log is missing or unsafe")
+    else:
+        try:
+            for line_number, encoded_line in _iter_bounded_jsonl_lines(events_path):
+                if encoded_line is None:
+                    errors.append(
+                        f"bootstrap-events.jsonl:{line_number}: JSONL line exceeds "
+                        f"{_limits.MAX_JSONL_LINE_BYTES} bytes"
+                    )
+                    continue
+                try:
+                    line = encoded_line.decode("utf-8")
+                except UnicodeError as exc:
+                    errors.append(
+                        f"bootstrap-events.jsonl:{line_number}: invalid UTF-8: {exc}"
+                    )
+                    continue
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    errors.append(
+                        f"bootstrap-events.jsonl:{line_number}: invalid JSON: {exc.msg}"
+                    )
+                    continue
+                for error in validate_event(event):
+                    errors.append(
+                        f"bootstrap-events.jsonl:{line_number}{error[1:]}"
+                        if error.startswith("$")
+                        else f"bootstrap-events.jsonl:{line_number}: {error}"
+                    )
+                event_count += 1
+                if not isinstance(event, dict):
+                    sequence_error = True
+                    continue
+                if event.get("seq") != event_count:
+                    sequence_error = True
+                terminal_event = event
+                artifact = event.get("artifact")
+                if artifact is not None:
+                    _resolve_bundle_reference(
+                        root,
+                        artifact,
+                        f"bootstrap-events.jsonl:{line_number}.artifact",
+                        errors,
+                    )
+                if _validate_command_event_link(
+                    root,
+                    line_number,
+                    event,
+                    metadata_by_reference,
+                    link_counts,
+                    summary,
+                    errors,
+                ):
+                    summary_command_owner_found = True
+        except OSError as exc:
+            errors.append(f"bootstrap-events.jsonl: cannot read event log: {exc}")
 
-        expected_status = None
-        expected_command_status = None
-        if metadata.get("source") == "subprocess":
-            if metadata.get("signal") is not None:
-                expected_status = "cancelled"
-            elif _is_integer(metadata.get("exitStatus")):
-                expected_command_status = metadata.get("exitStatus")
-                expected_status = (
-                    "passed" if expected_command_status == 0 else "failed"
-                )
-        elif metadata.get("source") == "github-action":
-            expected_status = {
-                "success": "passed",
-                "failure": "failed",
-                "cancelled": "cancelled",
-            }.get(metadata.get("outcome"))
+    if event_count == 0:
+        errors.append("bootstrap-events.jsonl: must contain events")
+    elif sequence_error:
+        errors.append("bootstrap-events.jsonl: sequence must start at 1 and increment")
 
-        if event.get("status") != expected_status:
-            errors.append(f"{label}: event status disagrees with command metadata")
-        if event.get("commandStatus") != expected_command_status:
-            errors.append(
-                f"{label}: commandStatus disagrees with metadata exitStatus/outcome"
+    if isinstance(summary, dict) and terminal_event is not None:
+        consistent = (
+            terminal_event.get("phase") == summary.get("phase")
+            and terminal_event.get("status") == summary.get("status")
+            and terminal_event.get("commandStatus") == summary.get("commandStatus")
+        )
+        if summary.get("status") != "passed":
+            consistent = consistent and terminal_event.get("errorCode") == summary.get(
+                "errorCode"
             )
-        if expected_status == "passed":
-            if event.get("errorCode") is not None:
-                errors.append(f"{label}: passed command event must omit errorCode")
-        elif event.get("errorCode") != metadata.get("failureCode"):
-            errors.append(f"{label}: failureCode disagrees with command metadata")
-        linked_commands.append((event, metadata))
+        if not consistent:
+            errors.append("bootstrap-events.jsonl: terminal event disagrees with summary")
 
     for reference, count in sorted(link_counts.items()):
         if count != 1:
@@ -463,37 +480,20 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                 f"{reference}: command metadata must have exactly one terminal event link"
             )
 
-    if isinstance(summary, dict) and summary.get("commandStatus") is not None:
-        command_status = summary.get("commandStatus")
-        owners = [
-            (event, metadata)
-            for event, metadata in linked_commands
-            if metadata.get("source") == "subprocess"
-            and metadata.get("exitStatus") == command_status
-            and event.get("commandStatus") == command_status
-        ]
-        if summary.get("status") == "failed":
-            owners = [
-                (event, metadata)
-                for event, metadata in owners
-                if event.get("phase") == summary.get("phase")
-                and event.get("errorCode") == summary.get("errorCode")
-            ]
-        elif summary.get("status") == "passed":
-            owners = [
-                (event, metadata)
-                for event, metadata in owners
-                if event.get("status") == "passed"
-            ]
-        if not owners:
-            errors.append(
-                "run-summary.json.commandStatus: does not match an exact terminal command event"
-            )
+    if (
+        isinstance(summary, dict)
+        and summary.get("commandStatus") is not None
+        and not summary_command_owner_found
+    ):
+        errors.append(
+            "run-summary.json.commandStatus: does not match an exact terminal command event"
+        )
 
-    _scan_publishable_files(root, secrets, errors)
     return _finish_errors(errors)
 
 __all__ = (
+    "_MAX_VALIDATION_DIAGNOSTICS",
+    "_BoundedErrorList",
     "_resolve_bundle_reference",
     "_validate_command_metadata",
     "_PUBLIC_DENY_SUBSTRINGS",

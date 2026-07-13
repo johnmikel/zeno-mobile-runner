@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import bounded_io
+from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .safe_io import *  # noqa: F401,F403
@@ -28,20 +30,44 @@ from .safe_io import *  # noqa: F401,F403
 def _summary_paths(inputs: list[Path]) -> list[Path]:
     paths = []
     for supplied in inputs:
-        path = Path(supplied)
-        if path.is_dir():
-            path = path / "run-summary.json"
-        if not path.is_file():
-            raise ValueError(f"summary input does not exist: {path.name}")
+        path = Path(supplied).absolute()
+        publication_root = _publication_root_for_path(path)
+        with _rooted_io(publication_root, mutation=False):
+            if _evidence_is_symlink(path):
+                raise ValueError(f"summary input is a symlink: {path.name}")
+            if _evidence_is_dir(path):
+                path = path / "run-summary.json"
+            if _evidence_is_symlink(path) or not _evidence_is_file(path):
+                raise ValueError(f"summary input does not exist: {path.name}")
         paths.append(path)
-    return sorted(set(paths), key=lambda path: str(path.resolve()))
+    return sorted(set(paths), key=lambda path: str(path.absolute()))
 
 
 def _aggregate_summaries(inputs: list[Path]) -> dict:
+    if len(inputs) > _limits.MAX_AGGREGATE_SUMMARY_COUNT:
+        raise ValueError(
+            "aggregate summary count exceeds maximum "
+            f"({_limits.MAX_AGGREGATE_SUMMARY_COUNT})"
+        )
     groups: dict[str, dict] = {}
     seen_run_ids = set()
+    inspected_bytes = 0
     for path in _summary_paths(inputs):
-        summary = _read_json(path)
+        publication_root = _publication_root_for_path(path)
+        with _rooted_io(publication_root, mutation=False):
+            metadata = _evidence_stat(path)
+            if (
+                inspected_bytes + metadata.st_size
+                > _limits.MAX_AGGREGATE_INSPECTED_BYTES
+            ):
+                raise ValueError(
+                    "aggregate input exceeds maximum inspected bytes "
+                    f"({_limits.MAX_AGGREGATE_INSPECTED_BYTES})"
+                )
+            summary, byte_count = bounded_io._read_json_bounded(
+                path, expected_metadata=metadata
+            )
+        inspected_bytes += byte_count
         errors = validate_summary(summary)
         if errors:
             raise ValueError(

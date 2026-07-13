@@ -187,6 +187,180 @@ raise SystemExit(module.main([
         ]
         self.assertEqual(len(matching_terminal_events), 1)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "requires immediate POSIX process-death semantics",
+    )
+    def test_cli_finalize_retry_is_request_safe_at_wal_boundaries(self):
+        crash_code = """
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_crash", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+stage = sys.argv[3]
+position = int(sys.argv[4])
+def die_at_boundary(actual_stage, actual_position):
+    transaction_root = Path(sys.argv[2]).parent.parent / ".transactions"
+    finalize_prepared = any(transaction_root.glob("finalize-*.json"))
+    if (finalize_prepared and actual_stage == stage
+            and actual_position == position):
+        os._exit(92)
+
+module.journal._transaction_checkpoint = die_at_boundary
+raise SystemExit(module.main([
+    "finalize",
+    "--root", sys.argv[2],
+    "--status", "passed",
+    "--command-status", "0",
+    "--trace", "traces/final.json",
+    "--report", "reports/final.html",
+]))
+"""
+        for case_number, (stage, position) in enumerate(
+            (("prepared", -1), ("target", 0), ("target", 1)), 1
+        ):
+            with self.subTest(stage=stage, position=position):
+                run_id = f"cli-finalize-wal-{case_number}"
+                root = self.attempt_root(run_id)
+                run_evidence._initialize_attempt(
+                    self.index_path,
+                    root,
+                    valid_context(
+                        runId=run_id,
+                        executionId=run_id + "-execution",
+                        artifacts={"trace": None, "report": None},
+                    ),
+                )
+                crashed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        crash_code,
+                        str(MODULE_PATH),
+                        str(root),
+                        stage,
+                        str(position),
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                self.assertEqual(
+                    crashed.returncode, 92, crashed.stdout + crashed.stderr
+                )
+
+                retried = self.cli(
+                    "finalize",
+                    "--root",
+                    root,
+                    "--status",
+                    "passed",
+                    "--command-status",
+                    "0",
+                    "--trace",
+                    "traces/final.json",
+                    "--report",
+                    "reports/final.html",
+                )
+                self.assertEqual(retried.returncode, 0, retried.stderr)
+                recovered = json.loads(retried.stdout)
+                self.assertEqual(
+                    recovered, self.read_json(root / "run-summary.json")
+                )
+                self.assertEqual(
+                    recovered["artifacts"]["trace"], "traces/final.json"
+                )
+                self.assertEqual(
+                    recovered["artifacts"]["report"], "reports/final.html"
+                )
+                self.assertEqual(
+                    len(
+                        [
+                            event
+                            for event in self.read_events(root)
+                            if (event["phase"], event["status"])
+                            == (recovered["phase"], recovered["status"])
+                        ]
+                    ),
+                    1,
+                )
+
+                duplicate = self.cli(
+                    "finalize",
+                    "--root",
+                    root,
+                    "--status",
+                    "passed",
+                    "--command-status",
+                    "0",
+                    "--trace",
+                    "traces/final.json",
+                    "--report",
+                    "reports/final.html",
+                )
+                self.assertEqual(duplicate.returncode, 2)
+
+        root = self.attempt_root("cli-finalize-wal-mismatch")
+        run_evidence._initialize_attempt(
+            self.index_path,
+            root,
+            valid_context(
+                runId=root.name,
+                executionId=root.name + "-execution",
+                artifacts={"trace": None, "report": None},
+            ),
+        )
+        crashed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                crash_code,
+                str(MODULE_PATH),
+                str(root),
+                "prepared",
+                "-1",
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(crashed.returncode, 92, crashed.stdout + crashed.stderr)
+
+        mismatched = self.cli(
+            "finalize",
+            "--root",
+            root,
+            "--status",
+            "passed",
+            "--command-status",
+            "0",
+            "--trace",
+            "traces/different.json",
+            "--report",
+            "reports/final.html",
+        )
+        self.assertEqual(mismatched.returncode, 2)
+        self.assertIn("finalized attempt context is immutable", mismatched.stderr)
+        self.assertEqual(
+            self.read_json(root / "run-context.json")["artifacts"],
+            {
+                "trace": "traces/final.json",
+                "report": "reports/final.html",
+            },
+        )
+        self.assertEqual(
+            self.read_json(root / "run-summary.json")["artifacts"]["trace"],
+            "traces/final.json",
+        )
+
     def test_aggregate_retains_all_attempts_and_is_deterministic(self):
         first = self.attempt_root("run-1")
         run_evidence._initialize_attempt(self.index_path, first, valid_context())

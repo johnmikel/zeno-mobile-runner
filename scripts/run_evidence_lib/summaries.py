@@ -236,18 +236,17 @@ def _finalize_attempt(
     summary_text: str | None = None,
     hint: str | None = None,
     command_status: int | None = None,
+    _recovered_transactions: list[dict] | None = None,
 ) -> dict:
     root = Path(root).absolute()
     publication_root = _publication_root_for_attempt(root)
     attempt_relative = _attempt_root_relative(publication_root, root)
     index_path = publication_root / "attempt-index.json"
     with _exclusive_lock(publication_root / ".transactions.lock"):
-        recovered = _recover_pending_transactions_unlocked(publication_root)
-        recovered_result = _recovered_result(
-            recovered, "finalize", attempt_relative
+        recovered = list(_recovered_transactions or [])
+        recovered.extend(
+            _recover_pending_transactions_unlocked(publication_root)
         )
-        if recovered_result is not None:
-            return recovered_result
         if status not in _TERMINAL_STATUSES:
             raise ValueError("terminal status must be passed, failed, or cancelled")
         if not _evidence_is_file(index_path):
@@ -256,7 +255,7 @@ def _finalize_attempt(
             with _exclusive_lock(root / ".lifecycle.lock"):
                 with _exclusive_lock(root / ".events.lock"):
                     summary_path = root / "run-summary.json"
-                    if _evidence_exists(summary_path):
+                    if not recovered and _evidence_exists(summary_path):
                         raise FileExistsError("terminal run summary already exists")
                     context = _read_json(root / "run-context.json")
                     context = _sanitize_value(
@@ -322,6 +321,36 @@ def _finalize_attempt(
                         if hint is not None
                         else None
                     )
+                    request_fingerprint = _request_fingerprint(
+                        publication_root,
+                        "finalize",
+                        root,
+                        {
+                            "context": context,
+                            "terminal": {
+                                "status": status,
+                                "classification": classification,
+                                "phase": phase,
+                                "errorCode": error_code,
+                                "summary": summary_text,
+                                "hint": hint,
+                                "commandStatus": command_status,
+                            },
+                        },
+                    )
+                    recovered_result = _recovered_result(
+                        publication_root,
+                        recovered,
+                        "finalize",
+                        attempt_relative,
+                        request_fingerprint,
+                    )
+                    if recovered_result is not None:
+                        return recovered_result
+                    if _evidence_exists(summary_path):
+                        raise FileExistsError(
+                            "terminal run summary already exists"
+                        )
 
                     finished_at = _utc_now()
                     candidate = _build_summary(
@@ -407,6 +436,7 @@ def _finalize_attempt(
                         root,
                         [attempt_relative],
                         targets,
+                        request_fingerprint=request_fingerprint,
                     )
                     _commit_transaction_unlocked(
                         publication_root, transaction

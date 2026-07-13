@@ -86,7 +86,11 @@ def _registered_index_candidate(
 
 
 def _register_attempt_unlocked(
-    index_path: Path, attempt_root: Path, context: dict
+    index_path: Path,
+    attempt_root: Path,
+    context: dict,
+    *,
+    request_fingerprint: str,
 ) -> dict:
     index = _registered_index_candidate(index_path, attempt_root, context)
     publication_root = Path(index_path).absolute().parent
@@ -97,6 +101,7 @@ def _register_attempt_unlocked(
         attempt_root,
         [attempt_relative],
         [("attempt-index.json", _json_bytes(index))],
+        request_fingerprint=request_fingerprint,
     )
     _commit_transaction_unlocked(publication_root, transaction)
     return index
@@ -112,15 +117,33 @@ def register_attempt(index_path: Path, attempt_root: Path, context: dict) -> dic
         raise ValueError("attempt index parent does not exist")
     publication_root = index_path.parent
     attempt_relative = _attempt_root_relative(publication_root, attempt_root)
+    context = _sanitize_value(
+        context,
+        roots=_sanitization_roots(attempt_root),
+        secrets=_collect_secret_values(),
+    )
+    _validate_context_identity(context)
+    request_fingerprint = _request_fingerprint(
+        publication_root, "register", attempt_root, context
+    )
     with _exclusive_lock(publication_root / ".transactions.lock"):
         recovered = _recover_pending_transactions_unlocked(publication_root)
         recovered_result = _recovered_result(
-            recovered, "register", attempt_relative
+            publication_root,
+            recovered,
+            "register",
+            attempt_relative,
+            request_fingerprint,
         )
         if recovered_result is not None:
             return recovered_result
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-            return _register_attempt_unlocked(index_path, attempt_root, context)
+            return _register_attempt_unlocked(
+                index_path,
+                attempt_root,
+                context,
+                request_fingerprint=request_fingerprint,
+            )
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:
@@ -226,7 +249,12 @@ def _context_with_registered_tuple(context: dict, comparable: dict) -> dict:
 
 
 @_rooted_attempt_mutation
-def update_context(root: Path, patch: dict) -> dict:
+def update_context(
+    root: Path,
+    patch: dict,
+    *,
+    _recovered_transactions: list[dict] | None = None,
+) -> dict:
     """Patch allowlisted context fields while preserving execution identity."""
 
     root = Path(root).absolute()
@@ -235,7 +263,9 @@ def update_context(root: Path, patch: dict) -> dict:
     context_path = root / "run-context.json"
     index_path = publication_root / "attempt-index.json"
     with _exclusive_lock(publication_root / ".transactions.lock"):
-        _recover_pending_transactions_unlocked(publication_root)
+        recovered = _recover_pending_transactions_unlocked(publication_root)
+        if _recovered_transactions is not None:
+            _recovered_transactions.extend(recovered)
 
         patch = _sanitize_value(
             patch,
@@ -243,6 +273,9 @@ def update_context(root: Path, patch: dict) -> dict:
             secrets=_collect_secret_values(),
         )
         _validate_context_patch(patch)
+        request_fingerprint = _request_fingerprint(
+            publication_root, "context", root, patch
+        )
         if not _evidence_is_file(context_path) or not _evidence_is_file(index_path):
             raise ValueError("attempt context or index is missing")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
@@ -276,6 +309,8 @@ def update_context(root: Path, patch: dict) -> dict:
                 _validate_context_identity(updated)
                 if updated == context:
                     return context
+                if _evidence_exists(root / "run-summary.json"):
+                    raise ValueError("finalized attempt context is immutable")
                 registered_tuple = execution["comparabilityTuple"]
                 for run_id, sibling_context in contexts.items():
                     if (
@@ -333,6 +368,7 @@ def update_context(root: Path, patch: dict) -> dict:
                     root,
                     required_directories,
                     targets,
+                    request_fingerprint=request_fingerprint,
                 )
                 _commit_transaction_unlocked(publication_root, transaction)
                 return updated_contexts[root.name]
@@ -427,19 +463,28 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
     if not _evidence_is_dir(publication_root):
         raise ValueError("attempt index parent does not exist")
     attempt_relative = _attempt_root_relative(publication_root, root)
+    context = _sanitize_value(
+        context,
+        roots=_sanitization_roots(root),
+        secrets=_collect_secret_values(),
+    )
+    _validate_context_identity(context)
+    _validate_attempt_root(index_path, root, context["runId"])
+    request_fingerprint = _request_fingerprint(
+        publication_root, "init", root, context
+    )
     with _exclusive_lock(publication_root / ".transactions.lock"):
         recovered = _recover_pending_transactions_unlocked(publication_root)
-        recovered_result = _recovered_result(recovered, "init", attempt_relative)
+        recovered_result = _recovered_result(
+            publication_root,
+            recovered,
+            "init",
+            attempt_relative,
+            request_fingerprint,
+        )
         if recovered_result is not None:
             return recovered_result
 
-        context = _sanitize_value(
-            context,
-            roots=_sanitization_roots(root),
-            secrets=_collect_secret_values(),
-        )
-        _validate_context_identity(context)
-        _validate_attempt_root(index_path, root, context["runId"])
         if _evidence_exists(root):
             raise FileExistsError("attempt root already exists")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
@@ -464,6 +509,7 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
                     (attempt_relative + "/bootstrap-events.jsonl", event_bytes),
                     ("attempt-index.json", _json_bytes(index)),
                 ],
+                request_fingerprint=request_fingerprint,
             )
             _commit_transaction_unlocked(publication_root, transaction)
             return stored

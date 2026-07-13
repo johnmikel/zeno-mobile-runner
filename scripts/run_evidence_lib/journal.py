@@ -24,10 +24,12 @@ _TRANSACTION_KEYS = {
     "schemaVersion",
     "operation",
     "attemptRoot",
+    "requestFingerprint",
     "requiredDirectories",
     "targets",
 }
 _TRANSACTION_TARGET_KEYS = {"path", "contentBase64", "sha256"}
+_REQUEST_FINGERPRINT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ATOMIC_TEMP_TOKEN_PATTERN = r"[a-z0-9_]{8}"
 _ATOMIC_WRITE_TEMP_RE = re.compile(
     rf"^[.].+[.]{_ATOMIC_TEMP_TOKEN_PATTERN}[.]tmp$"
@@ -36,6 +38,10 @@ _TRANSACTION_TEMP_RE = re.compile(
     r"^[.](?P<operation>init|register|context|finalize)-"
     r"(?P<runId>.+)-(?P<fingerprint>[0-9a-f]{16})[.]json[.]"
     rf"(?P<token>{_ATOMIC_TEMP_TOKEN_PATTERN})[.]tmp$"
+)
+_TRANSACTION_JOURNAL_RE = re.compile(
+    r"^(?P<operation>init|register|context|finalize)-"
+    r"(?P<runId>.+)-(?P<fingerprint>[0-9a-f]{16})[.]json$"
 )
 
 
@@ -64,6 +70,26 @@ def _attempt_root_relative(publication_root: Path, root: Path) -> str:
     if len(parts) != 2 or parts[0] != "attempts" or not _safe_run_segment(parts[1]):
         raise ValueError("attempt root must be attempts/<runId>")
     return relative
+
+
+def _request_fingerprint(
+    publication_root: Path, operation: str, root: Path, request: Any
+) -> str:
+    """Hash one sanitized semantic request without persisting its contents."""
+
+    if operation not in _TRANSACTION_OPERATIONS:
+        raise ValueError("transaction request operation is invalid")
+    payload = {
+        "schemaVersion": 1,
+        "operation": operation,
+        "attemptRoot": _attempt_root_relative(publication_root, root),
+        "request": request,
+    }
+    try:
+        content = _json_bytes(payload)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("transaction request is not canonical JSON") from exc
+    return "sha256:" + hashlib.sha256(content).hexdigest()
 
 
 def _contained_transaction_path(
@@ -143,6 +169,12 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
     operation = journal.get("operation")
     if operation not in _TRANSACTION_OPERATIONS:
         raise ValueError("transaction journal operation is invalid")
+    request_fingerprint = journal.get("requestFingerprint")
+    if (
+        not isinstance(request_fingerprint, str)
+        or _REQUEST_FINGERPRINT_RE.fullmatch(request_fingerprint) is None
+    ):
+        raise ValueError("transaction journal requestFingerprint is invalid")
     attempt_relative = journal.get("attemptRoot")
     attempt_path = _contained_transaction_path(
         publication_root, attempt_relative, "transaction attemptRoot"
@@ -217,6 +249,7 @@ def _validate_transaction_journal(publication_root: Path, journal: Any) -> dict:
         "journal": journal,
         "operation": operation,
         "attemptRoot": attempt_relative,
+        "requestFingerprint": request_fingerprint,
         "requiredDirectories": required_directories,
         "targets": decoded_targets,
     }
@@ -276,8 +309,24 @@ def _load_pending_transactions(
         publication_root,
         cleanup_orphan_temporaries=cleanup_orphan_temporaries,
     ):
-        journal = _read_json(journal_path)
+        journal_bytes = _evidence_read_bytes(journal_path)
+        try:
+            journal = json.loads(journal_bytes.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("transaction journal is invalid JSON") from exc
+        name_match = _TRANSACTION_JOURNAL_RE.fullmatch(journal_path.name)
+        if name_match is None:
+            raise ValueError("transaction journal filename is invalid")
+        journal_hash = hashlib.sha256(journal_bytes).hexdigest()[:16]
+        if name_match.group("fingerprint") != journal_hash:
+            raise ValueError("transaction journal filename hash is invalid")
         validated = _validate_transaction_journal(publication_root, journal)
+        run_id = validated["attemptRoot"].split("/")[-1]
+        if (
+            name_match.group("operation") != validated["operation"]
+            or name_match.group("runId") != run_id
+        ):
+            raise ValueError("transaction journal filename identity is invalid")
         operation_key = (validated["operation"], validated["attemptRoot"])
         if operation_key in seen_operations:
             raise ValueError("duplicate pending transaction operation")
@@ -453,12 +502,15 @@ def _make_transaction(
     root: Path,
     required_directories: list[str],
     targets: list[tuple[str, bytes]],
+    *,
+    request_fingerprint: str,
 ) -> dict:
     attempt_relative = _attempt_root_relative(publication_root, root)
     journal = {
         "schemaVersion": 1,
         "operation": operation,
         "attemptRoot": attempt_relative,
+        "requestFingerprint": request_fingerprint,
         "requiredDirectories": sorted(
             set(required_directories), key=lambda item: (item.count("/"), item)
         ),
@@ -490,7 +542,11 @@ def _commit_transaction_unlocked(publication_root: Path, transaction: dict) -> N
 
 
 def _recovered_result(
-    recovered: list[dict], operation: str, attempt_relative: str
+    publication_root: Path,
+    recovered: list[dict],
+    operation: str,
+    attempt_relative: str,
+    request_fingerprint: str,
 ) -> dict | None:
     matching = [
         transaction
@@ -502,6 +558,10 @@ def _recovered_result(
         return None
     if len(matching) != 1:
         raise ValueError("multiple recovered results match one operation")
+    if matching[0]["requestFingerprint"] != request_fingerprint:
+        raise ValueError(
+            "recovered transaction request fingerprint does not match retry"
+        )
     if operation == "register":
         result_path = "attempt-index.json"
     else:
@@ -521,6 +581,19 @@ def _recovered_result(
     )
     if target is None:
         raise ValueError("recovered transaction has no result target")
+    current_path = _contained_transaction_path(
+        publication_root,
+        target["path"],
+        "recovered transaction result target",
+    )
+    if (
+        not _evidence_is_file(current_path)
+        or _evidence_is_symlink(current_path)
+        or "sha256:"
+        + hashlib.sha256(_evidence_read_bytes(current_path)).hexdigest()
+        != target["sha256"]
+    ):
+        raise ValueError("recovered transaction result target changed")
     try:
         result = json.loads(target["content"].decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError) as exc:
@@ -553,12 +626,15 @@ __all__ = (
     "_TRANSACTION_OPERATIONS",
     "_TRANSACTION_KEYS",
     "_TRANSACTION_TARGET_KEYS",
+    "_REQUEST_FINGERPRINT_RE",
     "_ATOMIC_TEMP_TOKEN_PATTERN",
     "_ATOMIC_WRITE_TEMP_RE",
     "_TRANSACTION_TEMP_RE",
+    "_TRANSACTION_JOURNAL_RE",
     "_transaction_checkpoint",
     "_publication_root_for_attempt",
     "_attempt_root_relative",
+    "_request_fingerprint",
     "_contained_transaction_path",
     "_transaction_directory",
     "_validate_transaction_target_content",

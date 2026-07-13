@@ -159,6 +159,72 @@ else:
         process.wait(timeout=5)
         return Path(temporary_name)
 
+    def crash_transaction_process(
+        self,
+        action,
+        index_path,
+        root,
+        context,
+        stage,
+        position,
+        *,
+        finalize_request=None,
+    ):
+        code = """
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_evidence_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+stage = sys.argv[6]
+position = int(sys.argv[7])
+def die_at_boundary(actual_stage, actual_position):
+    if actual_stage == stage and actual_position == position:
+        os._exit(73)
+
+module.journal._transaction_checkpoint = die_at_boundary
+action = sys.argv[2]
+index_path = Path(sys.argv[3])
+root = Path(sys.argv[4])
+context = json.loads(sys.argv[5])
+if action == "register":
+    module.register_attempt(index_path, root, context)
+elif action == "init":
+    module._initialize_attempt(index_path, root, context)
+else:
+    request = json.loads(sys.argv[8])
+    status = request.pop("status")
+    module._finalize_attempt(root, status, **request)
+"""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                code,
+                str(MODULE_PATH),
+                action,
+                str(index_path),
+                str(root),
+                json.dumps(context),
+                stage,
+                str(position),
+                json.dumps(finalize_request or {"status": "passed"}),
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 73, result.stdout + result.stderr)
+        journals = self.transaction_files(Path(index_path).parent)
+        self.assertEqual(len(journals), 1)
+        return journals[0]
+
     def transaction_files(self, publication_root=None):
         publication_root = self.publication_root if publication_root is None else publication_root
         transaction_root = publication_root / ".transactions"
@@ -235,6 +301,171 @@ else:
                 self.assertEqual(self.transaction_files(publication), [])
                 with self.assertRaisesRegex(ValueError, "already registered"):
                     run_evidence.register_attempt(index_path, root, context)
+
+    @unittest.skipUnless(
+        os.name == "posix",
+        "requires immediate POSIX process-death semantics",
+    )
+    def test_real_process_death_retries_are_bound_to_the_sanitized_request(self):
+        cases = {
+            "register": (("prepared", -1), ("target", 0)),
+            "init": (
+                ("prepared", -1),
+                ("target", 0),
+                ("target", 1),
+                ("target", 2),
+            ),
+            "finalize": (
+                ("prepared", -1),
+                ("target", 0),
+                ("target", 1),
+            ),
+        }
+        for retry_kind in ("identical", "mismatched"):
+            for action, fault_points in cases.items():
+                for case_number, (stage, position) in enumerate(fault_points, 1):
+                    with self.subTest(
+                        retry=retry_kind,
+                        action=action,
+                        stage=stage,
+                        position=position,
+                    ):
+                        publication, index_path = self.new_publication()
+                        run_id = (
+                            f"request-{retry_kind}-{action}-{case_number}"
+                        )
+                        context = valid_context(
+                            runId=run_id,
+                            executionId=run_id + "-execution",
+                            fixtureId="fixture-original",
+                        )
+                        root = publication / "attempts" / run_id
+                        if action == "register":
+                            root.mkdir(parents=True)
+                        elif action == "finalize":
+                            run_evidence._initialize_attempt(
+                                index_path, root, context
+                            )
+
+                        journal_path = self.crash_transaction_process(
+                            action,
+                            index_path,
+                            root,
+                            context,
+                            stage,
+                            position,
+                            finalize_request={
+                                "status": "passed",
+                                "command_status": 0,
+                            },
+                        )
+                        journal = self.read_json(journal_path)
+                        self.assertIn("requestFingerprint", journal)
+                        self.assertRegex(
+                            journal["requestFingerprint"],
+                            r"^sha256:[0-9a-f]{64}$",
+                        )
+
+                        if retry_kind == "identical":
+                            if action == "register":
+                                result = run_evidence.register_attempt(
+                                    index_path, root, context
+                                )
+                                self.assertEqual(
+                                    result, self.read_json(index_path)
+                                )
+                            elif action == "init":
+                                result = run_evidence._initialize_attempt(
+                                    index_path, root, context
+                                )
+                                self.assertEqual(result["runId"], run_id)
+                            else:
+                                result = run_evidence._finalize_attempt(
+                                    root, "passed", command_status=0
+                                )
+                                self.assertEqual(result["status"], "passed")
+                        else:
+                            if action == "register":
+                                mismatched_context = dict(context)
+                                mismatched_context["fixtureId"] = "fixture-other"
+                                retry = lambda: run_evidence.register_attempt(
+                                    index_path, root, mismatched_context
+                                )
+                            elif action == "init":
+                                mismatched_context = dict(context)
+                                mismatched_context["executionId"] += "-other"
+                                retry = lambda: run_evidence._initialize_attempt(
+                                    index_path, root, mismatched_context
+                                )
+                            else:
+                                retry = lambda: run_evidence._finalize_attempt(
+                                    root,
+                                    "failed",
+                                    error_code="runner.unclassified",
+                                    command_status=0,
+                                )
+                            with self.assertRaisesRegex(
+                                ValueError, "request fingerprint"
+                            ):
+                                retry()
+
+                        self.assertEqual(
+                            self.transaction_files(publication), []
+                        )
+
+    def test_request_fingerprint_and_journal_filename_hash_fail_closed(self):
+        publication, index_path = self.new_publication()
+        root, context, journal_path = self.prepare_crashed_init(
+            publication, index_path, "request-fingerprint-tamper"
+        )
+        journal = self.read_json(journal_path)
+        self.assertIn("requestFingerprint", journal)
+        malformed = dict(journal)
+        malformed["requestFingerprint"] = "sha256:not-a-digest"
+        with self.assertRaisesRegex(ValueError, "requestFingerprint"):
+            run_evidence._validate_transaction_journal(publication, malformed)
+
+        journal["requestFingerprint"] = "sha256:" + "0" * 64
+        journal_path.write_bytes(run_evidence._json_bytes(journal))
+        with self.assertRaisesRegex(ValueError, "journal filename hash"):
+            run_evidence._initialize_attempt(index_path, root, context)
+        self.assertTrue(journal_path.is_file())
+
+    def test_request_fingerprint_persists_no_secret_or_absolute_request_material(self):
+        publication, index_path = self.new_publication()
+        root = publication / "attempts" / "sanitized-fingerprint"
+        secret = "request-fingerprint-secret"
+        context = valid_context(
+            runId=root.name,
+            executionId="sanitized-fingerprint-execution",
+            fixtureId=secret,
+            device={
+                "requested": str(publication / "private-device"),
+                "resolved": "simulator-udid",
+            },
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "API_TOKEN": secret,
+                "GITHUB_WORKSPACE": str(publication),
+            },
+        ):
+            with self.checkpoint_failure("prepared", -1):
+                with self.assertRaises(OSError):
+                    run_evidence._initialize_attempt(index_path, root, context)
+            journal_path = self.transaction_files(publication)[0]
+            journal_text = journal_path.read_text(encoding="utf-8")
+            self.assertNotIn(secret, journal_text)
+            self.assertNotIn(str(publication), journal_text)
+            self.assertNotIn('"request":', journal_text)
+            recovered = run_evidence._initialize_attempt(
+                index_path, root, context
+            )
+        self.assertEqual(recovered["fixtureId"], "<redacted>")
+        self.assertEqual(
+            recovered["device"]["requested"], "${WORKSPACE}/private-device"
+        )
 
     def test_init_rolls_forward_after_prepare_and_every_target_position(self):
         fault_points = [("prepared", -1), *(('target', index) for index in range(3))]
@@ -476,6 +707,31 @@ else:
         summary = run_evidence._finalize_attempt(root, "passed")
         self.assertEqual(len(self.terminal_events(root, summary)), 1)
         self.assertEqual(self.transaction_files(), [])
+
+    def test_plumbed_recovery_result_rejects_a_changed_committed_target(self):
+        root = self.attempt_root("plumbed-result-changed")
+        context = valid_context(
+            runId=root.name,
+            executionId="plumbed-result-changed-execution",
+        )
+        run_evidence._initialize_attempt(self.index_path, root, context)
+        with self.checkpoint_failure("prepared", -1):
+            with self.assertRaises(OSError):
+                run_evidence._finalize_attempt(root, "passed")
+
+        recovered = run_evidence._recover_pending_transactions(
+            self.publication_root
+        )
+        summary_path = root / "run-summary.json"
+        summary_path.write_text('{"tampered":true}\n', encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "recovered transaction result target changed"
+        ):
+            run_evidence._finalize_attempt(
+                root,
+                "passed",
+                _recovered_transactions=recovered,
+            )
 
     def new_publication(self):
         temporary = tempfile.TemporaryDirectory()

@@ -35,6 +35,56 @@ import {
 } from "../npm/scaffold.mjs";
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
+const evidenceFixtureRoot = path.join(root, "fixtures", "evidence", "v1");
+
+function requiredConformanceFixturePaths() {
+  const evidenceCases = JSON.parse(
+    fs.readFileSync(path.join(evidenceFixtureRoot, "cases.json"), "utf8"),
+  );
+  const requiredPaths = new Set();
+  for (const evidenceCase of evidenceCases) {
+    if (!["manifest", "package"].includes(evidenceCase.kind)) continue;
+    requiredPaths.add(path.posix.join("fixtures/evidence/v1", evidenceCase.input));
+    if (evidenceCase.kind !== "package") continue;
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(evidenceFixtureRoot, ...evidenceCase.input.split("/")), "utf8"),
+    );
+    const packageFixtureDirectory = path.posix.dirname(evidenceCase.input);
+    for (const item of manifest.items) {
+      for (const artifact of item.artifacts) {
+        requiredPaths.add(path.posix.join(
+          "fixtures/evidence/v1",
+          packageFixtureDirectory,
+          artifact.path,
+        ));
+      }
+    }
+  }
+  return [...requiredPaths].sort();
+}
+
+function assertConformanceFixturesPublished(publishedPaths) {
+  const published = new Set(publishedPaths);
+  for (const requiredPath of requiredConformanceFixturePaths()) {
+    assert.ok(
+      published.has(requiredPath),
+      `missing conformance fixture from package: ${requiredPath}`,
+    );
+  }
+}
+
+test("conformance package publication requires referenced artifact bytes", () => {
+  const requiredPaths = requiredConformanceFixturePaths();
+  const mismatchArtifact = "fixtures/evidence/v1/invalid/artifact-digest-mismatch/artifacts/actual.txt";
+  assert.ok(requiredPaths.includes(mismatchArtifact));
+  assert.throws(
+    () => assertConformanceFixturesPublished(
+      requiredPaths.filter((publishedPath) => publishedPath !== mismatchArtifact),
+    ),
+    /missing conformance fixture from package: .*artifact-digest-mismatch\/artifacts\/actual\.txt/,
+  );
+});
 
 test("package test script builds zmr before client examples need the binary", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -500,16 +550,7 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   assert.ok(paths.includes("schemas/evidence-v1.schema.json"));
   assert.ok(paths.includes("fixtures/evidence/v1/README.md"));
   assert.ok(paths.includes("fixtures/evidence/v1/cases.json"));
-  const evidenceCases = JSON.parse(
-    fs.readFileSync(path.join(root, "fixtures", "evidence", "v1", "cases.json"), "utf8"),
-  );
-  for (const evidenceCase of evidenceCases) {
-    if (!["manifest", "package"].includes(evidenceCase.kind)) continue;
-    assert.ok(
-      paths.includes(`fixtures/evidence/v1/${evidenceCase.input}`),
-      `missing conformance manifest from package: ${evidenceCase.input}`,
-    );
-  }
+  assertConformanceFixturesPublished(paths);
   assert.ok(paths.includes("examples/playwright-zeno-reporter.config.ts"));
   assert.ok(paths.includes("examples/playwright-zeno-journey.spec.ts"));
   assert.ok(paths.includes("docs/evidence-contract.md"));

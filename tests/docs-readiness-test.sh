@@ -429,6 +429,12 @@ require_grep 'non-qualifying context' docs/evidence-contract.md
 require_grep 'public recipe is registered' docs/evidence-contract.md
 require_grep '`unattested`' docs/evidence-contract.md
 require_grep 'self-reported' docs/evidence-contract.md
+require_grep 'Both shipped adapters always emit `attestationState: "unattested"`' docs/evidence-contract.md
+require_grep 'The v1 schema and runtime accept `ci_attested` and `signature_verified`' docs/evidence-contract.md
+require_grep 'only as future-compatible producer states' docs/evidence-contract.md
+require_grep 'Local schema, semantic, and package validation' docs/evidence-contract.md
+require_grep 'neither establishes nor verifies either stronger claim' docs/evidence-contract.md
+require_grep 'external authenticated ingestion envelope or verifier' docs/evidence-contract.md
 require_grep 'Project identity' docs/evidence-contract.md
 require_grep 'unauthenticated claim' docs/evidence-contract.md
 require_grep '`zmr-evidence from-zmr`' docs/evidence-contract.md

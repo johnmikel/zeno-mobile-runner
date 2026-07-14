@@ -20,9 +20,11 @@ deterministic. They do not authenticate the submitter, independently prove
 that a test ran, prove that the producer told the truth, or show that a release
 is complete, secure, compliant, or bug-free.
 
-Local v1 packages are deliberately self-reported. Their producer
-`attestationState` is `unattested`: no supported CI identity or producer
-signature has independently authenticated the execution claim. A producer's
+Local v1 packages are deliberately self-reported.
+Both shipped adapters always emit `attestationState: "unattested"`: the ZMR
+adapter and the Playwright reporter do not claim a stronger trust state. No
+supported CI identity or producer signature has independently authenticated
+their execution claim. The resulting state is `unattested`. A producer's
 `provenanceClass` describes the normalization path:
 
 - `zeno_runner` means the package came through the ZMR adapter;
@@ -31,6 +33,14 @@ signature has independently authenticated the execution claim. A producer's
 - `imported` means a generic source with weaker, non-qualifying semantics.
 
 These labels are provenance, not authentication or an outcome.
+
+The v1 schema and runtime accept `ci_attested` and `signature_verified`
+only as future-compatible producer states. Acceptance means only that the
+declared value and surrounding manifest are structurally and semantically valid.
+Local schema, semantic, and package validation
+neither establishes nor verifies either stronger claim. Each requires an
+external authenticated ingestion envelope or verifier that authenticates the
+CI workload or producer signature and binds it to the manifest digest.
 
 ## Package layout
 

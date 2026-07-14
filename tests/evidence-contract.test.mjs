@@ -1,12 +1,60 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+
+import {
+  assertSafeRelativePath,
+  canonicalBytes,
+  canonicalize,
+  EvidenceValidationError,
+  isSha256Digest,
+  sha256Bytes,
+  sha256File,
+} from "../npm/evidence/canonical-json.mjs";
+import {
+  buildMobileFingerprintInput,
+  buildWebFingerprintInput,
+  createMobileFingerprint,
+  createWebFingerprint,
+  isRegisteredTarget,
+  recomputeTargetFingerprint,
+} from "../npm/evidence/fingerprints.mjs";
 
 const schemaUrl = new URL("../schemas/evidence-v1.schema.json", import.meta.url);
 const schema = JSON.parse(await readFile(schemaUrl, "utf8"));
 
 const identityRef = "#/$defs/identity";
 const digestRef = "#/$defs/digest";
+
+const mobileFingerprintInput = {
+  appId: "com.example.app",
+  artifactDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  buildNumber: "42",
+  recipe: "mobile-v1",
+  surface: "android",
+  version: "1.2.3",
+};
+
+const webFingerprintInput = {
+  buildManifestDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  commitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  configDigest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  deploymentId: "dpl_123",
+  environment: "staging",
+  recipe: "web-v1",
+  surface: "web",
+};
+
+function assertValidationFieldError(action, field) {
+  assert.throws(action, (error) => {
+    assert.ok(error instanceof EvidenceValidationError);
+    assert.equal(error.field, field);
+    assert.match(error.message, new RegExp(field));
+    return true;
+  });
+}
 
 test("Evidence Contract v1 exposes strict identity and trust fields", () => {
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
@@ -241,4 +289,328 @@ test("all Evidence Contract objects are closed except extensions", () => {
     assert.equal(schema.$defs[name].additionalProperties, false, `${name} must be closed`);
   }
   assert.equal(schema.$defs.extensions.additionalProperties, true);
+});
+
+test("canonical JSON sorts object keys recursively using UTF-16 order", () => {
+  assert.equal(
+    canonicalize({ z: 1, a: { d: 4, b: 2 } }),
+    '{"a":{"b":2,"d":4},"z":1}',
+  );
+  assert.equal(
+    canonicalize({ "\ufffd": 1, "\ud83d\ude00": 2 }),
+    '{"😀":2,"�":1}',
+  );
+});
+
+test("canonical JSON emits stable UTF-8 bytes and preserves array order", () => {
+  const expected = '{"message":"café 😀","values":[3,1,2]}';
+  const bytes = canonicalBytes({ values: [3, 1, 2], message: "café 😀" });
+
+  assert.ok(Buffer.isBuffer(bytes));
+  assert.deepEqual(bytes, Buffer.from(expected, "utf8"));
+  assert.equal(bytes.toString("utf8"), expected);
+});
+
+test("canonical JSON serializes negative zero as zero", () => {
+  assert.equal(canonicalize(-0), "0");
+  assert.equal(canonicalize({ value: -0 }), '{"value":0}');
+});
+
+test("canonical JSON rejects unsupported and ambiguous values", () => {
+  class CustomValue {}
+
+  const cyclic = {};
+  cyclic.self = cyclic;
+
+  const cases = [
+    ["NaN", NaN],
+    ["positive infinity", Infinity],
+    ["negative infinity", -Infinity],
+    ["BigInt", 1n],
+    ["root undefined", undefined],
+    ["nested undefined", { value: undefined }],
+    ["array undefined", [undefined]],
+    ["function", () => {}],
+    ["symbol", Symbol("value")],
+    ["nested symbol", { value: Symbol("value") }],
+    ["cyclic object", cyclic],
+    ["Date", new Date(0)],
+    ["Map", new Map()],
+    ["custom instance", new CustomValue()],
+    ["high lone surrogate", "\ud800"],
+    ["low lone surrogate", "\udc00"],
+    ["lone surrogate key", { "\ud800": "value" }],
+  ];
+
+  for (const [label, value] of cases) {
+    assert.throws(
+      () => canonicalize(value),
+      EvidenceValidationError,
+      `${label} should be rejected`,
+    );
+  }
+});
+
+test("canonical JSON permits repeated references that are not cycles", () => {
+  const shared = { z: 2, a: 1 };
+  assert.equal(
+    canonicalize({ right: shared, left: shared }),
+    '{"left":{"a":1,"z":2},"right":{"a":1,"z":2}}',
+  );
+});
+
+test("SHA-256 helpers return lowercase prefixed byte and streaming file digests", async () => {
+  const expected = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  assert.equal(sha256Bytes(Buffer.from("abc")), expected);
+
+  const directory = await mkdtemp(join(tmpdir(), "zmr-evidence-digest-"));
+  const path = join(directory, "input.bin");
+  try {
+    await writeFile(path, Buffer.from("abc"));
+    assert.equal(await sha256File(path), expected);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("SHA-256 digest recognition accepts only lowercase prefixed values", () => {
+  const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  assert.equal(isSha256Digest(digest), true);
+  for (const invalid of [
+    digest.toUpperCase(),
+    "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "sha256:abc",
+    `sha256:${"a".repeat(65)}`,
+    " aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    null,
+  ]) {
+    assert.equal(isSha256Digest(invalid), false);
+  }
+});
+
+test("safe relative paths preserve valid input and reject unsafe raw paths", () => {
+  assert.equal(assertSafeRelativePath("artifacts/final.png"), "artifacts/final.png");
+
+  for (const invalid of [
+    "",
+    "/absolute",
+    "C:/windows",
+    "C:\\windows",
+    "C:drive-relative",
+    "\\\\server\\share",
+    "artifacts\\final.png",
+    ".",
+    "..",
+    "./file",
+    "a/./b",
+    "a/../b",
+    "a//b",
+    "a/",
+    "artifacts/evil\u0000.png",
+    "artifacts/tab\tname.png",
+    "artifacts/line\nbreak.png",
+    "artifacts/del\u007f.png",
+  ]) {
+    assert.throws(
+      () => assertSafeRelativePath(invalid),
+      EvidenceValidationError,
+      `${JSON.stringify(invalid)} should be rejected`,
+    );
+  }
+
+  assertValidationFieldError(
+    () => assertSafeRelativePath("../secret", "artifact.path"),
+    "artifact.path",
+  );
+});
+
+test("fingerprint builders return fresh closed recipe objects", () => {
+  const mobileSource = { ...mobileFingerprintInput, ignored: "value" };
+  const webSource = { ...webFingerprintInput, ignored: "value" };
+
+  const mobile = buildMobileFingerprintInput(mobileSource);
+  const web = buildWebFingerprintInput(webSource);
+
+  assert.deepEqual(mobile, mobileFingerprintInput);
+  assert.deepEqual(web, webFingerprintInput);
+  assert.notEqual(mobile, mobileSource);
+  assert.notEqual(web, webSource);
+  assert.deepEqual(Object.keys(mobile), Object.keys(mobileFingerprintInput));
+  assert.deepEqual(Object.keys(web), Object.keys(webFingerprintInput));
+  assert.equal(createMobileFingerprint(mobileSource), createMobileFingerprint(mobileFingerprintInput));
+  assert.equal(createWebFingerprint(webSource), createWebFingerprint(webFingerprintInput));
+});
+
+test("fingerprint builders reject each missing required field with field context", () => {
+  for (const field of Object.keys(mobileFingerprintInput)) {
+    const input = { ...mobileFingerprintInput };
+    delete input[field];
+    assertValidationFieldError(() => buildMobileFingerprintInput(input), field);
+  }
+
+  for (const field of Object.keys(webFingerprintInput)) {
+    const input = { ...webFingerprintInput };
+    delete input[field];
+    assertValidationFieldError(() => buildWebFingerprintInput(input), field);
+  }
+});
+
+test("fingerprint builders reject blank strings without rewriting nonblank values", () => {
+  assertValidationFieldError(
+    () => buildMobileFingerprintInput({ ...mobileFingerprintInput, appId: " \t\n " }),
+    "appId",
+  );
+  assertValidationFieldError(
+    () => buildWebFingerprintInput({ ...webFingerprintInput, environment: " \t\n " }),
+    "environment",
+  );
+
+  const mobile = buildMobileFingerprintInput({
+    ...mobileFingerprintInput,
+    appId: " com.example.app ",
+    buildNumber: " 42 ",
+    version: " 1.2.3 ",
+  });
+  assert.equal(mobile.appId, " com.example.app ");
+  assert.equal(mobile.buildNumber, " 42 ");
+  assert.equal(mobile.version, " 1.2.3 ");
+
+  const web = buildWebFingerprintInput({
+    ...webFingerprintInput,
+    commitSha: " bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ",
+    deploymentId: " dpl_123 ",
+    environment: " staging ",
+  });
+  assert.equal(web.commitSha, " bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ");
+  assert.equal(web.deploymentId, " dpl_123 ");
+  assert.equal(web.environment, " staging ");
+});
+
+test("fingerprint builders require exact recipes, surfaces, and lowercase digests", () => {
+  assertValidationFieldError(
+    () => buildMobileFingerprintInput({ ...mobileFingerprintInput, recipe: "web-v1" }),
+    "recipe",
+  );
+  assertValidationFieldError(
+    () => buildMobileFingerprintInput({ ...mobileFingerprintInput, surface: "web" }),
+    "surface",
+  );
+  assertValidationFieldError(
+    () => buildWebFingerprintInput({ ...webFingerprintInput, recipe: "mobile-v1" }),
+    "recipe",
+  );
+  assertValidationFieldError(
+    () => buildWebFingerprintInput({ ...webFingerprintInput, surface: "Web" }),
+    "surface",
+  );
+
+  assertValidationFieldError(
+    () => buildMobileFingerprintInput({
+      ...mobileFingerprintInput,
+      artifactDigest: "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    }),
+    "artifactDigest",
+  );
+  for (const field of ["buildManifestDigest", "configDigest"]) {
+    assertValidationFieldError(
+      () => buildWebFingerprintInput({
+        ...webFingerprintInput,
+        [field]: "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      }),
+      field,
+    );
+  }
+});
+
+test("mobile-v1 and web-v1 fingerprints match the public known vectors", () => {
+  assert.equal(
+    createMobileFingerprint(mobileFingerprintInput),
+    "sha256:db1eb8afc3eb86f49a47b387e9ba2ee3c14891d2b6a3ee70db83f83612af37b5",
+  );
+  assert.equal(
+    createWebFingerprint(webFingerprintInput),
+    "sha256:eb73d4d6a2e408508a2a2839f8cce980434ac6fa935a024bc2f322420dbdd98f",
+  );
+});
+
+test("mobile-v1 accepts iOS and every required field affects its fingerprint", () => {
+  const iosInput = { ...mobileFingerprintInput, surface: "ios" };
+  assert.match(createMobileFingerprint(iosInput), /^sha256:[a-f0-9]{64}$/);
+
+  const baseline = createMobileFingerprint(mobileFingerprintInput);
+  for (const field of ["appId", "artifactDigest", "buildNumber", "surface", "version"]) {
+    const changed = {
+      ...mobileFingerprintInput,
+      [field]: field === "artifactDigest"
+        ? `sha256:${"b".repeat(64)}`
+        : field === "surface" ? "ios" : `${mobileFingerprintInput[field]}-changed`,
+    };
+    assert.notEqual(createMobileFingerprint(changed), baseline, `${field} should affect the fingerprint`);
+  }
+});
+
+test("web-v1 changes when any required identity input changes", () => {
+  const baseline = createWebFingerprint(webFingerprintInput);
+  for (const field of [
+    "buildManifestDigest", "commitSha", "configDigest",
+    "deploymentId", "environment",
+  ]) {
+    const changed = {
+      ...webFingerprintInput,
+      [field]: field.endsWith("Digest")
+        ? `sha256:${(field === "buildManifestDigest" ? "e" : "f").repeat(64)}`
+        : `${webFingerprintInput[field]}-changed`,
+    };
+    assert.notEqual(createWebFingerprint(changed), baseline, `${field} should affect the fingerprint`);
+  }
+});
+
+test("registered targets require exact surface and fingerprint recipe pairs", () => {
+  for (const target of [
+    { surface: "ios", fingerprintRecipe: "mobile-v1" },
+    { surface: "android", fingerprintRecipe: "mobile-v1" },
+    { surface: "web", fingerprintRecipe: "web-v1" },
+  ]) {
+    assert.equal(isRegisteredTarget(target), true);
+  }
+
+  for (const target of [
+    { surface: "watch", fingerprintRecipe: "watch-v1" },
+    { surface: "web", fingerprintRecipe: "mobile-v1" },
+    { surface: "ios", fingerprintRecipe: "web-v1" },
+    { surface: "ios", fingerprintRecipe: "mobile-v1 " },
+    { surface: "ios", recipe: "mobile-v1" },
+    null,
+  ]) {
+    assert.equal(isRegisteredTarget(target), false);
+  }
+});
+
+test("target fingerprint recomputation dispatches only registered recipes", () => {
+  assert.equal(
+    recomputeTargetFingerprint({
+      ...mobileFingerprintInput,
+      fingerprintRecipe: mobileFingerprintInput.recipe,
+    }),
+    createMobileFingerprint(mobileFingerprintInput),
+  );
+  assert.equal(
+    recomputeTargetFingerprint({
+      ...webFingerprintInput,
+      fingerprintRecipe: webFingerprintInput.recipe,
+    }),
+    createWebFingerprint(webFingerprintInput),
+  );
+
+  for (const target of [
+    { surface: "watch", fingerprintRecipe: "watch-v1" },
+    { surface: "web", fingerprintRecipe: "mobile-v1" },
+    { surface: "ios", fingerprintRecipe: "web-v1" },
+    { surface: "android", fingerprintRecipe: "future-v2" },
+  ]) {
+    assert.throws(
+      () => recomputeTargetFingerprint(target),
+      EvidenceValidationError,
+    );
+  }
 });

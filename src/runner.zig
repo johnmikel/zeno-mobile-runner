@@ -765,7 +765,7 @@ test "assertHealthy bounds each native selector probe independently" {
     var tw = try trace.TraceWriter.init(allocator, dir);
     defer tw.deinit();
 
-    try std.testing.expect(try assertHealthy(&device, 1, &tw, .{ .settle_ms = 0, .poll_ms = 0, .action_timeout_ms = 1 }));
+    try std.testing.expect(try assertHealthy(&device, 250, &tw, .{ .settle_ms = 0, .poll_ms = 0, .action_timeout_ms = 1 }));
     try std.testing.expect(device.bounded_queries > 1);
     try std.testing.expect(device.largest_query_timeout_ms <= 1);
     try std.testing.expectEqual(@as(usize, 0), device.snapshots);

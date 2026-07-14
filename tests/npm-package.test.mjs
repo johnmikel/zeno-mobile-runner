@@ -35,10 +35,67 @@ import {
 } from "../npm/scaffold.mjs";
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
+const evidenceFixtureRoot = path.join(root, "fixtures", "evidence", "v1");
+
+function requiredConformanceFixturePaths() {
+  const evidenceCases = JSON.parse(
+    fs.readFileSync(path.join(evidenceFixtureRoot, "cases.json"), "utf8"),
+  );
+  const requiredPaths = new Set();
+  for (const evidenceCase of evidenceCases) {
+    if (!["manifest", "package"].includes(evidenceCase.kind)) continue;
+    requiredPaths.add(path.posix.join("fixtures/evidence/v1", evidenceCase.input));
+    if (evidenceCase.kind !== "package") continue;
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(evidenceFixtureRoot, ...evidenceCase.input.split("/")), "utf8"),
+    );
+    const packageFixtureDirectory = path.posix.dirname(evidenceCase.input);
+    for (const item of manifest.items) {
+      for (const artifact of item.artifacts) {
+        requiredPaths.add(path.posix.join(
+          "fixtures/evidence/v1",
+          packageFixtureDirectory,
+          artifact.path,
+        ));
+      }
+    }
+  }
+  return [...requiredPaths].sort();
+}
+
+function assertConformanceFixturesPublished(publishedPaths) {
+  const published = new Set(publishedPaths);
+  for (const requiredPath of requiredConformanceFixturePaths()) {
+    assert.ok(
+      published.has(requiredPath),
+      `missing conformance fixture from package: ${requiredPath}`,
+    );
+  }
+}
+
+test("conformance package publication requires referenced artifact bytes", () => {
+  const requiredPaths = requiredConformanceFixturePaths();
+  const mismatchArtifact = "fixtures/evidence/v1/invalid/artifact-digest-mismatch/artifacts/actual.txt";
+  assert.ok(requiredPaths.includes(mismatchArtifact));
+  assert.throws(
+    () => assertConformanceFixturesPublished(
+      requiredPaths.filter((publishedPath) => publishedPath !== mismatchArtifact),
+    ),
+    /missing conformance fixture from package: .*artifact-digest-mismatch\/artifacts\/actual\.txt/,
+  );
+});
 
 test("package test script builds zmr before client examples need the binary", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.match(pkg.scripts.test, /^npm run build:zmr && /);
+  assert.equal(pkg.dependencies, undefined);
+  assert.equal(fs.existsSync(path.join(root, "package-lock.json")), false);
+  assert.equal(
+    pkg.scripts["test:evidence"],
+    "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs tests/evidence-playwright-reporter.test.mjs",
+  );
+  assert.match(pkg.scripts.test, /^npm run build:zmr && npm run test:evidence && node --test /);
 });
 
 test("scaffold helpers centralize generated app commands and scenarios", () => {
@@ -369,6 +426,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.match(pkg.homepage, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner#readme$/);
   assert.match(pkg.bugs.url, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner\/issues$/);
   assert.equal(pkg.bin.zmr, "npm/zmr.mjs");
+  assert.equal(pkg.bin["zmr-evidence"], "npm/evidence-cli.mjs");
   assert.equal(pkg.bin["zmr-benchmark"], "scripts/benchmark.sh");
   assert.equal(pkg.bin["zmr-benchmark-lab"], "scripts/benchmark-lab.py");
   assert.equal(pkg.bin["zmr-benchmark-command"], "scripts/benchmark-command.sh");
@@ -393,6 +451,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.ok(pkg.keywords.includes("ai-testing"));
   assert.equal(pkg.keywords.includes("zig"), false);
   assert.ok(pkg.files.includes("npm/"));
+  assert.ok(pkg.files.includes("fixtures/evidence/"));
   assert.ok(pkg.files.includes("clients/README.md"));
   assert.ok(pkg.files.includes("clients/typescript/"));
   assert.ok(pkg.files.includes("clients/python/zmr_client.py"));
@@ -412,6 +471,24 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.ok(pkg.files.includes("FEATURES.md"));
   assert.equal(pkg.scripts.prepublishOnly, "node npm/verify-publish.mjs");
   assert.equal(pkg.scripts["zmr:demo"], "node npm/zmr.mjs validate examples/demo-fake.json");
+  assert.deepEqual(pkg.exports, {
+    ".": "./npm/index.mjs",
+    "./playwright-reporter": {
+      types: "./npm/evidence/playwright-reporter.d.ts",
+      import: "./npm/evidence/playwright-reporter.mjs",
+      default: "./npm/evidence/playwright-reporter.mjs",
+    },
+    "./evidence": "./npm/evidence/contract.mjs",
+    "./schemas/*": "./schemas/*",
+    "./*": "./*",
+  });
+  assert.deepEqual(pkg.peerDependencies, { "@playwright/test": ">=1.42.0" });
+  assert.deepEqual(pkg.peerDependenciesMeta, { "@playwright/test": { optional: true } });
+  assert.equal(pkg.dependencies, undefined);
+  assert.equal(fs.existsSync(path.join(root, "package-lock.json")), false);
+  assert.equal(fs.existsSync(path.join(root, "npm", "evidence", "playwright-reporter.d.ts")), true);
+  assert.equal(fs.existsSync(path.join(root, "examples", "playwright-zeno-reporter.config.ts")), true);
+  assert.equal(fs.existsSync(path.join(root, "examples", "playwright-zeno-journey.spec.ts")), true);
 });
 
 test("npm package excludes internal tests caches traces and build outputs", () => {
@@ -466,6 +543,17 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   }
 
   assert.ok(paths.includes("src/main.zig"));
+  assert.ok(paths.includes("npm/evidence-cli.mjs"));
+  assert.ok(paths.includes("npm/evidence/contract.mjs"));
+  assert.ok(paths.includes("npm/evidence/playwright-reporter.mjs"));
+  assert.ok(paths.includes("npm/evidence/playwright-reporter.d.ts"));
+  assert.ok(paths.includes("schemas/evidence-v1.schema.json"));
+  assert.ok(paths.includes("fixtures/evidence/v1/README.md"));
+  assert.ok(paths.includes("fixtures/evidence/v1/cases.json"));
+  assertConformanceFixturesPublished(paths);
+  assert.ok(paths.includes("examples/playwright-zeno-reporter.config.ts"));
+  assert.ok(paths.includes("examples/playwright-zeno-journey.spec.ts"));
+  assert.ok(paths.includes("docs/evidence-contract.md"));
   assert.ok(paths.includes("docs/frameworks.md"));
   assert.ok(paths.includes("docs/expo-smoke.md"));
   assert.ok(paths.includes("docs/production-readiness.md"));
@@ -474,6 +562,63 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   assert.ok(paths.includes("clients/go/zmr/client.go"));
   assert.ok(paths.includes("clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt"));
   assert.ok(paths.includes("clients/swift/Sources/ZMRClient/ZMRClient.swift"));
+});
+
+test("packed Playwright reporter package preserves root, subpath, and wildcard imports", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zmr-playwright-pack-import-"));
+  try {
+    const npmEnv = {
+      ...process.env,
+      npm_config_cache: path.join(tmp, ".npm-cache"),
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+    };
+    const pack = spawnSync("npm", ["pack", "--pack-destination", tmp], {
+      cwd: root,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(pack.status, 0, pack.stderr);
+    const tarball = fs.readdirSync(tmp).find((name) => name.endsWith(".tgz"));
+    assert.ok(tarball);
+    const appDir = path.join(tmp, "consumer");
+    fs.mkdirSync(appDir);
+    fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify({
+      name: "zmr-playwright-import-smoke",
+      private: true,
+      type: "module",
+    }));
+    const install = spawnSync("npm", [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      path.join(tmp, tarball),
+    ], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(install.status, 0, install.stderr);
+    const importSmoke = spawnSync(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      [
+        "await import('zeno-mobile-runner')",
+        "const reporter = await import('zeno-mobile-runner/playwright-reporter')",
+        "if (typeof reporter.default !== 'function') throw new Error('missing reporter')",
+        "await import('zeno-mobile-runner/evidence')",
+        "await import('zeno-mobile-runner/npm/evidence/canonical-json.mjs')",
+      ].join(";"),
+    ], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(importSmoke.status, 0, importSmoke.stderr);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("npm prebuild packer respects release version overrides", () => {

@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/evidence-v1.schema.json",
+  "title": "Zeno Evidence Contract v1",
+  "description": "Platform-neutral evidence package manifest produced by runners and adapters.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "project",
+    "submission",
+    "producer",
+    "release",
+    "target",
+    "run",
+    "items"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "project": { "$ref": "#/$defs/project" },
+    "submission": { "$ref": "#/$defs/submission" },
+    "producer": { "$ref": "#/$defs/producer" },
+    "release": { "$ref": "#/$defs/release" },
+    "target": {
+      "oneOf": [
+        { "$ref": "#/$defs/mobileTarget" },
+        { "$ref": "#/$defs/webTarget" },
+        { "$ref": "#/$defs/unregisteredTarget" }
+      ]
+    },
+    "run": { "$ref": "#/$defs/run" },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/item" }
+    },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "partial",
+        "skipped",
+        "timed_out",
+        "interrupted",
+        "unknown"
+      ]
+    },
+    "failureClassification": {
+      "type": ["string", "null"],
+      "enum": [
+        "assertion",
+        "timeout",
+        "interrupted",
+        "infrastructure",
+        "application",
+        "unknown",
+        null
+      ]
+    },
+    "completenessState": {
+      "type": "string",
+      "enum": ["complete", "partial", "incomplete"]
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(?:[.-][a-z0-9-]+)+$"
+      },
+      "additionalProperties": true
+    },
+    "artifactPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![\\s\\S]*\\\\)(?!(?:\\.{1,2})(?:/|$))[^/\\u0000-\\u001F\\u007F]+(?:/(?!(?:\\.{1,2})(?:/|$))[^/\\u0000-\\u001F\\u007F]+)*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "project": {
+      "type": "object",
+      "required": ["externalId"],
+      "properties": {
+        "externalId": { "$ref": "#/$defs/identity" }
+      },
+      "additionalProperties": false
+    },
+    "submission": {
+      "description": "Self-reported submission identity is unauthenticated and cannot authorize ingestion.",
+      "type": "object",
+      "required": ["actorType", "externalId", "claimState"],
+      "properties": {
+        "actorType": {
+          "type": "string",
+          "enum": ["user", "automation"]
+        },
+        "externalId": { "$ref": "#/$defs/identity" },
+        "claimState": { "const": "self_reported" }
+      },
+      "additionalProperties": false
+    },
+    "producer": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "adapterVersion",
+        "provenanceClass",
+        "attestationState"
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/identity" },
+        "version": { "$ref": "#/$defs/identity" },
+        "adapterVersion": { "$ref": "#/$defs/identity" },
+        "provenanceClass": {
+          "type": "string",
+          "enum": ["zeno_runner", "official_adapter", "imported"]
+        },
+        "attestationState": {
+          "type": "string",
+          "enum": ["unattested", "ci_attested", "signature_verified"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "release": {
+      "type": "object",
+      "required": ["externalId", "commitSha"],
+      "properties": {
+        "externalId": { "$ref": "#/$defs/identity" },
+        "commitSha": { "$ref": "#/$defs/gitSha" }
+      },
+      "additionalProperties": false
+    },
+    "mobileTarget": {
+      "type": "object",
+      "required": [
+        "surface",
+        "environment",
+        "fingerprintRecipe",
+        "targetFingerprint",
+        "fingerprintVerification",
+        "artifactDigest",
+        "appId",
+        "version",
+        "buildNumber"
+      ],
+      "properties": {
+        "surface": {
+          "type": "string",
+          "enum": ["ios", "android"]
+        },
+        "environment": { "$ref": "#/$defs/identity" },
+        "fingerprintRecipe": { "const": "mobile-v1" },
+        "targetFingerprint": { "$ref": "#/$defs/digest" },
+        "fingerprintVerification": { "const": "recomputed" },
+        "artifactDigest": { "$ref": "#/$defs/digest" },
+        "appId": { "$ref": "#/$defs/identity" },
+        "version": { "$ref": "#/$defs/identity" },
+        "buildNumber": { "$ref": "#/$defs/identity" }
+      },
+      "additionalProperties": false
+    },
+    "webTarget": {
+      "type": "object",
+      "required": [
+        "surface",
+        "environment",
+        "fingerprintRecipe",
+        "targetFingerprint",
+        "fingerprintVerification",
+        "deploymentId",
+        "commitSha",
+        "buildManifestDigest",
+        "configDigest"
+      ],
+      "properties": {
+        "surface": { "const": "web" },
+        "environment": { "$ref": "#/$defs/identity" },
+        "fingerprintRecipe": { "const": "web-v1" },
+        "targetFingerprint": { "$ref": "#/$defs/digest" },
+        "fingerprintVerification": { "const": "recomputed" },
+        "deploymentId": { "$ref": "#/$defs/identity" },
+        "commitSha": { "$ref": "#/$defs/gitSha" },
+        "buildManifestDigest": { "$ref": "#/$defs/digest" },
+        "configDigest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "unregisteredTarget": {
+      "description": "Structurally retained but explicitly non-qualifying target with no registered v1 fingerprint recipe.",
+      "type": "object",
+      "required": [
+        "surface",
+        "environment",
+        "fingerprintRecipe",
+        "targetFingerprint",
+        "fingerprintVerification"
+      ],
+      "properties": {
+        "surface": {
+          "$ref": "#/$defs/identity",
+          "not": { "enum": ["web", "ios", "android"] }
+        },
+        "environment": { "$ref": "#/$defs/identity" },
+        "fingerprintRecipe": {
+          "$ref": "#/$defs/identity",
+          "not": { "enum": ["web-v1", "mobile-v1"] }
+        },
+        "targetFingerprint": { "$ref": "#/$defs/digest" },
+        "fingerprintVerification": { "const": "unregistered_recipe" }
+      },
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "externalId",
+        "startedAt",
+        "endedAt",
+        "outcome",
+        "sourceManifestDigest",
+        "completenessState",
+        "redactionState"
+      ],
+      "properties": {
+        "externalId": { "$ref": "#/$defs/identity" },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "endedAt": { "$ref": "#/$defs/timestamp" },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "sourceManifestDigest": { "$ref": "#/$defs/digest" },
+        "completenessState": { "$ref": "#/$defs/completenessState" },
+        "redactionState": {
+          "type": "string",
+          "enum": ["unreviewed", "redacted", "reviewed", "mixed"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "externalId",
+        "journeyId",
+        "scenarioHash",
+        "outcome",
+        "attempt",
+        "startedAt",
+        "endedAt",
+        "durationMs",
+        "failureClassification",
+        "execution",
+        "artifacts"
+      ],
+      "properties": {
+        "externalId": { "$ref": "#/$defs/identity" },
+        "journeyId": {
+          "oneOf": [
+            { "$ref": "#/$defs/identity" },
+            { "type": "null" }
+          ]
+        },
+        "scenarioHash": { "$ref": "#/$defs/digest" },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "endedAt": { "$ref": "#/$defs/timestamp" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "failureClassification": {
+          "$ref": "#/$defs/failureClassification"
+        },
+        "execution": { "$ref": "#/$defs/execution" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/artifact" }
+        },
+        "error": { "$ref": "#/$defs/error" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false
+    },
+    "execution": {
+      "oneOf": [
+        { "$ref": "#/$defs/mobileExecution" },
+        { "$ref": "#/$defs/browserExecution" },
+        { "$ref": "#/$defs/unregisteredExecution" }
+      ]
+    },
+    "mobileExecution": {
+      "type": "object",
+      "required": ["kind", "deviceName", "osName", "osVersion"],
+      "properties": {
+        "kind": { "const": "mobile" },
+        "deviceName": { "$ref": "#/$defs/identity" },
+        "osName": { "$ref": "#/$defs/identity" },
+        "osVersion": { "$ref": "#/$defs/identity" }
+      },
+      "additionalProperties": false
+    },
+    "browserExecution": {
+      "type": "object",
+      "required": ["kind", "browserName", "browserVersion"],
+      "properties": {
+        "kind": { "const": "browser" },
+        "browserName": { "$ref": "#/$defs/identity" },
+        "browserVersion": { "$ref": "#/$defs/identity" }
+      },
+      "additionalProperties": false
+    },
+    "unregisteredExecution": {
+      "description": "Explicitly non-qualifying source execution that has not been normalized.",
+      "type": "object",
+      "required": ["kind", "extensions"],
+      "properties": {
+        "kind": { "const": "unregistered" },
+        "extensions": {
+          "$ref": "#/$defs/extensions",
+          "minProperties": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "type",
+        "path",
+        "digest",
+        "sizeBytes",
+        "contentType",
+        "redactionState",
+        "disclosureState"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": { "$ref": "#/$defs/artifactPath" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "contentType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "redactionState": {
+          "type": "string",
+          "enum": ["unreviewed", "reviewed", "redacted"]
+        },
+        "disclosureState": {
+          "type": "string",
+          "enum": ["private", "review_eligible", "disclosed", "withheld"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

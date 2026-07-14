@@ -6,6 +6,27 @@ on:
   pull_request:
 
 jobs:
+  evidence-node18:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18.20.8"
+      - name: Pin npm compatibility version
+        run: npm install --global npm@10.9.8
+      - name: Assert minimum toolchain
+        run: |
+          test "$(node --version)" = "v18.20.8"
+          test "$(npm --version)" = "10.9.8"
+      - name: Evidence unit and conformance tests
+        run: npm run test:evidence
+      - name: Packed CLI and Playwright 1.42 smoke
+        run: node tests/packed-evidence-smoke.mjs
+
   test:
     runs-on: macos-15
     timeout-minutes: 20

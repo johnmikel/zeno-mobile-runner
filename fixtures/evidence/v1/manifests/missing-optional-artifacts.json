@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0",
+  "project": { "externalId": "project-42" },
+  "submission": {
+    "actorType": "automation",
+    "externalId": "ci-release",
+    "claimState": "self_reported"
+  },
+  "producer": {
+    "name": "zeno-mobile-runner",
+    "version": "0.2.17",
+    "adapterVersion": "1.0.0",
+    "provenanceClass": "zeno_runner",
+    "attestationState": "ci_attested"
+  },
+  "release": {
+    "externalId": "release-42",
+    "commitSha": "1111111111111111111111111111111111111111"
+  },
+  "target": {
+    "surface": "android",
+    "environment": "staging",
+    "fingerprintRecipe": "mobile-v1",
+    "targetFingerprint": "sha256:98e73eba5513b74a8fd918b07b41a9d5d99852699b7bc61bbb37f935eb21f977",
+    "fingerprintVerification": "recomputed",
+    "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "appId": "dev.zmr.example",
+    "version": "1.2.3",
+    "buildNumber": "42"
+  },
+  "run": {
+    "externalId": "run-no-artifacts",
+    "startedAt": "2026-07-13T12:10:00.000Z",
+    "endedAt": "2026-07-13T12:10:02.000Z",
+    "outcome": "passed",
+    "sourceManifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "completenessState": "complete",
+    "redactionState": "reviewed"
+  },
+  "items": [
+    {
+      "externalId": "scenario-health",
+      "journeyId": "journey-health",
+      "scenarioHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "outcome": "passed",
+      "attempt": 0,
+      "startedAt": "2026-07-13T12:10:00.500Z",
+      "endedAt": "2026-07-13T12:10:01.500Z",
+      "durationMs": 1000,
+      "failureClassification": null,
+      "execution": {
+        "kind": "mobile",
+        "deviceName": "Pixel 9",
+        "osName": "Android",
+        "osVersion": "16"
+      },
+      "artifacts": []
+    }
+  ]
+}

@@ -9,7 +9,7 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `semantic-snapshot.schema.json`: agent-optimized semantic tree emitted by `observe.semanticSnapshot` and `zmr mcp` `semantic_snapshot`
 - `action-result.schema.json`: typed action result shape reserved for richer protocol responses
 - `trace-event.schema.json`: one JSONL event row from `events.jsonl`
-- `trace-manifest.schema.json`: `trace.json` summary for one traced run
+- `trace-manifest.schema.json`: ZMR-internal `trace.json` summary for one traced run
 - `json-rpc.schema.json`: JSON-RPC requests and responses used by `zmr serve`
 - `zmr-config.schema.json`: app-local `.zmr/config.json` defaults used by the CLI and npm wizard, including Android emulator lifecycle defaults
 - `doctor-output.schema.json`: machine-readable `zmr doctor --json` setup diagnostics, including remediation hints for actionable checks
@@ -27,6 +27,7 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `draft-output.schema.json`: machine-readable `zmr draft --json` trace-backed scenario draft output with replay coverage metadata
 - `release-manifest.schema.json`: machine-readable `RELEASE_MANIFEST.json` emitted with release archives
 - `release-readiness-output.schema.json`: machine-readable `zmr-release-readiness --json` release evidence gate output
+- `evidence-v1.schema.json`: cross-runner evidence package contract, distinct from the ZMR-internal trace manifest
 - `schemas-output.schema.json`: machine-readable `zmr schemas --json` index of public schema names, paths, ids, and descriptions
 
 The Zig test suite verifies these files parse as JSON. Full schema validation is

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runnerVersion": "0.2.17",
+  "protocolVersion": "2026-04-28",
+  "scenarioName": "redacted fixture",
+  "appId": "dev.zmr.fixture",
+  "status": "passed",
+  "startedAtMs": 1783938600000,
+  "endedAtMs": 1783938601000,
+  "durationMs": 1000,
+  "failedStepIndex": null,
+  "error": null,
+  "eventsPath": "events.jsonl",
+  "artifactsDir": "artifacts",
+  "eventCount": 2,
+  "snapshotCount": 1,
+  "partialFailureCount": 0,
+  "reportPath": null,
+  "redaction": {
+    "enabled": true,
+    "screenshots": "omitted",
+    "screenRecordings": "omitted",
+    "textArtifacts": "scrubbed",
+    "screenshotsOmitted": true,
+    "screenshotsRedacted": false,
+    "screenRecordingsOmitted": true
+  }
+}

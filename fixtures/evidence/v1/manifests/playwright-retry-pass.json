@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "project": { "externalId": "web-project-42" },
+  "submission": {
+    "actorType": "automation",
+    "externalId": "web-ci",
+    "claimState": "self_reported"
+  },
+  "producer": {
+    "name": "playwright",
+    "version": "1.55.0",
+    "adapterVersion": "1.0.0",
+    "provenanceClass": "official_adapter",
+    "attestationState": "unattested"
+  },
+  "release": {
+    "externalId": "release-web-42",
+    "commitSha": "1111111111111111111111111111111111111111"
+  },
+  "target": {
+    "surface": "web",
+    "environment": "production",
+    "fingerprintRecipe": "web-v1",
+    "targetFingerprint": "sha256:c42b617a19c71c731d8b5709ab4db537ba05464280475f9bf2f6ecbc5ffb65e8",
+    "fingerprintVerification": "recomputed",
+    "deploymentId": "deployment-42",
+    "commitSha": "1111111111111111111111111111111111111111",
+    "buildManifestDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "configDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "run": {
+    "externalId": "web-run-retry",
+    "startedAt": "2026-07-13T11:10:00.000Z",
+    "endedAt": "2026-07-13T11:10:03.000Z",
+    "outcome": "passed",
+    "sourceManifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "completenessState": "complete",
+    "redactionState": "unreviewed"
+  },
+  "items": [
+    {
+      "externalId": "playwright:checkout",
+      "journeyId": "journey-checkout",
+      "scenarioHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "outcome": "failed",
+      "attempt": 0,
+      "startedAt": "2026-07-13T11:10:00.250Z",
+      "endedAt": "2026-07-13T11:10:01.250Z",
+      "durationMs": 1000,
+      "failureClassification": "unknown",
+      "execution": {
+        "kind": "browser",
+        "browserName": "chromium",
+        "browserVersion": "126.0"
+      },
+      "artifacts": [],
+      "extensions": {
+        "dev.playwright.test": {
+          "expectedStatus": "passed",
+          "projectName": "chromium",
+          "aggregate": "flaky",
+          "titlePath": ["checkout", "checkout completes"]
+        }
+      }
+    },
+    {
+      "externalId": "playwright:checkout",
+      "journeyId": "journey-checkout",
+      "scenarioHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "outcome": "passed",
+      "attempt": 1,
+      "startedAt": "2026-07-13T11:10:01.500Z",
+      "endedAt": "2026-07-13T11:10:02.500Z",
+      "durationMs": 1000,
+      "failureClassification": null,
+      "execution": {
+        "kind": "browser",
+        "browserName": "chromium",
+        "browserVersion": "126.0"
+      },
+      "artifacts": [],
+      "extensions": {
+        "dev.playwright.test": {
+          "expectedStatus": "passed",
+          "projectName": "chromium",
+          "aggregate": "flaky",
+          "titlePath": ["checkout", "checkout completes"]
+        }
+      }
+    }
+  ]
+}

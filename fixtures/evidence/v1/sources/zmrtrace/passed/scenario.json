@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {
+      "action": "tap",
+      "selector": {
+        "text": "Continue"
+      }
+    }
+  ],
+  "name": "passed fixture"
+}

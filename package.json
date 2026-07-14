@@ -3,6 +3,17 @@
   "version": "0.2.17",
   "description": "Agent-native mobile app test runner for React Native, Expo, Flutter, and native Android/iOS.",
   "main": "npm/index.mjs",
+  "exports": {
+    ".": "./npm/index.mjs",
+    "./playwright-reporter": {
+      "types": "./npm/evidence/playwright-reporter.d.ts",
+      "import": "./npm/evidence/playwright-reporter.mjs",
+      "default": "./npm/evidence/playwright-reporter.mjs"
+    },
+    "./evidence": "./npm/evidence/contract.mjs",
+    "./schemas/*": "./schemas/*",
+    "./*": "./*"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/johnmikel/zeno-mobile-runner.git"
@@ -13,6 +24,7 @@
   "homepage": "https://github.com/johnmikel/zeno-mobile-runner#readme",
   "bin": {
     "zmr": "npm/zmr.mjs",
+    "zmr-evidence": "npm/evidence-cli.mjs",
     "zmr-init": "npm/init-app.mjs",
     "zmr-wizard": "npm/wizard.mjs",
     "zmr-benchmark": "scripts/benchmark.sh",
@@ -33,6 +45,7 @@
   },
   "files": [
     "npm/",
+    "fixtures/evidence/",
     "clients/README.md",
     "go.work",
     "clients/typescript/",
@@ -104,7 +117,8 @@
     "build:zmr": "node npm/build-zmr.mjs",
     "pack:npm": "bash scripts/build-npm-package.sh",
     "zmr:demo": "node npm/zmr.mjs validate examples/demo-fake.json",
-    "test": "npm run build:zmr && node --test tests/viewer-parser.test.mjs tests/npm-scaffold-helpers.test.mjs tests/npm-cli.test.mjs tests/npm-package.test.mjs tests/typescript-client.test.mjs && python3 -W error -m unittest tests/python_client_test.py && bash tests/go-client-test.sh && bash tests/rust-client-test.sh"
+    "test:evidence": "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs tests/evidence-playwright-reporter.test.mjs",
+    "test": "npm run build:zmr && npm run test:evidence && node --test tests/viewer-parser.test.mjs tests/npm-scaffold-helpers.test.mjs tests/npm-cli.test.mjs tests/npm-package.test.mjs tests/typescript-client.test.mjs && python3 -W error -m unittest tests/python_client_test.py && bash tests/go-client-test.sh && bash tests/rust-client-test.sh"
   },
   "keywords": [
     "mobile-testing",
@@ -123,5 +137,13 @@
   "license": "MIT",
   "engines": {
     "node": ">=18"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.42.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    }
   }
 }

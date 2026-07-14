@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0",
+  "project": { "externalId": "import-project-42" },
+  "submission": {
+    "actorType": "user",
+    "externalId": "reviewer-42",
+    "claimState": "self_reported"
+  },
+  "producer": {
+    "name": "future-desktop-runner",
+    "version": "2.0.0",
+    "adapterVersion": "1.0.0",
+    "provenanceClass": "imported",
+    "attestationState": "signature_verified"
+  },
+  "release": {
+    "externalId": "release-42",
+    "commitSha": "1111111111111111111111111111111111111111"
+  },
+  "target": {
+    "surface": "desktop",
+    "environment": "lab",
+    "fingerprintRecipe": "desktop-v2",
+    "targetFingerprint": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "fingerprintVerification": "unregistered_recipe"
+  },
+  "run": {
+    "externalId": "desktop-run-42",
+    "startedAt": "2026-07-13T12:00:00.000Z",
+    "endedAt": "2026-07-13T12:00:02.000Z",
+    "outcome": "passed",
+    "sourceManifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "completenessState": "complete",
+    "redactionState": "reviewed"
+  },
+  "items": [
+    {
+      "externalId": "desktop-login",
+      "journeyId": null,
+      "scenarioHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "outcome": "passed",
+      "attempt": 0,
+      "startedAt": "2026-07-13T12:00:00.500Z",
+      "endedAt": "2026-07-13T12:00:01.500Z",
+      "durationMs": 1000,
+      "failureClassification": null,
+      "execution": {
+        "kind": "unregistered",
+        "extensions": {
+          "dev.example.execution": { "runtime": "desktop" }
+        }
+      },
+      "artifacts": []
+    }
+  ]
+}

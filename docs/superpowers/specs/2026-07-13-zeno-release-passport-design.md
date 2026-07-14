@@ -1,7 +1,7 @@
 # Zeno Release Passport: Product and Technical Design
 
 **Date:** 2026-07-13  
-**Status:** Reviewed specification; awaiting final user sign-off  
+**Status:** Approved by the user on 2026-07-13<br>
 **Initial market:** UK digital product agencies shipping mobile and web products  
 **Initial surfaces:** Web, iOS, and Android
 
@@ -48,7 +48,7 @@ The initial customer is a UK or EU digital product agency with approximately 5â€
 - has no large dedicated QA platform team;
 - manually assembles screenshots, recordings, CI links, and written summaries;
 - experiences approval delays, evidence-preparation work, or release-scope disputes; and
-- increasingly uses coding agents such as Codex, Claude Code, Cursor, or GitHub Copilot.
+- increasingly uses coding agents embedded in editors, terminals, and hosted workflows.
 
 The economic buyer is normally the founder, technical director, head of delivery, engineering director, or QA lead. Engineers and QA staff prepare evidence. A client product owner or delivery stakeholder reviews the Passport.
 
@@ -70,7 +70,7 @@ The AI message must remain secondary. Zeno sells faster, safer client handoff an
 
 ### 2.4 Competitive guardrail
 
-Broad result ingestion, shareable reports, internal approvals, audit trails, redaction, and AI-generated test ideas are already available in products such as Tesults, Qase, Testomat, BrowserStack, Gaffer, and ReleaseTraq.
+Broad result ingestion, shareable reports, internal approvals, audit trails, redaction, and AI-generated test ideas are already available in established test-management, device-cloud, workflow, and reporting products.
 
 Zeno must therefore compete on the complete external-client workflow:
 
@@ -988,7 +988,7 @@ Slack is a notification channel, not the system of record.
 
 ### 14.3 Deferred integrations
 
-Jira, Linear, Microsoft Teams, Maestro, Appium, Cypress, TestRail, and additional reporters should be added only after repeated paying-customer demand. A useful threshold is three paying customers requesting an integration and at least one willing to prepay or participate in a design partnership.
+Issue trackers, team chat, mobile test frameworks, browser tools, test-management systems, and additional reporters should be added only after repeated paying-customer demand. A useful threshold is three paying customers requesting an integration and at least one willing to prepay or participate in a design partnership.
 
 ## 15. Observability and product analytics
 

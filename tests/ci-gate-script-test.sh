@@ -71,11 +71,25 @@ required = [
     "./zig-out/bin/zmr doctor --strict --adb ./tests/fake-adb.sh --xcrun ./tests/fake-xcrun.sh",
     "./scripts/demo.sh",
     "./scripts/coverage.sh",
+    "npm run test:evidence",
     "npm pack --dry-run",
 ]
 
 for command in required:
     assert command in output, command
+
+assert output.index("npm run test:evidence") < output.index("npm pack --dry-run")
+
+for delegated_evidence_test in [
+    "node --test tests/evidence-contract.test.mjs",
+    "node --test tests/evidence-package.test.mjs",
+    "node --test tests/evidence-conformance.test.mjs",
+    "node --test tests/evidence-json-schema-conformance.test.mjs",
+    "node --test tests/evidence-zmr-adapter.test.mjs",
+    "node --test tests/evidence-cli.test.mjs",
+    "node --test tests/evidence-playwright-reporter.test.mjs",
+]:
+    assert delegated_evidence_test not in output, delegated_evidence_test
 
 for heavy_release_command in [
     "./scripts/build-release.sh",

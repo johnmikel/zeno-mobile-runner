@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "runnerVersion": "0.2.17",
+  "protocolVersion": "2026-04-28",
+  "scenarioName": "passed fixture",
+  "appId": "dev.zmr.fixture",
+  "status": "passed",
+  "startedAtMs": 1783936800000,
+  "endedAtMs": 1783936802000,
+  "durationMs": 2000,
+  "failedStepIndex": null,
+  "error": null,
+  "eventsPath": "events.jsonl",
+  "artifactsDir": "artifacts",
+  "eventCount": 2,
+  "snapshotCount": 0,
+  "partialFailureCount": 0,
+  "reportPath": null
+}

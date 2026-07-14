@@ -211,6 +211,13 @@ Kotlin**, each with its own tests. They are optional — all of them call
 are the usual starting points. See [docs/clients.md](docs/clients.md) and
 [docs/client-installation.md](docs/client-installation.md).
 
+## Release evidence (mobile + web)
+
+Zeno turns completed ZMR and Playwright runs into one open,
+digest-verifiable Evidence Contract. It preserves what ran, against which exact
+build, what passed or failed, and which business journey it supports. See the
+[Evidence Contract guide](docs/evidence-contract.md).
+
 ## Platform support
 
 | Target | Status | Notes |

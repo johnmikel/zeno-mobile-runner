@@ -129,6 +129,24 @@ planning.
 - `zmr-pilot-gate` coordinates Android and iOS app-local pre-release pilot
   checks.
 
+## Evidence Contract (shipped)
+
+- Open Evidence Contract v1 with a strict public schema and versioned
+  conformance fixtures.
+- Local ZMR evidence packages for iOS and Android traces.
+- Playwright custom reporter for normalized web evidence and journey mapping.
+- Digest and fingerprint validation for packaged artifacts and exact
+  `mobile-v1`/`web-v1` target identities.
+
+## Release Passport (planned)
+
+These hosted-product capabilities are planned, not shipped in this repository:
+
+- Hosted Release Passport pages and ingestion.
+- Evidence gap proposals against release scope.
+- Client approval and request-for-changes decisions.
+- CI attestation of build and execution claims.
+
 ## Shipping Surface
 
 - Release archive builder with checksums, SPDX SBOM, third-party notices,

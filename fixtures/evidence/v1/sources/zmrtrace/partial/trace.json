@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "runnerVersion": "0.2.17",
+  "protocolVersion": "2026-04-28",
+  "scenarioName": "partial fixture",
+  "appId": null,
+  "status": "partial",
+  "startedAtMs": 1783938000000,
+  "endedAtMs": 1783938003000,
+  "durationMs": 3000,
+  "failedStepIndex": null,
+  "error": null,
+  "eventsPath": "events.jsonl",
+  "artifactsDir": "artifacts",
+  "eventCount": 3,
+  "snapshotCount": 0,
+  "partialFailureCount": 1,
+  "reportPath": null
+}

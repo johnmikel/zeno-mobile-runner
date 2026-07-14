@@ -1,0 +1,2 @@
+{"seq":1,"timestampMs":1783938600000,"kind":"scenario.start","payload":{"value":"redacted fixture"}}
+{"seq":2,"timestampMs":1783938601000,"kind":"scenario.end","payload":{"value":"redacted fixture","status":"passed"}}

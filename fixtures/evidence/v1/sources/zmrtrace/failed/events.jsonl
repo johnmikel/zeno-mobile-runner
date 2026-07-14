@@ -1,0 +1,2 @@
+{"seq":1,"timestampMs":1783937400000,"kind":"scenario.start","payload":{"value":"failed fixture"}}
+{"seq":2,"timestampMs":1783937402500,"kind":"scenario.end","payload":{"value":"failed fixture","status":"failed","failedStepIndex":1,"error":"TimeoutError"}}

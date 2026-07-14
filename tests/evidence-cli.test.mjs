@@ -143,6 +143,14 @@ function withoutOption(args, option) {
   return [...args.slice(0, index), ...args.slice(index + 2)];
 }
 
+function withOptionValue(args, option, value) {
+  const updated = [...args];
+  const index = updated.indexOf(option);
+  assert.notEqual(index, -1, `fixture is missing ${option}`);
+  updated[index + 1] = value;
+  return updated;
+}
+
 function withEqualsOptions(args) {
   const converted = [args[0]];
   for (let index = 1; index < args.length; index += 1) {
@@ -714,6 +722,63 @@ test("source and native filesystem failures redact caller paths in normal and de
       assert.equal(result.stderr.includes(directory), false);
       assert.equal(result.stderr.includes(root), false);
       assert.equal(result.stderr.includes("SUPER_SECRET"), false);
+    }
+  }
+});
+
+test("missing source paths report fixed actionable flags without supplied path details", (t) => {
+  const directory = makeFixture(t);
+  const physicalDirectory = realpathSync(directory);
+  const secret = "SUPER_SECRET_SOURCE_TOKEN_DO_NOT_ECHO";
+  const cases = [
+    {
+      args: fromZmrArgs({ overrides: {
+        "--trace": join(physicalDirectory, `${secret}-trace`),
+        "--out": "missing-trace-output",
+      } }),
+      field: "tracePath",
+      message: "--trace is unavailable or unreadable",
+    },
+    {
+      args: fromZmrArgs({ overrides: {
+        "--app-artifact": join(physicalDirectory, `${secret}-app`),
+        "--out": "missing-app-output",
+      } }),
+      field: "appArtifactPath",
+      message: "--app-artifact is unavailable or unreadable",
+    },
+    {
+      args: withOptionValue(
+        fromZmrArgs({ overrides: { "--out": "missing-scenario-output" } }),
+        "--scenario",
+        join(physicalDirectory, `${secret}-scenario`),
+      ),
+      field: "scenarioPath",
+      message: "--scenario is unavailable or unreadable",
+    },
+  ];
+
+  for (const { args, field, message } of cases) {
+    for (const debug of [false, true]) {
+      const result = runCli(args, {
+        cwd: directory,
+        env: { ZENO_EVIDENCE_DEBUG: debug ? "1" : "0" },
+      });
+      assert.equal(result.status, 1, field);
+      assert.equal(result.stdout, "", field);
+      const [jsonLine] = result.stderr.split("\n");
+      assert.deepEqual(JSON.parse(jsonLine).error, {
+        code: "invalid_source_path",
+        message,
+        issues: [],
+      });
+      assert.equal(result.stderr.includes(secret), false, field);
+      assert.equal(result.stderr.includes(directory), false, field);
+      assert.equal(result.stderr.includes(physicalDirectory), false, field);
+      assert.equal(result.stderr.includes(root), false, field);
+      assert.equal(result.stderr.includes(field), false, field);
+      assert.equal(result.stderr.includes(`${field} is unavailable`), false, field);
+      assert.equal(result.stderr.includes(`${field} could not be read`), false, field);
     }
   }
 });

@@ -111,6 +111,7 @@ const SAFE_EVIDENCE_MESSAGES = new Map([
   ["invalid_adapter_options", "Evidence adapter options are invalid"],
   ["invalid_identity", "Evidence identity is invalid"],
   ["invalid_scenario_identity", "Evidence scenario identity is invalid"],
+  ["invalid_source_path", "Evidence source is unavailable or unreadable"],
 ]);
 
 const SAFE_ADAPTER_FIELD_MESSAGES = new Map([
@@ -139,6 +140,11 @@ const SAFE_ADAPTER_FIELD_MESSAGES = new Map([
   ])],
   ["invalid_scenario_identity", new Map([
     ["scenarioHash", "--scenario-hash must be a SHA-256 digest"],
+  ])],
+  ["invalid_source_path", new Map([
+    ["tracePath", "--trace is unavailable or unreadable"],
+    ["appArtifactPath", "--app-artifact is unavailable or unreadable"],
+    ["scenarioPath", "--scenario is unavailable or unreadable"],
   ])],
 ]);
 

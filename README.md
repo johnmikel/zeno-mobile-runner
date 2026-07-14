@@ -191,6 +191,13 @@ comparisons against your current E2E tool, and multi-device matrices, see
 [docs/benchmarking.md](docs/benchmarking.md) and the public
 [Benchmark Lab](docs/benchmarks/README.md) evidence.
 
+## Release evidence (mobile + web)
+
+Zeno turns completed ZMR and Playwright runs into one open,
+digest-verifiable Evidence Contract. It preserves what ran, against which exact
+build, what passed or failed, and which business journey it supports. See the
+[Evidence Contract guide](docs/evidence-contract.md).
+
 ## Platform Support
 
 | Target | Status | Notes |

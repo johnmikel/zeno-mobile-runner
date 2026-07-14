@@ -499,9 +499,20 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   assert.ok(paths.includes("npm/evidence/playwright-reporter.d.ts"));
   assert.ok(paths.includes("schemas/evidence-v1.schema.json"));
   assert.ok(paths.includes("fixtures/evidence/v1/README.md"));
-  assert.ok(paths.includes("fixtures/evidence/v1/manifests/zeno-passed.json"));
+  assert.ok(paths.includes("fixtures/evidence/v1/cases.json"));
+  const evidenceCases = JSON.parse(
+    fs.readFileSync(path.join(root, "fixtures", "evidence", "v1", "cases.json"), "utf8"),
+  );
+  for (const evidenceCase of evidenceCases) {
+    if (!["manifest", "package"].includes(evidenceCase.kind)) continue;
+    assert.ok(
+      paths.includes(`fixtures/evidence/v1/${evidenceCase.input}`),
+      `missing conformance manifest from package: ${evidenceCase.input}`,
+    );
+  }
   assert.ok(paths.includes("examples/playwright-zeno-reporter.config.ts"));
   assert.ok(paths.includes("examples/playwright-zeno-journey.spec.ts"));
+  assert.ok(paths.includes("docs/evidence-contract.md"));
   assert.ok(paths.includes("docs/frameworks.md"));
   assert.ok(paths.includes("docs/expo-smoke.md"));
   assert.ok(paths.includes("docs/production-readiness.md"));

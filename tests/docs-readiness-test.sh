@@ -88,6 +88,7 @@ require_file docs/frameworks.md
 require_file docs/expo-smoke.md
 require_file docs/production-readiness.md
 require_file docs/agent-discovery.md
+require_file docs/evidence-contract.md
 require_file examples/react-native-expo-workflow.json
 require_file scripts/create-react-native-expo-demo-app.sh
 require_file docs/adr/README.md
@@ -158,6 +159,9 @@ require_grep 'docs/ai-agents.md' README.md
 require_grep 'docs/clients.md' README.md
 require_grep 'docs/benchmarking.md' README.md
 require_grep 'skills/zmr-mobile-testing/SKILL.md' README.md
+require_grep '^## Release evidence (mobile + web)$' README.md
+require_grep 'Zeno turns completed ZMR and Playwright runs into one open,' README.md
+require_grep 'docs/evidence-contract.md' README.md
 require_grep 'semantic_snapshot' README.md
 require_grep 'install_app' README.md
 require_grep 'launch_app' README.md
@@ -230,6 +234,16 @@ require_grep 'agent workflow smoke' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
 require_grep 'Current release status is `0.2.17`' FEATURES.md
 require_grep 'Physical iPhone and iPad devices through `xcrun devicectl`' FEATURES.md
+require_grep '^## Evidence Contract (shipped)$' FEATURES.md
+require_grep 'Open Evidence Contract v1' FEATURES.md
+require_grep 'Local ZMR evidence packages' FEATURES.md
+require_grep 'Playwright custom reporter' FEATURES.md
+require_grep 'Digest and fingerprint validation' FEATURES.md
+require_grep '^## Release Passport (planned)$' FEATURES.md
+require_grep 'Hosted Release Passport' FEATURES.md
+require_grep 'Evidence gap proposals' FEATURES.md
+require_grep 'Client approval' FEATURES.md
+require_grep 'CI attestation' FEATURES.md
 require_grep 'Physical iOS devices are supported for local lifecycle' CHANGELOG.md
 require_grep 'Screenshot artifacts use the XCTest shim' CHANGELOG.md
 require_grep 'zmr report --junit <report.xml>' CHANGELOG.md
@@ -406,6 +420,26 @@ require_grep 'zmr explore --from-trace traces/zmr-agent' skills/zmr-mobile-testi
 require_grep '`autonomous:false`' skills/zmr-mobile-testing/SKILL.md
 require_grep '`reviewRequired:true`' skills/zmr-mobile-testing/SKILL.md
 require_grep '`guardrails`' skills/zmr-mobile-testing/SKILL.md
+
+require_grep '^# Zeno Evidence Contract v1$' docs/evidence-contract.md
+require_grep '`mobile-v1`' docs/evidence-contract.md
+require_grep '`web-v1`' docs/evidence-contract.md
+require_grep '`unregistered_recipe`' docs/evidence-contract.md
+require_grep 'non-qualifying context' docs/evidence-contract.md
+require_grep 'public recipe is registered' docs/evidence-contract.md
+require_grep '`unattested`' docs/evidence-contract.md
+require_grep 'self-reported' docs/evidence-contract.md
+require_grep 'Project identity' docs/evidence-contract.md
+require_grep 'unauthenticated claim' docs/evidence-contract.md
+require_grep '`zmr-evidence from-zmr`' docs/evidence-contract.md
+require_grep '`zmr-evidence validate`' docs/evidence-contract.md
+require_grep '`zeno-mobile-runner/playwright-reporter`' docs/evidence-contract.md
+require_grep 'Unmapped Playwright tests cannot qualify a journey' docs/evidence-contract.md
+require_grep 'Unreviewed artifacts remain private by default' docs/evidence-contract.md
+require_grep '`deviceName`, `osName`, and `osVersion`' docs/evidence-contract.md
+require_grep '`browserName` and `browserVersion`' docs/evidence-contract.md
+require_grep '../fixtures/evidence/v1/' docs/evidence-contract.md
+require_grep 'future project policy may qualify passing evidence' docs/evidence-contract.md
 
 require_grep 'zmr init --app' docs/install.md
 require_grep 'install.sh | sh' docs/install.md

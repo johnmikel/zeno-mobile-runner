@@ -136,6 +136,7 @@ async function runFixtureLifecycle(
   fixtureName,
   optionOverrides = {},
   resultTransform = (result) => result,
+  resultOrder = (results) => results,
 ) {
   const fixture = JSON.parse(await readFile(
     path.join(repositoryRoot, "fixtures", "evidence", "v1", "sources", "playwright", fixtureName),
@@ -179,7 +180,7 @@ async function runFixtureLifecycle(
   };
   reporter.onBegin(config, { allTests: () => tests });
   for (let testIndex = 0; testIndex < fixture.tests.length; testIndex += 1) {
-    for (const result of fixture.tests[testIndex].results) {
+    for (const result of resultOrder([...fixture.tests[testIndex].results])) {
       reporter.onTestEnd(tests[testIndex], resultTransform({
         retry: result.retry,
         status: result.status,
@@ -187,7 +188,7 @@ async function runFixtureLifecycle(
         duration: result.durationMs,
         error: result.error,
         attachments: result.attachments.map((attachment) => ({ ...attachment })),
-      }, result));
+      }, result, tests[testIndex]));
     }
   }
   const fullResult = {
@@ -324,7 +325,16 @@ test("the passed conformance fixture translates only supported Playwright API me
 });
 
 test("the retry fixture preserves every attempt and flaky aggregate source context", async (t) => {
-  const { fixture, outputDir, reporter, fullResult } = await runFixtureLifecycle(t, "retry-pass.json");
+  const progressiveOutcome = (result, sourceResult, testCase) => {
+    testCase.outcome = () => sourceResult.retry === 0 ? "unexpected" : "flaky";
+    return result;
+  };
+  const { fixture, outputDir, reporter, fullResult } = await runFixtureLifecycle(
+    t,
+    "retry-pass.json",
+    {},
+    progressiveOutcome,
+  );
   assert.equal(await reporter.onEnd(fullResult), undefined);
   const manifest = JSON.parse(await readFile(path.join(outputDir, "evidence.json"), "utf8"));
   assert.deepEqual(manifest.items.map(({ attempt, outcome }) => ({ attempt, outcome })), [
@@ -343,6 +353,42 @@ test("the retry fixture preserves every attempt and flaky aggregate source conte
     assert.equal(extension.sourceTestIdDigest, sha256Bytes(Buffer.from(fixture.tests[0].id)));
   }
   assert.doesNotMatch(JSON.stringify(manifest), new RegExp(fixture.tests[0].id));
+
+  const reversed = await runFixtureLifecycle(
+    t,
+    "retry-pass.json",
+    {},
+    progressiveOutcome,
+    (results) => results.reverse(),
+  );
+  assert.equal(await reversed.reporter.onEnd(reversed.fullResult), undefined);
+  const reversedManifest = JSON.parse(await readFile(
+    path.join(reversed.outputDir, "evidence.json"),
+    "utf8",
+  ));
+  const attemptContext = (candidate) => candidate.items.map((item) => ({
+    attempt: item.attempt,
+    outcome: item.outcome,
+    aggregateOutcome: item.extensions["dev.playwright.test"].aggregateOutcome,
+  }));
+  assert.deepEqual(attemptContext(manifest), [
+    { attempt: 0, outcome: "failed", aggregateOutcome: "flaky" },
+    { attempt: 1, outcome: "passed", aggregateOutcome: "flaky" },
+  ]);
+  assert.deepEqual(attemptContext(reversedManifest), attemptContext(manifest));
+});
+
+test("aggregate outcomes reject values outside the public Playwright set", async (t) => {
+  const { reporter } = await runPassedLifecycle(t, {
+    test: { outcome: () => "unknown" },
+  });
+  const originalWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    assert.deepEqual(await reporter.onEnd(apiFullResult()), { status: "failed" });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
 });
 
 test("public TestResult statuses map without expected-status rewriting", async (t) => {
@@ -359,7 +405,11 @@ test("public TestResult statuses map without expected-status rewriting", async (
     titlePath: () => ["statuses", status],
     location: { file: sourcePath, line: index + 1, column: 1 },
     expectedStatus: status === "failed" ? "failed" : "passed",
-    outcome: () => status === "failed" ? "expected" : "unexpected",
+    outcome: () => status === "failed"
+      ? "expected"
+      : status === "skipped"
+        ? "skipped"
+        : "unexpected",
   }));
   reporter.onBegin(apiConfig(rootDir), { allTests: () => cases });
   for (let index = 0; index < cases.length; index += 1) {
@@ -380,6 +430,9 @@ test("public TestResult statuses map without expected-status rewriting", async (
   assert.deepEqual(statuses.map((status) => byTitle.get(status).failureClassification), [
     null, "unknown", "timeout", null, "interrupted",
   ]);
+  assert.deepEqual(statuses.map((status) => (
+    byTitle.get(status).extensions["dev.playwright.test"].aggregateOutcome
+  )), ["unexpected", "expected", "unexpected", "skipped", "unexpected"]);
   assert.equal(byTitle.get("failed").outcome, "failed", "expected-to-fail stays an actual failure");
   assert.equal(manifest.run.outcome, "interrupted");
   assert.equal(manifest.run.completenessState, "partial");

@@ -19,6 +19,12 @@ const PACKAGE_VERSION = JSON.parse(
 ).version;
 const IDENTITY_PATTERN = /^(?!\s)(?!.*\s$)[^\u0000-\u001f\u007f]+$/;
 const GIT_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+const PLAYWRIGHT_AGGREGATE_OUTCOMES = new Set([
+  "expected",
+  "unexpected",
+  "flaky",
+  "skipped",
+]);
 const UNSUPPORTED_ATTACHMENT_BODY = Symbol("unsupported attachment body");
 const REPORTER_OPTION_KEYS = new Set([
   "artifactRoot",
@@ -218,6 +224,51 @@ function failureClassification(status) {
   return "unknown";
 }
 
+function assertAggregateOutcome(value) {
+  if (!PLAYWRIGHT_AGGREGATE_OUTCOMES.has(value)) {
+    throw reporterError(
+      "invalid_playwright_outcome",
+      "TestCase outcome must be expected, unexpected, flaky, or skipped",
+      "test.outcome",
+    );
+  }
+  return value;
+}
+
+function assertRetry(value) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw reporterError(
+      "invalid_playwright_result",
+      "TestResult retry must be a non-negative safe integer",
+      "result.retry",
+    );
+  }
+  return value;
+}
+
+function finalAggregateOutcomes(records) {
+  const selections = new Map();
+  for (const record of records) {
+    const outcome = assertAggregateOutcome(record.observedAggregateOutcome);
+    const retry = assertRetry(record.result.retry);
+    const current = selections.get(record.id);
+    if (current === undefined || retry > current.retry) {
+      selections.set(record.id, { retry, outcome });
+      continue;
+    }
+    if (retry === current.retry && outcome !== current.outcome) {
+      throw reporterError(
+        "ambiguous_playwright_outcome",
+        "The highest retry for a test must have one aggregate outcome",
+        "test.outcome",
+      );
+    }
+  }
+  return new Map(
+    [...selections].map(([testId, selection]) => [testId, selection.outcome]),
+  );
+}
+
 function testProject(testCase) {
   const project = testCase?.parent?.project?.();
   if (!isObject(project)) {
@@ -316,7 +367,7 @@ function snapshotTestRecord(testCase, result, rootDir) {
     browserVersion: evidenceMetadata?.browserVersion,
   });
   const capturedResult = Object.freeze({
-    retry: result.retry,
+    retry: assertRetry(result.retry),
     status: result.status,
     startTimeMs: result.startTime instanceof Date
       ? result.startTime.valueOf()
@@ -333,7 +384,7 @@ function snapshotTestRecord(testCase, result, rootDir) {
     titlePath,
     annotations,
     expectedStatus: testCase.expectedStatus,
-    aggregateOutcome: testCase.outcome(),
+    observedAggregateOutcome: assertAggregateOutcome(testCase.outcome()),
     project,
     result: capturedResult,
     externalId,
@@ -635,6 +686,7 @@ export default class ZenoPlaywrightReporter {
       if (this.records.length === 0) {
         throw reporterError("empty_evidence_run", "A Playwright run must contain at least one result");
       }
+      const aggregateOutcomes = finalAggregateOutcomes(this.records);
 
       const buildManifestDigest = this.buildManifestPath === null
         ? this.options.buildManifestDigest
@@ -713,7 +765,7 @@ export default class ZenoPlaywrightReporter {
               },
               projectName: assertIdentity(record.project.name, "projectName"),
               expectedStatus: record.expectedStatus,
-              aggregateOutcome: record.aggregateOutcome,
+              aggregateOutcome: aggregateOutcomes.get(record.id),
               mappingState: journeyId === null ? "unmapped" : "mapped",
             },
           },

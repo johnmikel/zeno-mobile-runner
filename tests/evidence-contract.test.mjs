@@ -316,6 +316,24 @@ test("canonical JSON serializes negative zero as zero", () => {
   assert.equal(canonicalize({ value: -0 }), '{"value":0}');
 });
 
+test("canonical JSON preserves representative RFC/JCS number formatting", () => {
+  for (const [value, expected] of [
+    [333333333.33333329, "333333333.3333333"],
+    [1e30, "1e+30"],
+    [4.50, "4.5"],
+    [2e-3, "0.002"],
+    [1e-27, "1e-27"],
+    [1e-6, "0.000001"],
+    [1e-7, "1e-7"],
+    [1e20, "100000000000000000000"],
+    [1e21, "1e+21"],
+    [Number.MIN_VALUE, "5e-324"],
+    [Number.MAX_VALUE, "1.7976931348623157e+308"],
+  ]) {
+    assert.equal(canonicalize(value), expected);
+  }
+});
+
 test("canonical JSON rejects unsupported and ambiguous values", () => {
   class CustomValue {}
 
@@ -359,6 +377,65 @@ test("canonical JSON permits repeated references that are not cycles", () => {
   );
 });
 
+test("canonical JSON rejects arrays and objects nested beyond 512 levels", () => {
+  let nestedArray = null;
+  let nestedObject = null;
+  for (let depth = 0; depth < 513; depth += 1) {
+    nestedArray = [nestedArray];
+    nestedObject = { value: nestedObject };
+  }
+
+  for (const value of [nestedArray, nestedObject]) {
+    assert.throws(() => canonicalize(value), (error) => {
+      assert.ok(error instanceof EvidenceValidationError);
+      assert.notEqual(error.name, "RangeError");
+      assert.equal(error.code, "canonical_depth_exceeded");
+      assert.match(error.message, /maximum depth of 512/);
+      return true;
+    });
+  }
+});
+
+test("canonical JSON rejects enumerable object accessors without invoking them", () => {
+  let getterCalls = 0;
+  const value = {};
+  Object.defineProperty(value, "stateful", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return getterCalls;
+    },
+  });
+
+  assert.throws(() => canonicalize(value), (error) => {
+    assert.ok(error instanceof EvidenceValidationError);
+    assert.equal(error.code, "invalid_canonical_json");
+    assert.match(error.message, /accessor properties/);
+    return true;
+  });
+  assert.equal(getterCalls, 0);
+});
+
+test("canonical JSON rejects array index accessors without invoking them", () => {
+  let getterCalls = 0;
+  const value = [];
+  Object.defineProperty(value, "0", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return getterCalls;
+    },
+  });
+
+  assert.throws(() => canonicalize(value), (error) => {
+    assert.ok(error instanceof EvidenceValidationError);
+    assert.equal(error.code, "invalid_canonical_json");
+    assert.match(error.message, /accessor properties/);
+    return true;
+  });
+  assert.equal(getterCalls, 0);
+});
+
 test("SHA-256 helpers return lowercase prefixed byte and streaming file digests", async () => {
   const expected = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
   assert.equal(sha256Bytes(Buffer.from("abc")), expected);
@@ -368,6 +445,18 @@ test("SHA-256 helpers return lowercase prefixed byte and streaming file digests"
   try {
     await writeFile(path, Buffer.from("abc"));
     assert.equal(await sha256File(path), expected);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("streaming SHA-256 preserves native missing-file errors", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "zmr-evidence-missing-"));
+  try {
+    await assert.rejects(
+      sha256File(join(directory, "missing.bin")),
+      (error) => error?.code === "ENOENT" && !(error instanceof EvidenceValidationError),
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -410,6 +499,18 @@ test("safe relative paths preserve valid input and reject unsafe raw paths", () 
     "artifacts/tab\tname.png",
     "artifacts/line\nbreak.png",
     "artifacts/del\u007f.png",
+    "artifacts/NUL",
+    "artifacts/CON.txt",
+    "artifacts/cOn.log",
+    "artifacts/PRN",
+    "artifacts/AUX.png",
+    "artifacts/COM1",
+    "artifacts/com9.txt",
+    "artifacts/LPT1",
+    "artifacts/lpt9.log",
+    "artifacts/file.txt:stream",
+    "artifacts/trailing.",
+    "artifacts/trailing ",
   ]) {
     assert.throws(
       () => assertSafeRelativePath(invalid),

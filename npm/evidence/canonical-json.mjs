@@ -4,6 +4,8 @@ import { createReadStream } from "node:fs";
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const WINDOWS_DRIVE_PATTERN = /^[A-Za-z]:/;
+const WINDOWS_RESERVED_DEVICE_PATTERN = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i;
+const MAX_CANONICAL_DEPTH = 512;
 
 export class EvidenceValidationError extends Error {
   constructor(message, {
@@ -19,9 +21,9 @@ export class EvidenceValidationError extends Error {
   }
 }
 
-function validationError(message, path) {
+function validationError(message, path, code = "invalid_canonical_json") {
   return new EvidenceValidationError(`${message} at ${path}`, {
-    code: "invalid_canonical_json",
+    code,
     path,
   });
 }
@@ -64,7 +66,18 @@ function withActiveContainer(value, activeContainers, path, serialize) {
   }
 }
 
-function serializeArray(value, activeContainers, path) {
+function dataPropertyValue(container, key, path) {
+  const descriptor = Object.getOwnPropertyDescriptor(container, key);
+  if (descriptor === undefined || !("value" in descriptor)) {
+    throw validationError(
+      "Canonical JSON containers must use data properties, not accessor properties",
+      path,
+    );
+  }
+  return descriptor.value;
+}
+
+function serializeArray(value, activeContainers, path, depth) {
   return withActiveContainer(value, activeContainers, path, () => {
     if (Object.getOwnPropertySymbols(value).length > 0) {
       throw validationError("Canonical JSON arrays cannot have symbol properties", path);
@@ -78,13 +91,15 @@ function serializeArray(value, activeContainers, path) {
 
     const items = [];
     for (let index = 0; index < value.length; index += 1) {
-      items.push(serializeValue(value[index], activeContainers, `${path}/${index}`));
+      const itemPath = `${path}/${index}`;
+      const item = dataPropertyValue(value, String(index), itemPath);
+      items.push(serializeValue(item, activeContainers, itemPath, depth + 1));
     }
     return `[${items.join(",")}]`;
   });
 }
 
-function serializeObject(value, activeContainers, path) {
+function serializeObject(value, activeContainers, path, depth) {
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
     throw validationError("Canonical JSON objects must be plain objects", path);
@@ -97,13 +112,21 @@ function serializeObject(value, activeContainers, path) {
     const entries = [];
     for (const key of Object.keys(value).sort()) {
       const keyPath = `${path}/${jsonPointerSegment(key)}`;
-      entries.push(`${serializeString(key, keyPath)}:${serializeValue(value[key], activeContainers, keyPath)}`);
+      const propertyValue = dataPropertyValue(value, key, keyPath);
+      entries.push(`${serializeString(key, keyPath)}:${serializeValue(propertyValue, activeContainers, keyPath, depth + 1)}`);
     }
     return `{${entries.join(",")}}`;
   });
 }
 
-function serializeValue(value, activeContainers, path) {
+function serializeValue(value, activeContainers, path, depth) {
+  if (depth > MAX_CANONICAL_DEPTH) {
+    throw validationError(
+      `Canonical JSON exceeds maximum depth of ${MAX_CANONICAL_DEPTH}`,
+      path,
+      "canonical_depth_exceeded",
+    );
+  }
   if (value === null) return "null";
 
   switch (typeof value) {
@@ -118,15 +141,15 @@ function serializeValue(value, activeContainers, path) {
       return serializeString(value, path);
     case "object":
       return Array.isArray(value)
-        ? serializeArray(value, activeContainers, path)
-        : serializeObject(value, activeContainers, path);
+        ? serializeArray(value, activeContainers, path, depth)
+        : serializeObject(value, activeContainers, path, depth);
     default:
       throw validationError(`Canonical JSON does not support ${typeof value} values`, path);
   }
 }
 
 export function canonicalize(value) {
-  return serializeValue(value, new Set(), "$");
+  return serializeValue(value, new Set(), "$", 0);
 }
 
 export function canonicalBytes(value) {
@@ -165,10 +188,17 @@ export function assertSafeRelativePath(value, fieldName = "path") {
   if (value.includes("\\")) reject("must use forward slashes");
   if (value.startsWith("/")) reject("must be relative");
   if (WINDOWS_DRIVE_PATTERN.test(value)) reject("must not use a Windows drive path");
+  if (value.includes(":")) reject("must not contain colons");
 
   for (const segment of value.split("/")) {
     if (segment.length === 0) reject("must not contain empty path segments");
     if (segment === "." || segment === "..") reject("must not contain dot path segments");
+    if (WINDOWS_RESERVED_DEVICE_PATTERN.test(segment)) {
+      reject("must not contain reserved Windows device names");
+    }
+    if (segment.endsWith(".") || segment.endsWith(" ")) {
+      reject("must not contain segments ending in a dot or space");
+    }
   }
 
   return value;

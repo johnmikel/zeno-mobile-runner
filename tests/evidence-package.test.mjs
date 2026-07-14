@@ -1,0 +1,980 @@
+import assert from "node:assert/strict";
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import test from "node:test";
+
+import {
+  canonicalBytes,
+  EvidenceValidationError as CanonicalEvidenceValidationError,
+  sha256Bytes,
+} from "../npm/evidence/canonical-json.mjs";
+import {
+  createMobileFingerprint,
+  createWebFingerprint,
+} from "../npm/evidence/fingerprints.mjs";
+import {
+  assertValidEvidenceManifest,
+  ATTESTATION_STATES,
+  EVIDENCE_OUTCOMES,
+  EVIDENCE_SCHEMA_VERSION,
+  EvidenceValidationError,
+  isQualifyingTarget,
+  PROVENANCE_CLASSES,
+  REDACTION_STATES,
+  stableSortManifest,
+  validateEvidenceManifest,
+} from "../npm/evidence/contract.mjs";
+import {
+  artifactPathForDigest,
+  validateEvidencePackage,
+  writeEvidencePackage,
+} from "../npm/evidence/package-writer.mjs";
+
+const DIGEST_A = `sha256:${"a".repeat(64)}`;
+const DIGEST_B = `sha256:${"b".repeat(64)}`;
+const DIGEST_C = `sha256:${"c".repeat(64)}`;
+const DIGEST_D = `sha256:${"d".repeat(64)}`;
+const COMMIT_A = "1".repeat(40);
+const COMMIT_B = "2".repeat(40);
+const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
+
+function mobileTarget(overrides = {}) {
+  const target = {
+    surface: "android",
+    environment: "staging",
+    fingerprintRecipe: "mobile-v1",
+    targetFingerprint: DIGEST_A,
+    fingerprintVerification: "recomputed",
+    artifactDigest: DIGEST_A,
+    appId: "dev.zmr.example",
+    version: "1.2.3",
+    buildNumber: "42",
+    ...overrides,
+  };
+  if (!("targetFingerprint" in overrides)) {
+    target.targetFingerprint = createMobileFingerprint({
+      appId: target.appId,
+      artifactDigest: target.artifactDigest,
+      buildNumber: target.buildNumber,
+      recipe: target.fingerprintRecipe,
+      surface: target.surface,
+      version: target.version,
+    });
+  }
+  return target;
+}
+
+function webTarget(overrides = {}) {
+  const target = {
+    surface: "web",
+    environment: "production",
+    fingerprintRecipe: "web-v1",
+    targetFingerprint: DIGEST_B,
+    fingerprintVerification: "recomputed",
+    deploymentId: "deployment-42",
+    commitSha: COMMIT_A,
+    buildManifestDigest: DIGEST_C,
+    configDigest: DIGEST_D,
+    ...overrides,
+  };
+  if (!("targetFingerprint" in overrides)) {
+    target.targetFingerprint = createWebFingerprint({
+      buildManifestDigest: target.buildManifestDigest,
+      commitSha: target.commitSha,
+      configDigest: target.configDigest,
+      deploymentId: target.deploymentId,
+      environment: target.environment,
+      recipe: target.fingerprintRecipe,
+      surface: target.surface,
+    });
+  }
+  return target;
+}
+
+function mobileExecution(overrides = {}) {
+  return {
+    kind: "mobile",
+    deviceName: "Pixel 9",
+    osName: "Android",
+    osVersion: "16",
+    ...overrides,
+  };
+}
+
+function browserExecution(overrides = {}) {
+  return {
+    kind: "browser",
+    browserName: "chromium",
+    browserVersion: "126.0",
+    ...overrides,
+  };
+}
+
+function artifact(overrides = {}) {
+  return {
+    type: "screenshot",
+    path: "artifacts/sha256/aa/fixture",
+    digest: DIGEST_A,
+    sizeBytes: 7,
+    contentType: "image/png",
+    redactionState: "unreviewed",
+    disclosureState: "private",
+    ...overrides,
+  };
+}
+
+function validMobileManifest(overrides = {}) {
+  const manifest = {
+    schemaVersion: "1.0",
+    project: { externalId: "project-42" },
+    submission: {
+      actorType: "automation",
+      externalId: "ci-release",
+      claimState: "self_reported",
+    },
+    producer: {
+      name: "zeno-mobile-runner",
+      version: "0.2.17",
+      adapterVersion: "1.0.0",
+      provenanceClass: "zeno_runner",
+      attestationState: "unattested",
+    },
+    release: { externalId: "release-42", commitSha: COMMIT_A },
+    target: mobileTarget(),
+    run: {
+      externalId: "run-42",
+      startedAt: "2026-07-13T10:00:00.000Z",
+      endedAt: "2026-07-13T10:00:02.000Z",
+      outcome: "passed",
+      sourceManifestDigest: DIGEST_B,
+      completenessState: "complete",
+      redactionState: "unreviewed",
+    },
+    items: [{
+      externalId: "scenario-login",
+      journeyId: "journey-login",
+      scenarioHash: DIGEST_C,
+      outcome: "passed",
+      attempt: 0,
+      startedAt: "2026-07-13T10:00:00.500Z",
+      endedAt: "2026-07-13T10:00:01.500Z",
+      durationMs: 1000,
+      failureClassification: null,
+      execution: mobileExecution(),
+      artifacts: [],
+    }],
+  };
+  return { ...manifest, ...overrides };
+}
+
+function validWebManifest(overrides = {}) {
+  const manifest = validMobileManifest({
+    producer: {
+      name: "@playwright/test",
+      version: "1.55.0",
+      adapterVersion: "1.0.0",
+      provenanceClass: "official_adapter",
+      attestationState: "unattested",
+    },
+    target: webTarget(),
+  });
+  manifest.items[0].execution = browserExecution();
+  return { ...manifest, ...overrides };
+}
+
+function issuePairs(result) {
+  return result.issues.map(({ path, code }) => [path, code]);
+}
+
+function assertInvalid(manifest, expectedPairs) {
+  const result = validateEvidenceManifest(manifest);
+  assert.equal(result.ok, false);
+  assert.deepEqual(issuePairs(result), expectedPairs);
+  for (const issue of result.issues) {
+    assert.equal(typeof issue.message, "string");
+    assert.notEqual(issue.message.length, 0);
+  }
+  return result;
+}
+
+test("contract exports the public v1 constants and canonical validation error", () => {
+  assert.equal(EVIDENCE_SCHEMA_VERSION, "1.0");
+  assert.deepEqual(EVIDENCE_OUTCOMES, [
+    "passed", "failed", "partial", "skipped", "timed_out", "interrupted", "unknown",
+  ]);
+  assert.deepEqual(PROVENANCE_CLASSES, ["zeno_runner", "official_adapter", "imported"]);
+  assert.deepEqual(ATTESTATION_STATES, ["unattested", "ci_attested", "signature_verified"]);
+  assert.deepEqual(REDACTION_STATES, ["unreviewed", "redacted", "reviewed", "mixed"]);
+  assert.equal(EvidenceValidationError, CanonicalEvidenceValidationError);
+});
+
+test("valid mobile and web manifests return no issues", () => {
+  for (const manifest of [validMobileManifest(), validWebManifest()]) {
+    assert.deepEqual(validateEvidenceManifest(manifest), { ok: true, issues: [] });
+    assert.equal(assertValidEvidenceManifest(manifest), manifest);
+    assert.equal(isQualifyingTarget(manifest.target), true);
+  }
+});
+
+test("valid unregistered targets are retained and explicitly non-qualifying", () => {
+  const manifest = validMobileManifest({
+    target: {
+      surface: "desktop",
+      environment: "lab",
+      fingerprintRecipe: "desktop-v2",
+      targetFingerprint: DIGEST_D,
+      fingerprintVerification: "unregistered_recipe",
+    },
+  });
+  manifest.items[0].execution = {
+    kind: "unregistered",
+    extensions: { "dev.example.execution": { runtime: "desktop" } },
+  };
+
+  assert.deepEqual(validateEvidenceManifest(manifest), { ok: true, issues: [] });
+  assert.equal(isQualifyingTarget(manifest.target), false);
+  assert.equal(manifest.target.fingerprintVerification, "unregistered_recipe");
+});
+
+test("project and self-reported submission claims are required", () => {
+  const manifest = validMobileManifest();
+  delete manifest.project.externalId;
+  delete manifest.submission.externalId;
+  delete manifest.submission.claimState;
+
+  assertInvalid(manifest, [
+    ["/project/externalId", "required_property"],
+    ["/submission/claimState", "required_property"],
+    ["/submission/externalId", "required_property"],
+  ]);
+});
+
+test("identities reject empty, whitespace, edge whitespace, and controls without trimming", () => {
+  for (const value of ["", "   ", " leading", "trailing ", "line\nbreak", "delete\u007f"]) {
+    const manifest = validMobileManifest();
+    manifest.project.externalId = value;
+    assertInvalid(manifest, [["/project/externalId", "invalid_identity"]]);
+    assert.equal(manifest.project.externalId, value);
+  }
+
+  const manifest = validMobileManifest();
+  manifest.items[0].journeyId = " journey-login";
+  assertInvalid(manifest, [["/items/0/journeyId", "invalid_identity"]]);
+});
+
+test("identity length follows JSON Schema Unicode code points", () => {
+  const maximum = validMobileManifest();
+  maximum.project.externalId = "😀".repeat(256);
+  assert.deepEqual(validateEvidenceManifest(maximum), { ok: true, issues: [] });
+
+  const oversized = validMobileManifest();
+  oversized.project.externalId = "😀".repeat(257);
+  assertInvalid(oversized, [["/project/externalId", "invalid_identity"]]);
+});
+
+test("unknown top-level and nested properties are reported in pointer order", () => {
+  const manifest = validMobileManifest();
+  manifest.project.secret = true;
+  manifest.zFuture = true;
+
+  assertInvalid(manifest, [
+    ["/project/secret", "unexpected_property"],
+    ["/zFuture", "unexpected_property"],
+  ]);
+});
+
+test("targetFingerprint is required and registered fingerprints are recomputed", () => {
+  const missing = validMobileManifest();
+  delete missing.target.targetFingerprint;
+  assertInvalid(missing, [["/target/targetFingerprint", "required_property"]]);
+
+  const incorrect = validWebManifest();
+  incorrect.target.targetFingerprint = DIGEST_A;
+  const result = assertInvalid(incorrect, [["/target/targetFingerprint", "fingerprint_mismatch"]]);
+  assert.equal(
+    result.issues[0].message,
+    "targetFingerprint does not match web-v1 inputs",
+  );
+});
+
+test("run and item intervals are ordered and items stay inside the run", () => {
+  const reversedRun = validMobileManifest();
+  reversedRun.run.endedAt = "2026-07-13T09:59:59.000Z";
+  const reversedResult = validateEvidenceManifest(reversedRun);
+  assert.equal(reversedResult.ok, false);
+  assert.ok(issuePairs(reversedResult).some(([path, code]) => (
+    path === "/run/endedAt" && code === "invalid_time_order"
+  )));
+
+  const reversedItem = validMobileManifest();
+  reversedItem.items[0].endedAt = "2026-07-13T10:00:00.000Z";
+  const itemResult = validateEvidenceManifest(reversedItem);
+  assert.equal(itemResult.ok, false);
+  assert.ok(issuePairs(itemResult).some(([path, code]) => (
+    path === "/items/0/endedAt" && code === "invalid_time_order"
+  )));
+
+  const outside = validMobileManifest();
+  outside.items[0].startedAt = "2026-07-13T09:59:59.999Z";
+  outside.items[0].endedAt = "2026-07-13T10:00:02.001Z";
+  outside.items[0].durationMs = 2002;
+  assertInvalid(outside, [
+    ["/items/0/endedAt", "outside_run_interval"],
+    ["/items/0/startedAt", "outside_run_interval"],
+  ]);
+});
+
+test("durationMs must match the item interval to within one millisecond", () => {
+  const tolerated = validMobileManifest();
+  tolerated.items[0].durationMs = 1001;
+  assert.deepEqual(validateEvidenceManifest(tolerated), { ok: true, issues: [] });
+
+  const mismatched = validMobileManifest();
+  mismatched.items[0].durationMs = 1001.01;
+  assertInvalid(mismatched, [["/items/0/durationMs", "duration_mismatch"]]);
+});
+
+test("mobile executions require device and OS identities", () => {
+  const manifest = validMobileManifest();
+  delete manifest.items[0].execution.deviceName;
+  delete manifest.items[0].execution.osName;
+  delete manifest.items[0].execution.osVersion;
+
+  assertInvalid(manifest, [
+    ["/items/0/execution/deviceName", "required_property"],
+    ["/items/0/execution/osName", "required_property"],
+    ["/items/0/execution/osVersion", "required_property"],
+  ]);
+});
+
+test("browser executions require browser name and version", () => {
+  const manifest = validWebManifest();
+  delete manifest.items[0].execution.browserName;
+  delete manifest.items[0].execution.browserVersion;
+
+  assertInvalid(manifest, [
+    ["/items/0/execution/browserName", "required_property"],
+    ["/items/0/execution/browserVersion", "required_property"],
+  ]);
+});
+
+test("artifact paths must remain safe package-relative paths", () => {
+  for (const path of ["../secret", "/absolute", "C:/windows", "a/../escape", "a\\b"]) {
+    const manifest = validMobileManifest();
+    manifest.items[0].artifacts = [artifact({ path })];
+    assertInvalid(manifest, [["/items/0/artifacts/0/path", "unsafe_artifact_path"]]);
+  }
+});
+
+test("conflicting duplicate artifact paths are rejected", () => {
+  const conflicting = validMobileManifest();
+  conflicting.items[0].artifacts = [
+    artifact({ digest: DIGEST_A }),
+    artifact({ digest: DIGEST_B }),
+  ];
+  assertInvalid(conflicting, [["/items/0/artifacts/1/path", "conflicting_artifact_path"]]);
+
+  const identical = validMobileManifest();
+  identical.items[0].artifacts = [artifact(), artifact()];
+  assert.deepEqual(validateEvidenceManifest(identical), { ok: true, issues: [] });
+});
+
+test("attempt is required and externalId plus attempt is unique", () => {
+  const missing = validMobileManifest();
+  delete missing.items[0].attempt;
+  assertInvalid(missing, [["/items/0/attempt", "required_property"]]);
+
+  const duplicate = validMobileManifest();
+  duplicate.items.push(structuredClone(duplicate.items[0]));
+  assertInvalid(duplicate, [["/items/1/attempt", "duplicate_item_attempt"]]);
+});
+
+test("imported provenance and all public attestation states remain legal", () => {
+  for (const attestationState of ATTESTATION_STATES) {
+    const manifest = validMobileManifest();
+    manifest.producer.provenanceClass = "imported";
+    manifest.producer.attestationState = attestationState;
+    assert.deepEqual(validateEvidenceManifest(manifest), { ok: true, issues: [] });
+  }
+});
+
+test("extensions require namespaced keys and retain nested source data", () => {
+  const valid = validMobileManifest({
+    extensions: {
+      "dev.example.run": { titlePath: ["suite", "test"], arbitrary: { source: true } },
+    },
+  });
+  valid.items[0].extensions = {
+    "dev.playwright.test": { projectName: "chromium", expectedStatus: "passed" },
+  };
+  assert.deepEqual(validateEvidenceManifest(valid), { ok: true, issues: [] });
+
+  const invalid = validMobileManifest({ extensions: { plain: true } });
+  assertInvalid(invalid, [["/extensions/plain", "invalid_extension_namespace"]]);
+});
+
+test("items must contain at least one evidence item", () => {
+  assertInvalid(validMobileManifest({ items: [] }), [["/items", "min_items"]]);
+});
+
+test("web target commit must equal the release commit", () => {
+  const manifest = validWebManifest();
+  manifest.release.commitSha = COMMIT_B;
+  assertInvalid(manifest, [["/target/commitSha", "release_commit_mismatch"]]);
+});
+
+test("passing outcomes require null failure classification and other outcomes require a value", () => {
+  for (const outcome of ["passed", "skipped"]) {
+    const manifest = validMobileManifest();
+    manifest.items[0].outcome = outcome;
+    manifest.items[0].failureClassification = "unknown";
+    assertInvalid(manifest, [["/items/0/failureClassification", "invalid_failure_classification"]]);
+  }
+
+  for (const outcome of ["failed", "partial", "timed_out", "interrupted", "unknown"]) {
+    const manifest = validMobileManifest();
+    manifest.items[0].outcome = outcome;
+    manifest.items[0].failureClassification = null;
+    assertInvalid(manifest, [["/items/0/failureClassification", "invalid_failure_classification"]]);
+  }
+});
+
+test("execution branches must correspond to target branches", () => {
+  const mobile = validMobileManifest();
+  mobile.items[0].execution = browserExecution();
+  assertInvalid(mobile, [["/items/0/execution/kind", "execution_target_mismatch"]]);
+
+  const web = validWebManifest();
+  web.items[0].execution = mobileExecution();
+  assertInvalid(web, [["/items/0/execution/kind", "execution_target_mismatch"]]);
+});
+
+test("assertValidEvidenceManifest throws the canonical error with ordered issues", () => {
+  const manifest = validMobileManifest();
+  manifest.project.externalId = "";
+  manifest.zFuture = true;
+
+  assert.throws(() => assertValidEvidenceManifest(manifest), (error) => {
+    assert.ok(error instanceof CanonicalEvidenceValidationError);
+    assert.equal(error.code, "invalid_evidence_manifest");
+    assert.deepEqual(issuePairs({ issues: error.issues }), [
+      ["/project/externalId", "invalid_identity"],
+      ["/zFuture", "unexpected_property"],
+    ]);
+    return true;
+  });
+});
+
+test("stableSortManifest clones, sorts deterministic collections, and preserves semantic arrays", () => {
+  const manifest = validMobileManifest({
+    extensions: {
+      "dev.playwright.test": {
+        titlePath: ["z suite", "a test"],
+        nested: { z: true, a: true },
+      },
+    },
+  });
+  manifest.items = [
+    {
+      ...structuredClone(manifest.items[0]),
+      externalId: "z-test",
+      attempt: 1,
+      scenarioHash: DIGEST_D,
+      artifacts: [
+        artifact({ path: "z/file", digest: DIGEST_B }),
+        artifact({ path: "a/file", digest: DIGEST_A }),
+      ],
+    },
+    {
+      ...structuredClone(manifest.items[0]),
+      externalId: "a-test",
+      attempt: 0,
+      scenarioHash: DIGEST_A,
+    },
+  ];
+  const before = structuredClone(manifest);
+
+  const sorted = stableSortManifest(manifest);
+
+  assert.notEqual(sorted, manifest);
+  assert.deepEqual(manifest, before);
+  assert.deepEqual(sorted.items.map((item) => item.externalId), ["a-test", "z-test"]);
+  assert.deepEqual(sorted.items[1].artifacts.map((entry) => entry.path), ["a/file", "z/file"]);
+  assert.deepEqual(
+    sorted.extensions["dev.playwright.test"].titlePath,
+    ["z suite", "a test"],
+  );
+  assert.deepEqual(Object.keys(sorted), [...Object.keys(sorted)].sort());
+  assert.deepEqual(
+    Object.keys(sorted.extensions["dev.playwright.test"].nested),
+    ["a", "z"],
+  );
+});
+
+test("stableSortManifest preserves __proto__ as extension data without changing prototypes", () => {
+  const sourceData = JSON.parse('{"__proto__":{"retained":true}}');
+  const manifest = validMobileManifest({
+    extensions: { "dev.example.data": sourceData },
+  });
+
+  const sorted = stableSortManifest(manifest);
+  const clonedData = sorted.extensions["dev.example.data"];
+
+  assert.equal(Object.getPrototypeOf(clonedData), Object.prototype);
+  assert.equal(Object.prototype.hasOwnProperty.call(clonedData, "__proto__"), true);
+  assert.deepEqual(clonedData.__proto__, { retained: true });
+});
+
+async function withTemporaryDirectory(prefix, action) {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  try {
+    return await action(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function bodyArtifactInput(body, overrides = {}) {
+  return {
+    itemIndex: 0,
+    body,
+    type: "test_attachment",
+    contentType: "text/plain",
+    redactionState: "unreviewed",
+    disclosureState: "private",
+    ...overrides,
+  };
+}
+
+function sourceArtifactInput(sourcePath, allowedRoot, overrides = {}) {
+  return {
+    itemIndex: 0,
+    sourcePath,
+    allowedRoot,
+    type: "test_attachment",
+    contentType: "text/plain",
+    redactionState: "unreviewed",
+    disclosureState: "private",
+    ...overrides,
+  };
+}
+
+function packageArtifactPath(destination, relativePath) {
+  return join(destination, ...relativePath.split("/"));
+}
+
+async function assertPathMissing(path) {
+  await assert.rejects(readFile(path), (error) => error?.code === "ENOENT" || error?.code === "EISDIR");
+}
+
+test("artifactPathForDigest uses every digest hex character", () => {
+  const first = `sha256:${"123456789abc"}${"0".repeat(52)}`;
+  const second = `sha256:${"123456789abc"}${"f".repeat(52)}`;
+
+  assert.equal(
+    artifactPathForDigest(first),
+    `artifacts/sha256/12/${first.slice("sha256:".length + 2)}`,
+  );
+  assert.equal(
+    artifactPathForDigest(second),
+    `artifacts/sha256/12/${second.slice("sha256:".length + 2)}`,
+  );
+  assert.notEqual(artifactPathForDigest(first), artifactPathForDigest(second));
+  assert.throws(() => artifactPathForDigest("sha256:short"), CanonicalEvidenceValidationError);
+});
+
+test("equal artifact bodies deduplicate storage and preserve both descriptors", async () => {
+  await withTemporaryDirectory("zmr-evidence-dedupe-", async (parent) => {
+    const destination = join(parent, "package");
+    const draft = validMobileManifest();
+    const before = structuredClone(draft);
+    const body = Buffer.from("identical bytes", "utf8");
+
+    const result = await writeEvidencePackage({
+      destination,
+      manifest: draft,
+      artifactInputs: [bodyArtifactInput(body), bodyArtifactInput(body)],
+    });
+
+    assert.deepEqual(draft, before);
+    assert.equal(result.manifest.items[0].artifacts.length, 2);
+    const [first, second] = result.manifest.items[0].artifacts;
+    assert.equal(first.path, second.path);
+    assert.equal(first.digest, second.digest);
+    assert.deepEqual(await readFile(packageArtifactPath(destination, first.path)), body);
+    assert.deepEqual(await readdir(dirname(packageArtifactPath(destination, first.path))), [
+      first.path.split("/").at(-1),
+    ]);
+
+    const evidenceBytes = await readFile(join(destination, "evidence.json"));
+    assert.equal(evidenceBytes.at(-1), 0x0a);
+    assert.equal(
+      evidenceBytes.toString("utf8"),
+      `${JSON.stringify(result.manifest, null, 2)}\n`,
+    );
+    assert.equal(result.manifestDigest, sha256Bytes(canonicalBytes(result.manifest)));
+  });
+});
+
+test("same source basename with different bytes cannot collide", async () => {
+  await withTemporaryDirectory("zmr-evidence-basename-", async (parent) => {
+    const root = join(parent, "source");
+    const firstDirectory = join(root, "first");
+    const secondDirectory = join(root, "second");
+    await mkdir(firstDirectory, { recursive: true });
+    await mkdir(secondDirectory, { recursive: true });
+    const firstSource = join(firstDirectory, "result.txt");
+    const secondSource = join(secondDirectory, "result.txt");
+    await writeFile(firstSource, Buffer.from("first bytes"));
+    await writeFile(secondSource, Buffer.from("second bytes"));
+
+    const destination = join(parent, "package");
+    const result = await writeEvidencePackage({
+      destination,
+      manifest: validMobileManifest(),
+      artifactInputs: [
+        sourceArtifactInput(firstSource, root),
+        sourceArtifactInput(secondSource, root),
+      ],
+    });
+
+    const descriptors = result.manifest.items[0].artifacts;
+    assert.equal(descriptors.length, 2);
+    assert.notEqual(descriptors[0].path, descriptors[1].path);
+    assert.ok(descriptors.every(({ path }) => /^artifacts\/sha256\/[a-f0-9]{2}\/[a-f0-9]{62}$/.test(path)));
+    assert.ok(descriptors.every(({ path }) => !path.includes("result.txt")));
+    const packagedBodies = await Promise.all(
+      descriptors.map(({ path }) => readFile(packageArtifactPath(destination, path), "utf8")),
+    );
+    assert.deepEqual(packagedBodies.sort(), ["first bytes", "second bytes"]);
+  });
+});
+
+test("reversing artifact input order produces byte-identical evidence", async () => {
+  await withTemporaryDirectory("zmr-evidence-order-", async (parent) => {
+    const inputs = [
+      bodyArtifactInput(Buffer.from("z body"), { type: "z_type" }),
+      bodyArtifactInput(Buffer.from("a body"), { type: "a_type" }),
+    ];
+    const firstDestination = join(parent, "first-package");
+    const secondDestination = join(parent, "second-package");
+    const first = await writeEvidencePackage({
+      destination: firstDestination,
+      manifest: validMobileManifest(),
+      artifactInputs: inputs,
+    });
+    const second = await writeEvidencePackage({
+      destination: secondDestination,
+      manifest: validMobileManifest(),
+      artifactInputs: [...inputs].reverse(),
+    });
+
+    assert.deepEqual(
+      await readFile(join(firstDestination, "evidence.json")),
+      await readFile(join(secondDestination, "evidence.json")),
+    );
+    assert.deepEqual(first.manifest.items[0].artifacts, second.manifest.items[0].artifacts);
+    assert.equal(first.manifestDigest, second.manifestDigest);
+  });
+});
+
+test("Buffer, Uint8Array, and regular source file inputs retain exact bytes", async () => {
+  await withTemporaryDirectory("zmr-evidence-inputs-", async (parent) => {
+    const sourceRoot = join(parent, "source");
+    await mkdir(sourceRoot);
+    const sourcePath = join(sourceRoot, "source.bin");
+    const fileBytes = Buffer.from([0, 1, 2, 3, 255]);
+    const bufferBytes = Buffer.from("buffer body");
+    const typedBytes = new Uint8Array([9, 8, 7, 6]);
+    await writeFile(sourcePath, fileBytes);
+
+    const destination = join(parent, "package");
+    const result = await writeEvidencePackage({
+      destination,
+      manifest: validMobileManifest(),
+      artifactInputs: [
+        sourceArtifactInput(sourcePath, sourceRoot),
+        bodyArtifactInput(bufferBytes),
+        bodyArtifactInput(typedBytes),
+      ],
+    });
+
+    const expected = new Map([
+      [sha256Bytes(fileBytes), fileBytes],
+      [sha256Bytes(bufferBytes), bufferBytes],
+      [sha256Bytes(typedBytes), Buffer.from(typedBytes)],
+    ]);
+    for (const descriptor of result.manifest.items[0].artifacts) {
+      assert.deepEqual(
+        await readFile(packageArtifactPath(destination, descriptor.path)),
+        expected.get(descriptor.digest),
+      );
+    }
+  });
+});
+
+test("failed assembly leaves no destination or sibling temporary directory", async () => {
+  await withTemporaryDirectory("zmr-evidence-atomic-error-", async (parent) => {
+    const allowedRoot = join(parent, "allowed");
+    await mkdir(allowedRoot);
+    const outside = join(parent, "outside.txt");
+    await writeFile(outside, "outside");
+    const destination = join(parent, "package");
+
+    await assert.rejects(
+      writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [
+          bodyArtifactInput(Buffer.from("first valid input")),
+          sourceArtifactInput(outside, allowedRoot),
+        ],
+      }),
+      CanonicalEvidenceValidationError,
+    );
+
+    await assertPathMissing(destination);
+    assert.deepEqual(
+      (await readdir(parent)).filter((name) => name.includes(".tmp-")),
+      [],
+    );
+  });
+});
+
+test("existing destinations fail unless force is true and forced validation errors retain old bytes", async () => {
+  await withTemporaryDirectory("zmr-evidence-force-", async (parent) => {
+    const destination = join(parent, "package");
+    await mkdir(destination);
+    const sentinel = join(destination, "sentinel.txt");
+    await writeFile(sentinel, "original package");
+
+    await assert.rejects(
+      writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [],
+      }),
+      (error) => error instanceof CanonicalEvidenceValidationError && error.code === "destination_exists",
+    );
+    assert.equal(await readFile(sentinel, "utf8"), "original package");
+
+    await assert.rejects(
+      writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [bodyArtifactInput("not bytes")],
+        force: true,
+      }),
+      CanonicalEvidenceValidationError,
+    );
+    assert.equal(await readFile(sentinel, "utf8"), "original package");
+
+    await writeEvidencePackage({
+      destination,
+      manifest: validMobileManifest(),
+      artifactInputs: [bodyArtifactInput(Buffer.from("replacement"))],
+      force: true,
+    });
+    await assertPathMissing(sentinel);
+    assert.equal(JSON.parse(await readFile(join(destination, "evidence.json"), "utf8")).schemaVersion, "1.0");
+  });
+});
+
+test("source paths must be contained regular files with no symlink components", async () => {
+  await withTemporaryDirectory("zmr-evidence-source-security-", async (parent) => {
+    const root = join(parent, "root");
+    const realDirectory = join(root, "real");
+    await mkdir(realDirectory, { recursive: true });
+    const regular = join(realDirectory, "regular.txt");
+    await writeFile(regular, "regular");
+    const leafLink = join(root, "leaf-link.txt");
+    const directoryLink = join(root, "directory-link");
+    await symlink(regular, leafLink);
+    await symlink(realDirectory, directoryLink);
+    const outside = join(parent, "outside.txt");
+    await writeFile(outside, "outside");
+
+    const invalidSources = [
+      leafLink,
+      join(directoryLink, "regular.txt"),
+      outside,
+    ];
+    for (let index = 0; index < invalidSources.length; index += 1) {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination: join(parent, `invalid-${index}`),
+          manifest: validMobileManifest(),
+          artifactInputs: [sourceArtifactInput(invalidSources[index], root)],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "invalid_artifact_source"
+          && !error.message.includes(parent)
+        ),
+      );
+    }
+
+    const valid = await writeEvidencePackage({
+      destination: join(parent, "valid"),
+      manifest: validMobileManifest(),
+      artifactInputs: [sourceArtifactInput(regular, root)],
+    });
+    assert.equal(valid.manifest.items[0].artifacts.length, 1);
+  });
+});
+
+test("body and file inputs larger than 128 MiB fail before publication", async () => {
+  await withTemporaryDirectory("zmr-evidence-size-limit-", async (parent) => {
+    const oversizedBody = Buffer.allocUnsafe(MAX_ARTIFACT_BYTES + 1);
+    await assert.rejects(
+      writeEvidencePackage({
+        destination: join(parent, "body-package"),
+        manifest: validMobileManifest(),
+        artifactInputs: [bodyArtifactInput(oversizedBody)],
+      }),
+      (error) => error instanceof CanonicalEvidenceValidationError && error.code === "artifact_too_large",
+    );
+
+    const root = join(parent, "source");
+    await mkdir(root);
+    const oversizedFile = join(root, "oversized.bin");
+    const handle = await open(oversizedFile, "w");
+    try {
+      await handle.truncate(MAX_ARTIFACT_BYTES + 1);
+    } finally {
+      await handle.close();
+    }
+    await assert.rejects(
+      writeEvidencePackage({
+        destination: join(parent, "file-package"),
+        manifest: validMobileManifest(),
+        artifactInputs: [sourceArtifactInput(oversizedFile, root)],
+      }),
+      (error) => error instanceof CanonicalEvidenceValidationError && error.code === "artifact_too_large",
+    );
+  });
+});
+
+test("artifact input validation is closed, typed, and sanitized", async () => {
+  await withTemporaryDirectory("zmr-evidence-invalid-input-", async (parent) => {
+    const privatePath = join(parent, "private-secret.txt");
+    const base = bodyArtifactInput(Buffer.from("body"));
+    const invalidInputs = [
+      { ...base, itemIndex: 9 },
+      { ...base, sourcePath: privatePath, allowedRoot: parent },
+      { itemIndex: 0, type: "x", contentType: "text/plain", redactionState: "unreviewed", disclosureState: "private" },
+      { ...base, body: "text" },
+      { ...base, type: "" },
+      { ...base, redactionState: "mixed" },
+      { ...base, disclosureState: "public" },
+      { ...base, displayName: "secret attachment" },
+    ];
+
+    for (let index = 0; index < invalidInputs.length; index += 1) {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination: join(parent, `package-${index}`),
+          manifest: validMobileManifest(),
+          artifactInputs: [invalidInputs[index]],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "invalid_artifact_input"
+          && !error.message.includes(privatePath)
+          && !error.message.includes("secret attachment")
+        ),
+      );
+    }
+  });
+});
+
+test("package writing rejects an own __proto__ manifest field instead of dropping it", async () => {
+  await withTemporaryDirectory("zmr-evidence-proto-field-", async (parent) => {
+    const manifest = validMobileManifest();
+    Object.defineProperty(manifest, "__proto__", {
+      configurable: true,
+      enumerable: true,
+      value: { injected: true },
+      writable: true,
+    });
+
+    await assert.rejects(
+      writeEvidencePackage({
+        destination: join(parent, "package"),
+        manifest,
+        artifactInputs: [],
+      }),
+      (error) => (
+        error instanceof CanonicalEvidenceValidationError
+        && error.code === "invalid_evidence_manifest"
+        && error.issues?.some(({ path, code }) => (
+          path === "/__proto__" && code === "unexpected_property"
+        ))
+      ),
+    );
+  });
+});
+
+test("validateEvidencePackage accepts intact packages and catches byte or size tampering", async () => {
+  await withTemporaryDirectory("zmr-evidence-tamper-", async (parent) => {
+    const destination = join(parent, "package");
+    const result = await writeEvidencePackage({
+      destination,
+      manifest: validMobileManifest(),
+      artifactInputs: [bodyArtifactInput(Buffer.from("hello"))],
+    });
+    const manifestPath = join(destination, "evidence.json");
+    const descriptor = result.manifest.items[0].artifacts[0];
+    const storedPath = packageArtifactPath(destination, descriptor.path);
+
+    const validation = await validateEvidencePackage(manifestPath);
+    assert.equal(validation.ok, true);
+    assert.deepEqual(validation.manifest, result.manifest);
+    assert.equal(validation.manifestDigest, result.manifestDigest);
+
+    await writeFile(storedPath, "HELLO");
+    await assert.rejects(
+      validateEvidencePackage(manifestPath),
+      (error) => error instanceof CanonicalEvidenceValidationError && error.code === "artifact_digest_mismatch",
+    );
+
+    await writeFile(storedPath, "hello!");
+    await assert.rejects(
+      validateEvidencePackage(manifestPath),
+      (error) => error instanceof CanonicalEvidenceValidationError && error.code === "artifact_size_mismatch",
+    );
+  });
+});
+
+test("package validation rejects a symlinked artifacts directory", async () => {
+  await withTemporaryDirectory("zmr-evidence-package-symlink-", async (parent) => {
+    const destination = join(parent, "package");
+    await writeEvidencePackage({
+      destination,
+      manifest: validMobileManifest(),
+      artifactInputs: [bodyArtifactInput(Buffer.from("artifact"))],
+    });
+    const outsideArtifacts = join(parent, "outside-artifacts");
+    await rename(join(destination, "artifacts"), outsideArtifacts);
+    await symlink(outsideArtifacts, join(destination, "artifacts"));
+
+    await assert.rejects(
+      validateEvidencePackage(join(destination, "evidence.json")),
+      (error) => (
+        error instanceof CanonicalEvidenceValidationError
+        && error.code === "unsafe_package_artifact"
+      ),
+    );
+  });
+});

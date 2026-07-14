@@ -1,0 +1,50 @@
+{
+  "format": "zeno-playwright-reporter-fixture-v1",
+  "config": {
+    "version": "1.55.0",
+    "rootDir": "fixture-root",
+    "projects": [
+      {
+        "name": "chromium",
+        "metadata": {
+          "zenoEvidence": {
+            "browserName": "chromium",
+            "browserVersion": "126.0"
+          }
+        }
+      }
+    ]
+  },
+  "fullResult": {
+    "status": "passed",
+    "startTime": "2026-07-13T10:00:00.000Z",
+    "durationMs": 2000
+  },
+  "tests": [
+    {
+      "id": "playwright-source-login",
+      "title": "user can sign in",
+      "titlePath": ["auth", "user can sign in"],
+      "location": {
+        "relativeFile": "tests/auth.spec.ts",
+        "line": 10,
+        "column": 1
+      },
+      "projectName": "chromium",
+      "expectedStatus": "passed",
+      "outcome": "expected",
+      "annotations": [
+        { "type": "zeno:journey", "description": "journey-login" }
+      ],
+      "results": [
+        {
+          "retry": 0,
+          "status": "passed",
+          "startTime": "2026-07-13T10:00:00.500Z",
+          "durationMs": 1000,
+          "attachments": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "format": "zeno-playwright-reporter-fixture-v1",
+  "config": {
+    "version": "1.55.0",
+    "rootDir": "fixture-root",
+    "projects": [
+      {
+        "name": "chromium",
+        "metadata": {
+          "zenoEvidence": {
+            "browserName": "chromium",
+            "browserVersion": "126.0"
+          }
+        }
+      }
+    ]
+  },
+  "fullResult": {
+    "status": "passed",
+    "startTime": "2026-07-13T11:00:00.000Z",
+    "durationMs": 3000
+  },
+  "tests": [
+    {
+      "id": "playwright-source-checkout",
+      "title": "checkout completes",
+      "titlePath": ["checkout", "checkout completes"],
+      "location": {
+        "relativeFile": "tests/checkout.spec.ts",
+        "line": 20,
+        "column": 1
+      },
+      "projectName": "chromium",
+      "expectedStatus": "passed",
+      "outcome": "flaky",
+      "annotations": [
+        { "type": "zeno:journey", "description": "journey-checkout" }
+      ],
+      "results": [
+        {
+          "retry": 0,
+          "status": "failed",
+          "startTime": "2026-07-13T11:00:00.250Z",
+          "durationMs": 1000,
+          "error": { "message": "expected checkout to complete" },
+          "attachments": []
+        },
+        {
+          "retry": 1,
+          "status": "passed",
+          "startTime": "2026-07-13T11:00:01.500Z",
+          "durationMs": 1000,
+          "attachments": []
+        }
+      ]
+    }
+  ]
+}

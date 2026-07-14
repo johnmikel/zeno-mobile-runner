@@ -978,6 +978,70 @@ test("Buffer, Uint8Array, and regular source file inputs retain exact bytes", as
   });
 });
 
+test("source byte pins accept unchanged files and reject digest or size mismatches before publication", async () => {
+  await withTemporaryDirectory("zmr-evidence-source-pins-", async (parent) => {
+    const sourceRoot = join(parent, "source");
+    await mkdir(sourceRoot);
+    const sourcePath = join(sourceRoot, "source.bin");
+    const sourceBytes = Buffer.from("pinned source bytes\n");
+    const expectedDigest = sha256Bytes(sourceBytes);
+    await writeFile(sourcePath, sourceBytes);
+
+    const validDestination = join(parent, "valid-package");
+    const valid = await writeEvidencePackage({
+      destination: validDestination,
+      manifest: validMobileManifest(),
+      artifactInputs: [sourceArtifactInput(sourcePath, sourceRoot, {
+        expectedDigest,
+        expectedSizeBytes: sourceBytes.length,
+      })],
+    });
+    const [descriptor] = valid.manifest.items[0].artifacts;
+    assert.equal(descriptor.digest, expectedDigest);
+    assert.equal(descriptor.sizeBytes, sourceBytes.length);
+    assert.deepEqual(
+      await readFile(packageArtifactPath(validDestination, descriptor.path)),
+      sourceBytes,
+    );
+
+    const mismatches = [
+      {
+        field: "expectedDigest",
+        value: sha256Bytes(Buffer.from("different source bytes\n")),
+        code: "artifact_source_digest_mismatch",
+      },
+      {
+        field: "expectedSizeBytes",
+        value: sourceBytes.length + 1,
+        code: "artifact_source_size_mismatch",
+      },
+    ];
+    for (let index = 0; index < mismatches.length; index += 1) {
+      const { field, value, code } = mismatches[index];
+      const destination = join(parent, `mismatch-${index}`);
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [sourceArtifactInput(sourcePath, sourceRoot, {
+            expectedDigest,
+            expectedSizeBytes: sourceBytes.length,
+            [field]: value,
+          })],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === code
+          && error.path === `/artifactInputs/0/${field}`
+          && !error.message.includes(sourcePath)
+        ),
+      );
+      await assertPathMissing(destination);
+    }
+    assert.deepEqual(packageWriterDebris(await readdir(parent)), []);
+  });
+});
+
 test("failed assembly leaves no destination or sibling temporary directory", async () => {
   await withTemporaryDirectory("zmr-evidence-atomic-error-", async (parent) => {
     const allowedRoot = join(parent, "allowed");
@@ -1539,6 +1603,7 @@ test("body and file inputs larger than 128 MiB fail before publication", async (
 test("artifact input validation is closed, typed, and sanitized", async () => {
   await withTemporaryDirectory("zmr-evidence-invalid-input-", async (parent) => {
     const privatePath = join(parent, "private-secret.txt");
+    await writeFile(privatePath, "private");
     const base = bodyArtifactInput(Buffer.from("body"));
     const invalidInputs = [
       { ...base, itemIndex: 9 },
@@ -1549,6 +1614,10 @@ test("artifact input validation is closed, typed, and sanitized", async () => {
       { ...base, redactionState: "mixed" },
       { ...base, disclosureState: "public" },
       { ...base, displayName: "secret attachment" },
+      sourceArtifactInput(privatePath, parent, { expectedDigest: "sha256:invalid" }),
+      sourceArtifactInput(privatePath, parent, { expectedSizeBytes: -1 }),
+      sourceArtifactInput(privatePath, parent, { expectedSizeBytes: 1.5 }),
+      sourceArtifactInput(privatePath, parent, { expectedSizeBytes: MAX_ARTIFACT_BYTES + 1 }),
     ];
 
     for (let index = 0; index < invalidInputs.length; index += 1) {

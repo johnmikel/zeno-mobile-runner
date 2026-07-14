@@ -54,6 +54,8 @@ const SOURCE_INPUT_PROPERTIES = new Set([
   "itemIndex",
   "sourcePath",
   "allowedRoot",
+  "expectedDigest",
+  "expectedSizeBytes",
   "type",
   "contentType",
   "redactionState",
@@ -393,6 +395,30 @@ function validateClosedInput(input, allowedProperties, index) {
   }
 }
 
+function validateSourcePins(input, index) {
+  if (hasOwn(input, "expectedDigest") && !isSha256Digest(input.expectedDigest)) {
+    throw invalidInput(
+      index,
+      "expectedDigest",
+      "expectedDigest must be a lowercase sha256 value",
+    );
+  }
+  if (
+    hasOwn(input, "expectedSizeBytes")
+    && (
+      !Number.isSafeInteger(input.expectedSizeBytes)
+      || input.expectedSizeBytes < 0
+      || input.expectedSizeBytes > MAX_ARTIFACT_BYTES
+    )
+  ) {
+    throw invalidInput(
+      index,
+      "expectedSizeBytes",
+      "expectedSizeBytes must be a non-negative safe integer within the artifact limit",
+    );
+  }
+}
+
 async function lstatSourceComponents(rootPath, sourcePath) {
   const child = relative(rootPath, sourcePath);
   if (
@@ -486,6 +512,7 @@ async function normalizeArtifactInput(input, index, itemCount) {
     index,
   );
   validateMetadata(input, index);
+  if (isSourceBranch) validateSourcePins(input, index);
 
   let bytes;
   if (isBodyBranch) {
@@ -511,6 +538,20 @@ async function normalizeArtifactInput(input, index, itemCount) {
   }
 
   const digest = sha256Bytes(bytes);
+  if (isSourceBranch && hasOwn(input, "expectedSizeBytes") && bytes.length !== input.expectedSizeBytes) {
+    throw validationError(
+      "artifact_source_size_mismatch",
+      "Artifact source size does not match expectedSizeBytes",
+      `/artifactInputs/${index}/expectedSizeBytes`,
+    );
+  }
+  if (isSourceBranch && hasOwn(input, "expectedDigest") && digest !== input.expectedDigest) {
+    throw validationError(
+      "artifact_source_digest_mismatch",
+      "Artifact source digest does not match expectedDigest",
+      `/artifactInputs/${index}/expectedDigest`,
+    );
+  }
   return {
     bytes,
     descriptor: {

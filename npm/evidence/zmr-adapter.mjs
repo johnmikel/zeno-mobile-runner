@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import {
   lstat,
@@ -22,13 +23,14 @@ import {
   canonicalBytes,
   isSha256Digest,
   sha256Bytes,
-  sha256File,
 } from "./canonical-json.mjs";
 import { assertValidEvidenceManifest } from "./contract.mjs";
 import { createMobileFingerprint } from "./fingerprints.mjs";
 import { DEFAULT_TAR_LIMITS, parseZmrTar } from "./tar.mjs";
 
 const ADAPTER_VERSION = "1.0.0";
+const APP_HASH_BUFFER_BYTES = 64 * 1024;
+const ZMR_ADAPTER_TEST_HOOK = Symbol.for("dev.zmr.evidence.zmr-adapter.test-hook");
 const IDENTITY_PATTERN = /^(?!\s)(?!.*\s$)[^\u0000-\u001f\u007f]+$/;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -61,6 +63,12 @@ function compareText(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
+}
+
+async function runZmrAdapterTestHook(event) {
+  const hook = globalThis[ZMR_ADAPTER_TEST_HOOK];
+  if (typeof hook === "function") return hook(Object.freeze(event));
+  return undefined;
 }
 
 function assertIdentity(value, field) {
@@ -211,8 +219,8 @@ function sourceManifestDigest(entries) {
   const index = entries
     .map((entry) => ({
       path: entry.path,
-      digest: sha256Bytes(entry.body),
-      sizeBytes: entry.body.length,
+      digest: entry.digest ?? sha256Bytes(entry.body),
+      sizeBytes: entry.sizeBytes,
     }))
     .sort((left, right) => compareText(left.path, right.path));
   return sha256Bytes(canonicalBytes(index));
@@ -222,6 +230,7 @@ function directoryEntry(path, body, root) {
   return {
     path,
     body,
+    digest: sha256Bytes(body),
     sizeBytes: body.length,
     contentType: inferContentType(path),
     sourcePath: join(root, ...path.split("/")),
@@ -559,22 +568,72 @@ function validateAdapterOptions(options) {
 
 async function hashRegularAppArtifact(inputPath) {
   const absolutePath = resolve(inputPath);
-  const before = await assertNoSymlinkComponents(absolutePath, "file", "appArtifactPath");
-  const digest = await sha256File(absolutePath);
-  const after = await assertNoSymlinkComponents(absolutePath, "file", "appArtifactPath");
-  if (
-    before.dev !== after.dev
-    || before.ino !== after.ino
-    || before.size !== after.size
-    || before.mtimeMs !== after.mtimeMs
-  ) {
+  // Component lstat is a best-effort diagnostic preflight. O_NOFOLLOW and the
+  // single file descriptor below bind every hashed byte and both identity checks.
+  const preflight = await assertNoSymlinkComponents(absolutePath, "file", "appArtifactPath");
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  let handle;
+  try {
+    handle = await open(absolutePath, constants.O_RDONLY | noFollow);
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) {
+      throw adapterError(
+        "source_not_regular_file",
+        "appArtifactPath must be a regular file",
+        "appArtifactPath",
+      );
+    }
+    if (
+      BigInt(preflight.dev) !== before.dev
+      || BigInt(preflight.ino) !== before.ino
+      || BigInt(preflight.size) !== before.size
+    ) {
+      throw adapterError(
+        "source_changed_during_read",
+        "appArtifactPath changed before it was hashed",
+        "appArtifactPath",
+      );
+    }
+
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(APP_HASH_BUFFER_BYTES);
+    let position = 0;
+    let bytesHashed = 0n;
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+      bytesHashed += BigInt(bytesRead);
+      await runZmrAdapterTestHook({ phase: "app-hash-chunk", bytesHashed });
+    }
+
+    const after = await handle.stat({ bigint: true });
+    if (
+      before.dev !== after.dev
+      || before.ino !== after.ino
+      || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs
+      || before.ctimeNs !== after.ctimeNs
+      || bytesHashed !== after.size
+    ) {
+      throw adapterError(
+        "source_changed_during_read",
+        "appArtifactPath changed while it was hashed",
+        "appArtifactPath",
+      );
+    }
+    return `sha256:${hash.digest("hex")}`;
+  } catch (error) {
+    if (error instanceof EvidenceValidationError) throw error;
     throw adapterError(
-      "source_changed_during_read",
-      "appArtifactPath changed while it was hashed",
+      "invalid_source_path",
+      "appArtifactPath could not be read",
       "appArtifactPath",
     );
+  } finally {
+    await handle?.close().catch(() => {});
   }
-  return digest;
 }
 
 async function scenarioIdentity(options) {
@@ -589,12 +648,15 @@ async function scenarioIdentity(options) {
   );
   const scenario = parseJson(body, "invalid_scenario_json", "scenarioPath");
   const scenarioHash = sha256Bytes(canonicalBytes(scenario));
+  const expectedDigest = sha256Bytes(body);
   return {
     scenarioHash,
     artifactInput: {
       itemIndex: 0,
       sourcePath: absolutePath,
       allowedRoot: dirname(absolutePath),
+      expectedDigest,
+      expectedSizeBytes: body.length,
       type: "scenario_source",
       contentType: inferContentType(basename(absolutePath)),
       redactionState: "unreviewed",
@@ -631,6 +693,8 @@ function traceArtifactInputs(source, tracePaths, redactionState) {
       ...metadata,
       sourcePath: entry.sourcePath,
       allowedRoot: entry.allowedRoot,
+      expectedDigest: entry.digest,
+      expectedSizeBytes: entry.sizeBytes,
     };
   });
 }

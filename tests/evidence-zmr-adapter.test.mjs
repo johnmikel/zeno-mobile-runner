@@ -7,9 +7,11 @@ import {
   readFile,
   realpath,
   readdir,
+  lstat,
   rm,
   symlink,
   unlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +32,7 @@ import { adaptZmrTrace, loadZmrTrace } from "../npm/evidence/zmr-adapter.mjs";
 
 const BLOCK_SIZE = 512;
 const MIB = 1024 * 1024;
+const ZMR_ADAPTER_TEST_HOOK = Symbol.for("dev.zmr.evidence.zmr-adapter.test-hook");
 const encoder = new TextEncoder();
 
 function fieldBytes(value) {
@@ -421,11 +424,20 @@ test("directory and archive adaptation are source-digest equivalent and package 
     (input) => Object.hasOwn(input, "sourcePath") && input.type !== "scenario_source",
   );
   assert.ok(traceFileInputs.length >= 3);
-  for (const input of traceFileInputs) assert.equal(input.allowedRoot, passedDirectory);
+  for (const input of traceFileInputs) {
+    const sourceBytes = await readFile(input.sourcePath);
+    assert.equal(input.allowedRoot, passedDirectory);
+    assert.equal(input.expectedDigest, sha256Bytes(sourceBytes));
+    assert.equal(input.expectedSizeBytes, sourceBytes.length);
+  }
   assert.ok(archiveResult.artifactInputs.every(
     (input) => input.type === "scenario_source" || Object.hasOwn(input, "body"),
   ));
-  assert.equal(inputForType(directoryResult.artifactInputs, "scenario_source").allowedRoot, dirname(scenarioPath));
+  const scenarioInput = inputForType(directoryResult.artifactInputs, "scenario_source");
+  const scenarioBytes = await readFile(scenarioPath);
+  assert.equal(scenarioInput.allowedRoot, dirname(scenarioPath));
+  assert.equal(scenarioInput.expectedDigest, sha256Bytes(scenarioBytes));
+  assert.equal(scenarioInput.expectedSizeBytes, scenarioBytes.length);
   assert.equal(directoryResult.artifactInputs.some((input) => input.sourcePath === appArtifactPath), false);
 
   const target = directoryResult.manifest.target;
@@ -501,6 +513,68 @@ test("directory and archive adaptation are source-digest equivalent and package 
     ))).toString("utf8"),
     "done\n",
   );
+});
+
+test("directory trace and scenario source pins reject mutation after adaptation before packaging", async (t) => {
+  await t.test("trace artifact", async (child) => {
+    const fixture = await editableFixture(child);
+    const result = await adaptZmrTrace(baseAdapterOptions({
+      tracePath: fixture.tracePath,
+      appArtifactPath: fixture.appArtifactPath,
+      scenarioHash: SCENARIO_HASH,
+    }));
+    const artifactInput = inputForType(result.artifactInputs, "zmr_artifact");
+    const original = await readFile(artifactInput.sourcePath);
+    const mutation = Buffer.from(original);
+    mutation[0] ^= 1;
+    await writeFile(artifactInput.sourcePath, mutation);
+
+    const destination = join(fixture.temporary, "mutated-trace-package");
+    await assert.rejects(
+      writeEvidencePackage({ destination, ...result }),
+      (error) => (
+        error instanceof EvidenceValidationError
+        && error.code === "artifact_source_digest_mismatch"
+      ),
+    );
+    await assert.rejects(lstat(destination), (error) => error?.code === "ENOENT");
+    assert.deepEqual(
+      (await readdir(fixture.temporary)).filter((name) => (
+        name.includes(".tmp-") || name.includes(".publish.lock")
+      )),
+      [],
+    );
+  });
+
+  await t.test("scenario source", async (child) => {
+    const fixture = await editableFixture(child);
+    const scenarioPath = join(fixture.tracePath, "scenario.json");
+    const result = await adaptZmrTrace(baseAdapterOptions({
+      tracePath: fixture.tracePath,
+      appArtifactPath: fixture.appArtifactPath,
+      scenarioPath,
+    }));
+    const original = await readFile(scenarioPath);
+    const mutation = Buffer.from(original);
+    mutation[0] ^= 1;
+    await writeFile(scenarioPath, mutation);
+
+    const destination = join(fixture.temporary, "mutated-scenario-package");
+    await assert.rejects(
+      writeEvidencePackage({ destination, ...result }),
+      (error) => (
+        error instanceof EvidenceValidationError
+        && error.code === "artifact_source_digest_mismatch"
+      ),
+    );
+    await assert.rejects(lstat(destination), (error) => error?.code === "ENOENT");
+    assert.deepEqual(
+      (await readdir(fixture.temporary)).filter((name) => (
+        name.includes(".tmp-") || name.includes(".publish.lock")
+      )),
+      [],
+    );
+  });
 });
 
 test("failed traces map timeout failure and authoritative terminal outcome", async (t) => {
@@ -917,9 +991,18 @@ test("unfamiliar failed trace errors map to unknown without guessing", async (t)
   assert.deepEqual(result.manifest.items[0].error, { name: "UnfamiliarDriverError" });
 });
 
-test("app artifact and scenario inputs reject symlinks and non-regular files", async (t) => {
+test("app hashing accepts a regular file while app artifact and scenario inputs reject symlinks", async (t) => {
   const temporary = await temporaryDirectory(t);
   const realApp = await makeAppArtifact(temporary);
+  const regular = await adaptZmrTrace(baseAdapterOptions({
+    tracePath: fixturePath("passed"),
+    appArtifactPath: realApp,
+    scenarioHash: SCENARIO_HASH,
+  }));
+  assert.equal(
+    regular.manifest.target.artifactDigest,
+    sha256Bytes(await readFile(realApp)),
+  );
   const appLink = join(temporary, "linked.appbin");
   await symlink(realApp, appLink);
   await assertAdapterRejects(baseAdapterOptions({
@@ -943,6 +1026,42 @@ test("app artifact and scenario inputs reject symlinks and non-regular files", a
     appArtifactPath: appDirectory,
     scenarioHash: SCENARIO_HASH,
   }), "source_not_regular_file");
+});
+
+test("app hashing detects same-inode mutation even when mtime is restored", async (t) => {
+  const fixture = await editableFixture(t);
+  const fixedTime = new Date("2000-01-01T00:00:00.000Z");
+  await utimes(fixture.appArtifactPath, fixedTime, fixedTime);
+  const before = await lstat(fixture.appArtifactPath, { bigint: true });
+  let hookCalls = 0;
+
+  globalThis[ZMR_ADAPTER_TEST_HOOK] = async ({ phase }) => {
+    if (phase !== "app-hash-chunk" || hookCalls > 0) return;
+    hookCalls += 1;
+    const handle = await openFile(fixture.appArtifactPath, "r+");
+    try {
+      const mutation = Buffer.from(["fixture app binary\n".charCodeAt(0) ^ 1]);
+      await handle.write(mutation, 0, mutation.length, 0);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await utimes(fixture.appArtifactPath, fixedTime, fixedTime);
+    const mutated = await lstat(fixture.appArtifactPath, { bigint: true });
+    assert.equal(mutated.dev, before.dev);
+    assert.equal(mutated.ino, before.ino);
+    assert.equal(mutated.size, before.size);
+    assert.equal(mutated.mtimeNs, before.mtimeNs);
+    assert.notEqual(mutated.ctimeNs, before.ctimeNs);
+  };
+  t.after(() => { delete globalThis[ZMR_ADAPTER_TEST_HOOK]; });
+
+  await assertAdapterRejects(baseAdapterOptions({
+    tracePath: fixture.tracePath,
+    appArtifactPath: fixture.appArtifactPath,
+    scenarioHash: SCENARIO_HASH,
+  }), "source_changed_during_read");
+  assert.equal(hookCalls, 1);
 });
 
 test("directory ingestion enforces the same 10,000 accepted-file limit as archives", async (t) => {

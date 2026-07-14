@@ -226,6 +226,7 @@ test("errors and artifacts retain only reviewable evidence", () => {
   for (const invalid of [
     "", "/absolute", "C:/windows", "C:\\windows", "\\server\\share",
     ".", "..", "./file", "a/./b", "a/../b", "a//b", "a/",
+    "artifacts/evil\u0000.png", "artifacts/line\nbreak.png", "artifacts/del\u007f.png",
   ]) {
     assert.equal(artifactPath.test(invalid), false, `artifact path should reject ${invalid}`);
   }

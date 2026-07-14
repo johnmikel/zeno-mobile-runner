@@ -43,7 +43,7 @@ test("package test script builds zmr before client examples need the binary", ()
   assert.equal(fs.existsSync(path.join(root, "package-lock.json")), false);
   assert.equal(
     pkg.scripts["test:evidence"],
-    "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs",
+    "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs tests/evidence-playwright-reporter.test.mjs",
   );
   assert.match(pkg.scripts.test, /^npm run build:zmr && npm run test:evidence && node --test /);
 });
@@ -421,6 +421,24 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.ok(pkg.files.includes("FEATURES.md"));
   assert.equal(pkg.scripts.prepublishOnly, "node npm/verify-publish.mjs");
   assert.equal(pkg.scripts["zmr:demo"], "node npm/zmr.mjs validate examples/demo-fake.json");
+  assert.deepEqual(pkg.exports, {
+    ".": "./npm/index.mjs",
+    "./playwright-reporter": {
+      types: "./npm/evidence/playwright-reporter.d.ts",
+      import: "./npm/evidence/playwright-reporter.mjs",
+      default: "./npm/evidence/playwright-reporter.mjs",
+    },
+    "./evidence": "./npm/evidence/contract.mjs",
+    "./schemas/*": "./schemas/*",
+    "./*": "./*",
+  });
+  assert.deepEqual(pkg.peerDependencies, { "@playwright/test": ">=1.42.0" });
+  assert.deepEqual(pkg.peerDependenciesMeta, { "@playwright/test": { optional: true } });
+  assert.equal(pkg.dependencies, undefined);
+  assert.equal(fs.existsSync(path.join(root, "package-lock.json")), false);
+  assert.equal(fs.existsSync(path.join(root, "npm", "evidence", "playwright-reporter.d.ts")), true);
+  assert.equal(fs.existsSync(path.join(root, "examples", "playwright-zeno-reporter.config.ts")), true);
+  assert.equal(fs.existsSync(path.join(root, "examples", "playwright-zeno-journey.spec.ts")), true);
 });
 
 test("npm package excludes internal tests caches traces and build outputs", () => {
@@ -477,9 +495,13 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   assert.ok(paths.includes("src/main.zig"));
   assert.ok(paths.includes("npm/evidence-cli.mjs"));
   assert.ok(paths.includes("npm/evidence/contract.mjs"));
+  assert.ok(paths.includes("npm/evidence/playwright-reporter.mjs"));
+  assert.ok(paths.includes("npm/evidence/playwright-reporter.d.ts"));
   assert.ok(paths.includes("schemas/evidence-v1.schema.json"));
   assert.ok(paths.includes("fixtures/evidence/v1/README.md"));
   assert.ok(paths.includes("fixtures/evidence/v1/manifests/zeno-passed.json"));
+  assert.ok(paths.includes("examples/playwright-zeno-reporter.config.ts"));
+  assert.ok(paths.includes("examples/playwright-zeno-journey.spec.ts"));
   assert.ok(paths.includes("docs/frameworks.md"));
   assert.ok(paths.includes("docs/expo-smoke.md"));
   assert.ok(paths.includes("docs/production-readiness.md"));
@@ -488,6 +510,63 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   assert.ok(paths.includes("clients/go/zmr/client.go"));
   assert.ok(paths.includes("clients/kotlin/src/main/kotlin/dev/zmr/ZmrClient.kt"));
   assert.ok(paths.includes("clients/swift/Sources/ZMRClient/ZMRClient.swift"));
+});
+
+test("packed Playwright reporter package preserves root, subpath, and wildcard imports", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zmr-playwright-pack-import-"));
+  try {
+    const npmEnv = {
+      ...process.env,
+      npm_config_cache: path.join(tmp, ".npm-cache"),
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+    };
+    const pack = spawnSync("npm", ["pack", "--pack-destination", tmp], {
+      cwd: root,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(pack.status, 0, pack.stderr);
+    const tarball = fs.readdirSync(tmp).find((name) => name.endsWith(".tgz"));
+    assert.ok(tarball);
+    const appDir = path.join(tmp, "consumer");
+    fs.mkdirSync(appDir);
+    fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify({
+      name: "zmr-playwright-import-smoke",
+      private: true,
+      type: "module",
+    }));
+    const install = spawnSync("npm", [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      path.join(tmp, tarball),
+    ], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(install.status, 0, install.stderr);
+    const importSmoke = spawnSync(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      [
+        "await import('zeno-mobile-runner')",
+        "const reporter = await import('zeno-mobile-runner/playwright-reporter')",
+        "if (typeof reporter.default !== 'function') throw new Error('missing reporter')",
+        "await import('zeno-mobile-runner/evidence')",
+        "await import('zeno-mobile-runner/npm/evidence/canonical-json.mjs')",
+      ].join(";"),
+    ], {
+      cwd: appDir,
+      env: npmEnv,
+      encoding: "utf8",
+    });
+    assert.equal(importSmoke.status, 0, importSmoke.stderr);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("npm prebuild packer respects release version overrides", () => {

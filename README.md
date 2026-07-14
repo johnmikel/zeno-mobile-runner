@@ -1,6 +1,6 @@
 # Zeno Mobile Runner
 
-> Agent-native mobile UI automation: a single Zig binary that drives real
+> Mobile UI automation built for AI coding agents: one Zig binary that drives real
 > Android and iOS devices via MCP, JSON-RPC, or committed JSON scenarios, and
 > emits replayable trace evidence.
 
@@ -31,7 +31,7 @@ committed JSON scenarios.
 <p align="center"><em>On-device screenshots from ZMR traces: the same demo flow
 driven on an iOS simulator and an Android emulator.</em></p>
 
-## Why this exists
+## Why This Exists
 
 - **Agents need structured mobile state, not terminal scrapings.** ZMR returns
   semantic UI trees, stable selectors, screenshots, and typed action results, so
@@ -158,11 +158,35 @@ onboarding, and show me the trace."* The MCP server exposes the full loop as
 | Assert | `assert_visible`, `assert_not_visible`, `assert_healthy` |
 | Evidence | `trace_events`, `trace_explain`, `trace_discover`, `trace_explore`, `trace_export`, `scenario_validate` |
 
+## Agent Verification Loop
+
+```mermaid
+sequenceDiagram
+    participant Agent as AI agent
+    participant ZMR
+    participant Device as Emulator / simulator
+    Agent->>ZMR: semantic_snapshot
+    ZMR->>Device: capture UI + screenshot
+    ZMR-->>Agent: roles, stable selectors, bounds
+    Agent->>ZMR: tap / type / swipe / open_link
+    ZMR->>Device: execute + settle
+    Agent->>ZMR: wait_visible / assert_visible
+    ZMR-->>Agent: typed result + trace events
+    Agent->>ZMR: trace_discover
+    ZMR-->>Agent: reviewable replay scenario
+    Agent->>ZMR: trace_export --redact
+    ZMR-->>Agent: .zmrtrace evidence bundle
+```
+
 A parallel JSON-RPC method set (`runner.capabilities`, `device.list`,
 `session.create`, `observe.*`, `ui.*`, `trace.*`, `scenario.*`) exposes the same
 engine to harnesses that embed ZMR over stdio or TCP.
 
-### Deterministic scenarios for CI
+When a run fails, `zmr explain` diagnoses the trace for humans and agents alike:
+
+![Terminal session showing a failed run, zmr explain diagnosing the failure with visible texts, and the fixed run passing](docs/assets/cli-run-explain.png)
+
+## Deterministic Scenarios For CI
 
 Scenarios are plain JSON — no second DSL to learn. Agents and build scripts can
 generate, validate, and mutate them, then replay them in CI with no LLM cost:
@@ -231,6 +255,11 @@ build, what passed or failed, and which business journey it supports. See the
 | Apple TV / Apple Watch | Not in this preview | Would require a separate platform lifecycle, shim, destination, and trace evidence |
 | Cloud device farms | Not included | ZMR targets local and self-managed devices in this preview |
 
+Slow CI hardware can extend the generated iOS shim build timeout with
+`ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS`; `ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS`
+bounds each in-flight request, and `ZMR_IOS_SHIM_TIMEOUT_MS` remains the outer
+process ceiling. Current release: `0.2.17` developer preview.
+
 End-to-end device runs require a configured mobile toolchain (Android SDK / ADB,
 Xcode / `simctl`) and, for iOS native selector actions, building the generated
 XCTest shim into the app. To exercise the engine **without hardware**, the repo
@@ -263,8 +292,8 @@ What backs that maturity claim:
   (macOS code-signing/notarization scripts exist in `scripts/` but are not yet
   wired into the release workflow; npm publish does not currently set
   `--provenance`.)
-- **Distribution.** Also shipped as a Claude Code plugin (`.claude-plugin/`) and
-  registered as an MCP server (`glama.json`).
+- **Distribution.** Also shipped with an agent plugin bundle (`.claude-plugin/`)
+  and registered as an MCP server (`glama.json`).
 
 Some Apple-platform and benchmark claims are honestly marked *evidence-needed* in
 the support matrix; redaction is intentionally conservative. See
@@ -281,10 +310,13 @@ the support matrix; redaction is intentionally conservative. See
 - [docs/scenario-authoring.md](docs/scenario-authoring.md) — selectors, waits,
   and scenario design
 - [docs/frameworks.md](docs/frameworks.md) — React Native, Expo, Flutter, native
+- [docs/expo-smoke.md](docs/expo-smoke.md) — reproducible Expo and iOS smoke test
+- [docs/support-matrix.md](docs/support-matrix.md) — platform support and evidence levels
 - [docs/protocol.md](docs/protocol.md) — JSON-RPC methods and schemas
 - [docs/trace-privacy.md](docs/trace-privacy.md) — safe trace export
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common setup and runtime
   issues
+- [skills/zmr-mobile-testing/SKILL.md](skills/zmr-mobile-testing/SKILL.md) — reusable agent testing workflow
 - [FEATURES.md](FEATURES.md) — complete feature list and limitations
 
 ## License

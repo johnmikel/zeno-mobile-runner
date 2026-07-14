@@ -9,6 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { hostname } from "node:os";
 import {
   basename,
   dirname,
@@ -33,6 +34,12 @@ import {
 
 const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
 const PACKAGE_WRITER_TEST_HOOK = Symbol.for("dev.zmr.evidence.package-writer.test-hook");
+const PUBLISH_LOCK_OWNER_FILE = "owner.json";
+const PUBLISH_LOCK_INCOMPLETE_GRACE_MS = 5 * 60 * 1_000;
+const MAX_PUBLISH_LOCK_OWNER_BYTES = 4 * 1_024;
+const MAX_PUBLISH_LOCK_ATTEMPTS = 8;
+const PUBLISH_LOCK_TOKEN_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+const LOCAL_HOSTNAME = hostname();
 const ARTIFACT_REDACTION_STATES = ["unreviewed", "reviewed", "redacted"];
 const DISCLOSURE_STATES = ["private", "review_eligible", "disclosed", "withheld"];
 const BODY_INPUT_PROPERTIES = new Set([
@@ -78,7 +85,8 @@ function invalidSource(message = "artifact source is not an authorized regular f
 
 async function runPackageWriterTestHook(event) {
   const hook = globalThis[PACKAGE_WRITER_TEST_HOOK];
-  if (typeof hook === "function") await hook(Object.freeze(event));
+  if (typeof hook === "function") return hook(Object.freeze(event));
+  return undefined;
 }
 
 function isContained(rootPath, candidatePath) {
@@ -99,25 +107,213 @@ async function pathExists(path) {
   }
 }
 
-async function acquirePublishLock(destination) {
-  const lockPath = join(dirname(destination), `.${basename(destination)}.publish.lock`);
+function publishLockError(code, message) {
+  return validationError(code, message, "/destination");
+}
+
+function lockedDestinationError() {
+  return publishLockError(
+    "package_publish_locked",
+    "Another evidence package writer is publishing to this destination",
+  );
+}
+
+function publishLockFailure() {
+  return publishLockError(
+    "package_publish_failed",
+    "Evidence package publication lock could not be managed safely",
+  );
+}
+
+function lockPathForDestination(destination) {
+  return join(dirname(destination), `.${basename(destination)}.publish.lock`);
+}
+
+function quarantinePathForLock(lockPath) {
+  return `${lockPath}.quarantine-${randomUUID()}`;
+}
+
+function isWellFormedLockOwner(value) {
+  if (!isObject(value)) return false;
+  if (!PUBLISH_LOCK_TOKEN_PATTERN.test(value.token)) return false;
+  if (!Number.isSafeInteger(value.pid) || value.pid <= 0) return false;
+  if (typeof value.hostname !== "string" || value.hostname.length === 0) return false;
+  if (typeof value.createdAt !== "string" || typeof value.renewedAt !== "string") return false;
+  const createdAt = Date.parse(value.createdAt);
+  const renewedAt = Date.parse(value.renewedAt);
+  return Number.isFinite(createdAt)
+    && Number.isFinite(renewedAt)
+    && renewedAt >= createdAt;
+}
+
+async function inspectPublishLock(lockPath) {
+  let lockInfo;
   try {
-    await mkdir(lockPath, { mode: 0o700 });
-  } catch (cause) {
-    if (cause?.code === "EEXIST") {
-      throw validationError(
-        "package_publish_locked",
-        "Another evidence package writer is publishing to this destination",
-        "/destination",
-      );
-    }
-    throw validationError(
-      "package_publish_failed",
-      "Evidence package publication lock could not be acquired",
-      "/destination",
-    );
+    lockInfo = await lstat(lockPath);
+  } catch (error) {
+    return error?.code === "ENOENT"
+      ? { kind: "missing" }
+      : { kind: "unreadable" };
   }
-  return lockPath;
+
+  let incomplete = { kind: "incomplete", modifiedAt: lockInfo.mtimeMs };
+  if (!lockInfo.isDirectory() || lockInfo.isSymbolicLink()) return incomplete;
+  const ownerPath = join(lockPath, PUBLISH_LOCK_OWNER_FILE);
+  try {
+    const ownerInfo = await lstat(ownerPath);
+    incomplete = {
+      kind: "incomplete",
+      modifiedAt: Math.max(lockInfo.mtimeMs, ownerInfo.mtimeMs),
+    };
+    if (
+      !ownerInfo.isFile()
+      || ownerInfo.isSymbolicLink()
+      || ownerInfo.size > MAX_PUBLISH_LOCK_OWNER_BYTES
+    ) {
+      return incomplete;
+    }
+    const owner = JSON.parse(await readFile(ownerPath, "utf8"));
+    return isWellFormedLockOwner(owner)
+      ? { kind: "owned", owner }
+      : incomplete;
+  } catch {
+    return incomplete;
+  }
+}
+
+async function isProcessAlive(pid) {
+  const override = await runPackageWriterTestHook({ phase: "lock_owner_liveness", pid });
+  if (typeof override === "boolean") return override;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "EPERM") return true;
+    if (error?.code === "ESRCH") return false;
+    return true;
+  }
+}
+
+async function publishLockIsReclaimable(state) {
+  if (state.kind === "missing") return true;
+  if (state.kind === "unreadable") return false;
+  if (state.kind === "incomplete") {
+    return Date.now() - state.modifiedAt >= PUBLISH_LOCK_INCOMPLETE_GRACE_MS;
+  }
+  if (state.owner.hostname !== LOCAL_HOSTNAME) {
+    // A heartbeat without distributed clock and fencing guarantees cannot safely prove
+    // a shared-filesystem owner dead. Remote-host locks require operator recovery.
+    return false;
+  }
+  return !(await isProcessAlive(state.owner.pid));
+}
+
+async function restoreQuarantinedLock(quarantinePath, lockPath) {
+  if (await pathExists(lockPath)) return false;
+  try {
+    await rename(quarantinePath, lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function reclaimExistingPublishLock(lockPath) {
+  const quarantinePath = quarantinePathForLock(lockPath);
+  try {
+    await rename(lockPath, quarantinePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return "retry";
+    throw publishLockFailure();
+  }
+
+  const quarantinedState = await inspectPublishLock(quarantinePath);
+  if (!(await publishLockIsReclaimable(quarantinedState))) {
+    await restoreQuarantinedLock(quarantinePath, lockPath);
+    return "active";
+  }
+  try {
+    await rm(quarantinePath, { recursive: true, force: true });
+  } catch {
+    throw publishLockFailure();
+  }
+  return "reclaimed";
+}
+
+async function discardNewPublishLock(lockPath) {
+  const quarantinePath = quarantinePathForLock(lockPath);
+  try {
+    await rename(lockPath, quarantinePath);
+    await rm(quarantinePath, { recursive: true, force: true });
+  } catch {
+    // The fresh incomplete directory remains protected by the grace period if cleanup fails.
+  }
+}
+
+async function acquirePublishLock(destination) {
+  const lockPath = lockPathForDestination(destination);
+  for (let attempt = 0; attempt < MAX_PUBLISH_LOCK_ATTEMPTS; attempt += 1) {
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+    } catch (cause) {
+      if (cause?.code !== "EEXIST") throw publishLockFailure();
+      const state = await inspectPublishLock(lockPath);
+      if (!(await publishLockIsReclaimable(state))) throw lockedDestinationError();
+      const recovery = await reclaimExistingPublishLock(lockPath);
+      if (recovery === "active") throw lockedDestinationError();
+      continue;
+    }
+
+    const token = randomUUID();
+    const timestamp = new Date().toISOString();
+    const owner = {
+      token,
+      pid: process.pid,
+      hostname: LOCAL_HOSTNAME,
+      createdAt: timestamp,
+      renewedAt: timestamp,
+    };
+    try {
+      const ownerPath = join(lockPath, PUBLISH_LOCK_OWNER_FILE);
+      await writeFile(ownerPath, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 });
+      await syncFile(ownerPath);
+    } catch {
+      await discardNewPublishLock(lockPath);
+      throw publishLockFailure();
+    }
+    return { lockPath, token };
+  }
+  throw lockedDestinationError();
+}
+
+async function releasePublishLock(lock) {
+  const state = await inspectPublishLock(lock.lockPath);
+  if (state.kind !== "owned" || state.owner.token !== lock.token) return false;
+
+  const quarantinePath = quarantinePathForLock(lock.lockPath);
+  try {
+    await rename(lock.lockPath, quarantinePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw publishLockFailure();
+  }
+
+  await runPackageWriterTestHook({
+    phase: "lock_release_quarantined",
+    lockPath: lock.lockPath,
+    quarantinePath,
+  });
+
+  const quarantinedState = await inspectPublishLock(quarantinePath);
+  if (
+    quarantinedState.kind !== "owned"
+    || quarantinedState.owner.token !== lock.token
+  ) {
+    await restoreQuarantinedLock(quarantinePath, lock.lockPath);
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
+  return true;
 }
 
 function cloneDraft(value, path = "", active = new Set()) {
@@ -510,7 +706,7 @@ export async function writeEvidencePackage({
   const manifestDigest = sha256Bytes(canonicalBytes(finalManifest));
   const evidenceBytes = Buffer.from(`${JSON.stringify(finalManifest, null, 2)}\n`, "utf8");
   const tempPath = join(parent, `.${stem}.tmp-${randomUUID()}`);
-  const lockPath = await acquirePublishLock(destinationPath);
+  const lock = await acquirePublishLock(destinationPath);
 
   try {
     await writeStagedPackage(tempPath, finalManifest, evidenceBytes, uniqueArtifacts);
@@ -519,7 +715,7 @@ export async function writeEvidencePackage({
     await rm(tempPath, { recursive: true, force: true }).catch(() => {});
     throw error;
   } finally {
-    await rm(lockPath, { recursive: true, force: true }).catch(() => {});
+    await releasePublishLock(lock).catch(() => {});
   }
 
   return {

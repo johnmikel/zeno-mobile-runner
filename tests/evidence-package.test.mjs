@@ -9,9 +9,10 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
@@ -51,6 +52,9 @@ const COMMIT_A = "1".repeat(40);
 const COMMIT_B = "2".repeat(40);
 const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
 const PACKAGE_WRITER_TEST_HOOK = Symbol.for("dev.zmr.evidence.package-writer.test-hook");
+const LOCK_TOKEN_A = "00000000-0000-4000-8000-000000000001";
+const LOCK_TOKEN_B = "00000000-0000-4000-8000-000000000002";
+const OLD_LOCK_DATE = new Date("2000-01-01T00:00:00.000Z");
 
 function mobileTarget(overrides = {}) {
   const target = {
@@ -740,6 +744,45 @@ async function assertPathMissing(path) {
   await assert.rejects(readFile(path), (error) => error?.code === "ENOENT" || error?.code === "EISDIR");
 }
 
+function publishLockPath(destination) {
+  return join(dirname(destination), `.${basename(destination)}.publish.lock`);
+}
+
+function lockOwner(overrides = {}) {
+  const timestamp = OLD_LOCK_DATE.toISOString();
+  return {
+    token: LOCK_TOKEN_A,
+    pid: 123_456,
+    hostname: hostname(),
+    createdAt: timestamp,
+    renewedAt: timestamp,
+    ...overrides,
+  };
+}
+
+async function createTestPublishLock(destination, { metadata, modifiedAt } = {}) {
+  const lockPath = publishLockPath(destination);
+  await mkdir(lockPath, { mode: 0o700 });
+  const ownerPath = join(lockPath, "owner.json");
+  if (metadata !== undefined) {
+    const bytes = typeof metadata === "string" ? metadata : `${JSON.stringify(metadata)}\n`;
+    await writeFile(ownerPath, bytes, { mode: 0o600 });
+  }
+  if (modifiedAt !== undefined) {
+    if (metadata !== undefined) await utimes(ownerPath, modifiedAt, modifiedAt);
+    await utimes(lockPath, modifiedAt, modifiedAt);
+  }
+  return lockPath;
+}
+
+function packageWriterDebris(names) {
+  return names.filter((name) => (
+    name.includes(".tmp-")
+    || name.includes(".publish.lock")
+    || name.includes(".quarantine-")
+  ));
+}
+
 test("package writing rejects extreme manifest depth before cloning", async () => {
   await withTemporaryDirectory("zmr-evidence-deep-writer-", async (parent) => {
     await assert.rejects(
@@ -1098,6 +1141,242 @@ test("simultaneous cooperating writers are serialized by a sibling publication l
       (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".publish.lock")),
       [],
     );
+  });
+});
+
+test("dead same-host publication lock owners are quarantined and recovered", async () => {
+  await withTemporaryDirectory("zmr-evidence-dead-lock-", async (parent) => {
+    const destination = join(parent, "package");
+    const owner = lockOwner();
+    await createTestPublishLock(destination, { metadata: owner, modifiedAt: OLD_LOCK_DATE });
+    let livenessChecks = 0;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = ({ phase, pid }) => {
+      if (phase !== "lock_owner_liveness") return undefined;
+      livenessChecks += 1;
+      assert.equal(pid, owner.pid);
+      return false;
+    };
+
+    try {
+      await writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [],
+      });
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    assert.ok(livenessChecks >= 1);
+    assert.equal(JSON.parse(await readFile(join(destination, "evidence.json"), "utf8")).schemaVersion, "1.0");
+    assert.deepEqual(packageWriterDebris(await readdir(parent)), []);
+  });
+});
+
+test("a live same-host publication lock remains active without leaking owner metadata", async () => {
+  await withTemporaryDirectory("zmr-evidence-live-lock-", async (parent) => {
+    const destination = join(parent, "package");
+    const owner = lockOwner({ pid: process.pid });
+    const lockPath = await createTestPublishLock(destination, {
+      metadata: owner,
+      modifiedAt: OLD_LOCK_DATE,
+    });
+
+    await assert.rejects(
+      writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [],
+      }),
+      (error) => {
+        assert.ok(error instanceof CanonicalEvidenceValidationError);
+        assert.equal(error.code, "package_publish_locked");
+        assert.equal(error.message.includes(owner.token), false);
+        assert.equal(error.message.includes(String(owner.pid)), false);
+        return true;
+      },
+    );
+
+    assert.deepEqual(JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")), owner);
+    assert.deepEqual(
+      packageWriterDebris(await readdir(parent)),
+      [basename(lockPath)],
+    );
+    await rm(lockPath, { recursive: true });
+  });
+});
+
+test("missing or corrupt owner metadata is reclaimed only after the grace period", async () => {
+  await withTemporaryDirectory("zmr-evidence-incomplete-lock-", async (parent) => {
+    for (const [index, metadata] of [undefined, "{not-json"].entries()) {
+      const destination = join(parent, `package-${index}`);
+      const lockPath = await createTestPublishLock(destination, { metadata });
+
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "package_publish_locked"
+        ),
+      );
+      assert.equal((await lstat(lockPath)).isDirectory(), true);
+      assert.deepEqual(
+        packageWriterDebris(await readdir(parent)),
+        [basename(lockPath)],
+      );
+
+      await utimes(lockPath, OLD_LOCK_DATE, OLD_LOCK_DATE);
+      if (metadata !== undefined) {
+        await assert.rejects(
+          writeEvidencePackage({
+            destination,
+            manifest: validMobileManifest(),
+            artifactInputs: [],
+          }),
+          (error) => (
+            error instanceof CanonicalEvidenceValidationError
+            && error.code === "package_publish_locked"
+          ),
+        );
+        await utimes(
+          join(lockPath, "owner.json"),
+          OLD_LOCK_DATE,
+          OLD_LOCK_DATE,
+        );
+      }
+      await writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [],
+      });
+      assert.equal(JSON.parse(await readFile(join(destination, "evidence.json"), "utf8")).schemaVersion, "1.0");
+      assert.deepEqual(packageWriterDebris(await readdir(parent)), []);
+    }
+  });
+});
+
+test("lock release preserves a replacement lock whose owner token differs", async () => {
+  await withTemporaryDirectory("zmr-evidence-lock-token-", async (parent) => {
+    const destination = join(parent, "package");
+    const lockPath = publishLockPath(destination);
+    const replacementOwner = lockOwner({ token: LOCK_TOKEN_B, pid: process.pid });
+    let acquiredOwner;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = async ({ phase, quarantinePath }) => {
+      if (phase === "staged") {
+        acquiredOwner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"));
+        assert.match(acquiredOwner.token, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+        assert.equal(acquiredOwner.pid, process.pid);
+        assert.equal(acquiredOwner.hostname, hostname());
+        assert.equal(Number.isFinite(Date.parse(acquiredOwner.createdAt)), true);
+        assert.equal(Number.isFinite(Date.parse(acquiredOwner.renewedAt)), true);
+      }
+      if (phase === "lock_release_quarantined") {
+        const quarantinedOwnerPath = join(quarantinePath, "owner.json");
+        assert.equal(
+          JSON.parse(await readFile(quarantinedOwnerPath, "utf8")).token,
+          acquiredOwner.token,
+        );
+        await writeFile(quarantinedOwnerPath, `${JSON.stringify(replacementOwner)}\n`, {
+          mode: 0o600,
+        });
+      }
+    };
+
+    try {
+      await writeEvidencePackage({
+        destination,
+        manifest: validMobileManifest(),
+        artifactInputs: [],
+      });
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    assert.equal(typeof acquiredOwner.token, "string");
+    assert.notEqual(acquiredOwner.token, replacementOwner.token);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")),
+      replacementOwner,
+    );
+    const evidenceText = await readFile(join(destination, "evidence.json"), "utf8");
+    assert.equal(JSON.parse(evidenceText).schemaVersion, "1.0");
+    assert.equal(evidenceText.includes(acquiredOwner.token), false);
+    assert.equal(evidenceText.includes(replacementOwner.token), false);
+    assert.equal(evidenceText.includes(String(process.pid)), false);
+    assert.deepEqual(packageWriterDebris(await readdir(parent)), [basename(lockPath)]);
+    await rm(lockPath, { recursive: true });
+    assert.deepEqual(packageWriterDebris(await readdir(parent)), []);
+  });
+});
+
+test("stale-lock recovery cleans quarantine, lock, and staging state after failure", async () => {
+  await withTemporaryDirectory("zmr-evidence-lock-cleanup-", async (parent) => {
+    const destination = join(parent, "package");
+    await createTestPublishLock(destination, {
+      metadata: "{not-json",
+      modifiedAt: OLD_LOCK_DATE,
+    });
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = ({ phase }) => {
+      if (phase === "staged") throw new Error("intentional recovered-lock failure");
+    };
+
+    try {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [],
+        }),
+        /intentional recovered-lock failure/,
+      );
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    await assertPathMissing(destination);
+    assert.deepEqual(packageWriterDebris(await readdir(parent)), []);
+  });
+});
+
+test("different-host publication locks are never reclaimed through local PID checks", async () => {
+  await withTemporaryDirectory("zmr-evidence-remote-lock-", async (parent) => {
+    const destination = join(parent, "package");
+    const owner = lockOwner({ hostname: `${hostname()}.remote` });
+    const lockPath = await createTestPublishLock(destination, {
+      metadata: owner,
+      modifiedAt: OLD_LOCK_DATE,
+    });
+    let livenessChecks = 0;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = ({ phase }) => {
+      if (phase === "lock_owner_liveness") livenessChecks += 1;
+    };
+
+    try {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "package_publish_locked"
+          && !error.message.includes(owner.hostname)
+          && !error.message.includes(owner.token)
+        ),
+      );
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    assert.equal(livenessChecks, 0);
+    assert.deepEqual(JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")), owner);
+    await rm(lockPath, { recursive: true });
+    assert.deepEqual(packageWriterDebris(await readdir(parent)), []);
   });
 });
 

@@ -70,35 +70,64 @@ const REQUIRED_FROM_ZMR_OPTIONS = [
   "--out",
 ];
 
+const SAFE_EVIDENCE_MESSAGES = new Map([
+  ["artifact_digest_mismatch", "Packaged artifact digest does not match its descriptor"],
+  ["artifact_missing", "Packaged artifact is missing"],
+  ["artifact_size_mismatch", "Packaged artifact size does not match its descriptor"],
+  ["destination_exists", "Evidence package destination already exists"],
+  ["invalid_evidence_json", "Evidence manifest is not valid JSON"],
+  ["invalid_evidence_manifest", "Evidence manifest is invalid"],
+  ["invalid_evidence_package", "Evidence package is invalid"],
+]);
+
+function safeEvidenceCode(error) {
+  return typeof error.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(error.code)
+    ? error.code
+    : "evidence_validation_error";
+}
+
+function publicError(error) {
+  if (error instanceof CliUsageError) {
+    return {
+      code: error.code,
+      message: error.message,
+      issues: [],
+    };
+  }
+  if (error instanceof EvidenceValidationError) {
+    const code = safeEvidenceCode(error);
+    return {
+      code,
+      message: SAFE_EVIDENCE_MESSAGES.get(code) ?? `Evidence command failed (${code})`,
+      issues: [],
+    };
+  }
+  return {
+    code: "internal_error",
+    message: "Unexpected evidence CLI failure",
+    issues: [],
+  };
+}
+
 function printHelp() {
   process.stdout.write(`${USAGE}\n`);
 }
 
 function printError(error) {
-  const expected = error instanceof CliUsageError || error instanceof EvidenceValidationError;
-  const issues = expected && Array.isArray(error.issues)
-    ? error.issues.map((issue) => {
-      if (issue === null || typeof issue !== "object" || Array.isArray(issue)) return {};
-      const sanitized = {};
-      for (const key of ["code", "message", "path", "field"]) {
-        if (typeof issue[key] === "string") sanitized[key] = issue[key];
-      }
-      return sanitized;
-    })
-    : [];
   const payload = {
     ok: false,
-    error: {
-      code: expected && typeof error.code === "string" ? error.code : "internal_error",
-      message: expected && typeof error.message === "string"
-        ? error.message
-        : "Unexpected evidence CLI failure",
-      issues,
-    },
+    error: publicError(error),
   };
   process.stderr.write(`${JSON.stringify(payload)}\n`);
-  if (process.env.ZENO_EVIDENCE_DEBUG === "1" && typeof error?.stack === "string") {
-    process.stderr.write(`${error.stack}\n`);
+  if (process.env.ZENO_EVIDENCE_DEBUG === "1") {
+    const debugName = error instanceof CliUsageError
+      ? "CliUsageError"
+      : error instanceof EvidenceValidationError
+        ? "EvidenceValidationError"
+        : "Error";
+    process.stderr.write(
+      `Debug stack:\n${debugName}: ${payload.error.message}\n    at zmr-evidence\n`,
+    );
   }
 }
 

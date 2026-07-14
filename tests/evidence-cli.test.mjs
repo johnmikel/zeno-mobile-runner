@@ -323,6 +323,10 @@ test("validate detects sibling artifact tampering and keeps normal failures on s
   const error = parseJsonLine(result.stderr);
   assert.equal(error.ok, false);
   assert.equal(error.error.code, "artifact_digest_mismatch");
+  assert.equal(
+    error.error.message,
+    "Packaged artifact digest does not match its descriptor",
+  );
   assert.deepEqual(error.error.issues, []);
   assert.equal(result.stderr.includes("\n    at "), false);
 });
@@ -341,6 +345,86 @@ test("validate never includes malformed evidence contents in its JSON error", (t
   const error = parseJsonLine(result.stderr);
   assert.equal(error.error.code, "invalid_evidence_json");
   assert.equal(result.stderr.includes(secret), false);
+});
+
+test("validate redacts attacker-controlled manifest issues and local paths in normal and debug modes", (t) => {
+  const directory = makeFixture(t);
+  const created = runCli(fromZmrArgs(), { cwd: directory });
+  assert.equal(created.status, 0, created.stderr);
+  const manifestPath = join(directory, "zeno-evidence", "evidence.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const attackerStrings = [
+    "SUPER_SECRET_DO_NOT_ECHO",
+    "ghp_ATTACKER_CONTROLLED_TOKEN_123456789",
+    "/Users/attacker/.ssh/id_rsa",
+    "file:///private/var/secrets/client-token.txt",
+    "Bearer eyJhbGciOiJub25lIn0.attacker.signature",
+  ];
+  manifest[attackerStrings[0]] = attackerStrings[1];
+  manifest.release[attackerStrings[2]] = attackerStrings[3];
+  manifest.project.externalId = attackerStrings[4];
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  for (const debug of [false, true]) {
+    const result = runCli(["validate", manifestPath], {
+      cwd: directory,
+      env: { ZENO_EVIDENCE_DEBUG: debug ? "1" : "0" },
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    const [jsonLine, ...debugLines] = result.stderr.split("\n");
+    assert.match(jsonLine, /^[^\r\n]+$/);
+    assert.deepEqual(JSON.parse(jsonLine), {
+      ok: false,
+      error: {
+        code: "invalid_evidence_manifest",
+        message: "Evidence manifest is invalid",
+        issues: [],
+      },
+    });
+    if (debug) {
+      assert.match(debugLines.join("\n"), /EvidenceValidationError/);
+      assert.match(debugLines.join("\n"), /at zmr-evidence/);
+    } else {
+      assert.deepEqual(debugLines, [""]);
+    }
+    for (const secret of attackerStrings) {
+      assert.equal(result.stderr.includes(secret), false, secret);
+    }
+    assert.equal(result.stderr.includes(directory), false);
+    assert.equal(result.stderr.includes(root), false);
+  }
+});
+
+test("source and native filesystem failures redact caller paths in normal and debug modes", (t) => {
+  const directory = makeFixture(t);
+  const missingTrace = join(directory, "SUPER_SECRET_MISSING_TRACE");
+  const blockedParent = join(directory, "SUPER_SECRET_BLOCKED_PARENT");
+  writeFileSync(blockedParent, "not a directory\n");
+  const commands = [
+    fromZmrArgs({ overrides: { "--trace": missingTrace, "--out": "missing-output" } }),
+    fromZmrArgs({ overrides: { "--out": join(blockedParent, "SUPER_SECRET_DESTINATION") } }),
+  ];
+
+  for (const args of commands) {
+    for (const debug of [false, true]) {
+      const result = runCli(args, {
+        cwd: directory,
+        env: { ZENO_EVIDENCE_DEBUG: debug ? "1" : "0" },
+      });
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, "");
+      const [jsonLine] = result.stderr.split("\n");
+      const payload = JSON.parse(jsonLine);
+      assert.equal(payload.ok, false);
+      assert.equal(typeof payload.error.code, "string");
+      assert.equal(typeof payload.error.message, "string");
+      assert.deepEqual(payload.error.issues, []);
+      assert.equal(result.stderr.includes(directory), false);
+      assert.equal(result.stderr.includes(root), false);
+      assert.equal(result.stderr.includes("SUPER_SECRET"), false);
+    }
+  }
 });
 
 test("validate usage errors exit 2 and command help exits 0", (t) => {

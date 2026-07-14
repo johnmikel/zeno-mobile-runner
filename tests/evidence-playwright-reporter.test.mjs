@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -43,7 +53,8 @@ function reporterOptions(outputDir, overrides = {}) {
 }
 
 async function workspace(t) {
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), "zmr-playwright-reporter-"));
+  const lexicalRoot = await mkdtemp(path.join(os.tmpdir(), "zmr-playwright-reporter-"));
+  const rootDir = await realpath(lexicalRoot);
   t.after(async () => {
     await rm(rootDir, { recursive: true, force: true });
   });
@@ -555,6 +566,11 @@ test("TestError message fallback is bounded and redacts paths, controls, and sec
   await writeFile(sourcePath, "export const error = true;\n");
   await writeFile(attachmentPath, "failure attachment");
   const rawSecret = "should-never-survive";
+  const controlSeparatedSecrets = [
+    "bearer-control-secret",
+    "token-control-secret",
+    "api-key-control-secret",
+  ];
   const rawValue = [
     `failure at ${sourcePath}`,
     `root ${rootDir}`,
@@ -566,7 +582,10 @@ test("TestError message fallback is bounded and redacts paths, controls, and sec
     `API_KEY=${rawSecret}`,
     `password=${rawSecret}`,
     `secret=${rawSecret}`,
-    "controls\u0000\u0007\u001f",
+    `Bearer\u000a${controlSeparatedSecrets[0]}`,
+    `token\u0001=\u0002${controlSeparatedSecrets[1]}`,
+    `api_key\u0003:\u0004${controlSeparatedSecrets[2]}`,
+    "controls\u0000stay\u0007separated\u001f",
     "x".repeat(5000),
   ].join(" | ");
   const outputDir = path.join(rootDir, "evidence");
@@ -590,6 +609,10 @@ test("TestError message fallback is bounded and redacts paths, controls, and sec
   assert.match(storedError.message, /<redacted-secret>/);
   assert.doesNotMatch(storedError.message, /[\u0000-\u001f\u007f]/);
   assert.doesNotMatch(storedError.message, new RegExp(rawSecret));
+  for (const secret of controlSeparatedSecrets) {
+    assert.doesNotMatch(storedError.message, new RegExp(secret));
+  }
+  assert.match(storedError.message, /controls stay separated/);
   assert.doesNotMatch(storedError.message, /Users\\alice/);
   assert.doesNotMatch(storedError.message, new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(Object.hasOwn(storedError, "value"), false);
@@ -880,4 +903,363 @@ test("a closed stderr cannot swallow the failed status override", async (t) => {
   } finally {
     process.stderr.write = originalWrite;
   }
+});
+
+test("failure marker refuses a symlinked output directory leaf", async (t) => {
+  const rootDir = await workspace(t);
+  const outsideRoot = await workspace(t);
+  const outputDir = path.join(rootDir, "linked-evidence");
+  await symlink(outsideRoot, outputDir, "dir");
+  const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir, {
+    projectId: " invalid",
+  }));
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+  const originalWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    assert.deepEqual(await reporter.onEnd(apiFullResult()), { status: "failed" });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  await assert.rejects(readFile(path.join(outsideRoot, "evidence-error.json")));
+});
+
+test("failure marker refuses a symlinked intermediate output directory", async (t) => {
+  const rootDir = await workspace(t);
+  const outsideRoot = await workspace(t);
+  const linkedParent = path.join(rootDir, "linked-parent");
+  const outputDir = path.join(linkedParent, "nested", "evidence");
+  await symlink(outsideRoot, linkedParent, "dir");
+  const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir, {
+    projectId: " invalid",
+  }));
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+  const originalWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    assert.deepEqual(await reporter.onEnd(apiFullResult()), { status: "failed" });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  await assert.rejects(readFile(path.join(outsideRoot, "nested", "evidence", "evidence-error.json")));
+});
+
+test("failure marker preserves existing regular and symlink leaf entries", async (t) => {
+  const rootDir = await workspace(t);
+  const regularOutput = path.join(rootDir, "regular-output");
+  const linkedOutput = path.join(rootDir, "linked-output");
+  await mkdir(regularOutput);
+  await mkdir(linkedOutput);
+  const markerName = "evidence-error.json";
+  const regularMarker = path.join(regularOutput, markerName);
+  const linkedMarker = path.join(linkedOutput, markerName);
+  const outsideSentinel = path.join(rootDir, "outside-sentinel.json");
+  await writeFile(regularMarker, "preserve regular marker\n");
+  await writeFile(outsideSentinel, "preserve symlink target\n");
+  await symlink(outsideSentinel, linkedMarker, "file");
+
+  for (const outputDir of [regularOutput, linkedOutput]) {
+    const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir, {
+      projectId: " invalid",
+    }));
+    reporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    const originalWrite = process.stderr.write;
+    process.stderr.write = () => true;
+    try {
+      assert.deepEqual(await reporter.onEnd(apiFullResult()), { status: "failed" });
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+  }
+
+  assert.equal(await readFile(regularMarker, "utf8"), "preserve regular marker\n");
+  assert.equal(await readFile(outsideSentinel, "utf8"), "preserve symlink target\n");
+  assert.equal((await lstat(linkedMarker)).isSymbolicLink(), true);
+});
+
+test("constructor snapshots supported own options and journeyMap before caller mutation", async (t) => {
+  const rootDir = await workspace(t);
+  await mkdir(path.join(rootDir, "tests"), { recursive: true });
+  await mkdir(path.join(rootDir, "dist"), { recursive: true });
+  await mkdir(path.join(rootDir, "captured-artifacts"), { recursive: true });
+  await mkdir(path.join(rootDir, "mutated-artifacts"), { recursive: true });
+  const sourcePath = path.join(rootDir, "tests", "auth.spec.ts");
+  const buildPath = path.join(rootDir, "dist", "captured.json");
+  const mutatedBuildPath = path.join(rootDir, "dist", "mutated.json");
+  const attachmentPath = path.join(rootDir, "captured-artifacts", "result.txt");
+  await writeFile(sourcePath, "export const captured = true;\n");
+  await writeFile(buildPath, "captured build\n");
+  await writeFile(mutatedBuildPath, "mutated build\n");
+  await writeFile(attachmentPath, "captured attachment\n");
+  const key = playwrightJourneyKey({
+    projectName: "chromium",
+    relativeFile: "tests/auth.spec.ts",
+    titlePath: ["auth", "user can sign in"],
+  });
+  const journeyMap = Object.assign(Object.create(null), { [key]: "captured-journey" });
+  const options = Object.assign(Object.create(null), reporterOptions("captured-evidence", {
+    artifactRoot: "captured-artifacts",
+    browserName: "captured-browser",
+    browserVersion: "126.0",
+    journeyMap,
+  }));
+  delete options.buildManifestDigest;
+  options.buildManifestPath = "dist/captured.json";
+  const reporter = new ZenoPlaywrightReporter(options);
+
+  options.outputDir = "mutated-evidence";
+  options.projectId = "mutated-project";
+  options.submitterId = "mutated-submitter";
+  options.releaseId = "mutated-release";
+  options.commitSha = "2".repeat(40);
+  options.deploymentId = "mutated-deployment";
+  options.environment = "mutated-environment";
+  options.configDigest = `sha256:${"e".repeat(64)}`;
+  options.buildManifestPath = "dist/mutated.json";
+  options.artifactRoot = "mutated-artifacts";
+  options.browserName = "mutated-browser";
+  options.browserVersion = "999.0";
+  options.journeyMap = {};
+  journeyMap[key] = "mutated-journey";
+
+  const testCase = apiTest(rootDir);
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [testCase] });
+  reporter.onTestEnd(testCase, apiResult({
+    attachments: [{ name: "result", contentType: "text/plain", path: attachmentPath }],
+  }));
+  assert.equal(await reporter.onEnd(apiFullResult()), undefined);
+  const capturedPath = path.join(rootDir, "captured-evidence", "evidence.json");
+  const manifest = JSON.parse(await readFile(capturedPath, "utf8"));
+  assert.equal(manifest.project.externalId, "web-project-42");
+  assert.equal(manifest.submission.externalId, "web-ci");
+  assert.equal(manifest.release.externalId, "release-web-42");
+  assert.equal(manifest.release.commitSha, COMMIT_SHA);
+  assert.equal(manifest.target.deploymentId, "deployment-42");
+  assert.equal(manifest.target.environment, "staging");
+  assert.equal(manifest.target.configDigest, DIGEST_D);
+  assert.equal(manifest.target.buildManifestDigest, sha256Bytes(Buffer.from("captured build\n")));
+  assert.equal(manifest.items[0].journeyId, "captured-journey");
+  assert.deepEqual(manifest.items[0].execution, {
+    kind: "browser",
+    browserName: "captured-browser",
+    browserVersion: "126.0",
+  });
+  assert.equal(manifest.items[0].artifacts.length, 1);
+  await assert.rejects(readFile(path.join(rootDir, "mutated-evidence", "evidence.json")));
+});
+
+test("the known Playwright configDir transport option remains compatible", async (t) => {
+  const rootDir = await workspace(t);
+  await mkdir(path.join(rootDir, "tests"), { recursive: true });
+  await writeFile(path.join(rootDir, "tests", "auth.spec.ts"), "export const login = true;\n");
+  const outputDir = path.join(rootDir, "evidence");
+  const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir, {
+    configDir: rootDir,
+  }));
+  const testCase = apiTest(rootDir);
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [testCase] });
+  reporter.onTestEnd(testCase, apiResult());
+  assert.equal(await reporter.onEnd(apiFullResult()), undefined);
+  assert.equal(
+    (await validateEvidencePackage(path.join(outputDir, "evidence.json"))).ok,
+    true,
+  );
+});
+
+test("constructor rejects accessors, unknown keys, non-plain options, and unsafe journey maps without invoking getters", async (t) => {
+  const rootDir = await workspace(t);
+  let optionGetterCalls = 0;
+  const accessorOptions = reporterOptions(path.join(rootDir, "accessor"));
+  Object.defineProperty(accessorOptions, "projectId", {
+    enumerable: true,
+    get() {
+      optionGetterCalls += 1;
+      throw new Error("must not invoke option getter");
+    },
+  });
+  let accessorReporter;
+  assert.doesNotThrow(() => {
+    accessorReporter = new ZenoPlaywrightReporter(accessorOptions);
+  });
+  assert.equal(optionGetterCalls, 0);
+  accessorReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+  const originalWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    assert.deepEqual(await accessorReporter.onEnd(apiFullResult()), { status: "failed" });
+    assert.equal(optionGetterCalls, 0);
+
+    let mapGetterCalls = 0;
+    const journeyMap = {};
+    Object.defineProperty(journeyMap, "unsafe", {
+      enumerable: true,
+      get() {
+        mapGetterCalls += 1;
+        throw new Error("must not invoke map getter");
+      },
+    });
+    const mapReporter = new ZenoPlaywrightReporter(reporterOptions(path.join(rootDir, "map"), {
+      journeyMap,
+    }));
+    mapReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    assert.deepEqual(await mapReporter.onEnd(apiFullResult()), { status: "failed" });
+    assert.equal(mapGetterCalls, 0);
+
+    const unknownReporter = new ZenoPlaywrightReporter({
+      ...reporterOptions(path.join(rootDir, "unknown")),
+      unexpected: "value",
+    });
+    unknownReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    assert.deepEqual(await unknownReporter.onEnd(apiFullResult()), { status: "failed" });
+
+    const symbolOptions = reporterOptions(path.join(rootDir, "symbol-option"));
+    Object.defineProperty(symbolOptions, Symbol("unexpected"), { value: "value" });
+    const symbolReporter = new ZenoPlaywrightReporter(symbolOptions);
+    symbolReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    assert.deepEqual(await symbolReporter.onEnd(apiFullResult()), { status: "failed" });
+
+    class ReporterOptions {}
+    const classOptions = Object.assign(
+      new ReporterOptions(),
+      reporterOptions(path.join(rootDir, "class-options")),
+    );
+    const classReporter = new ZenoPlaywrightReporter(classOptions);
+    classReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    assert.deepEqual(await classReporter.onEnd(apiFullResult()), { status: "failed" });
+
+    const prototypedMap = Object.create({ inherited: "journey" });
+    const prototypeReporter = new ZenoPlaywrightReporter(reporterOptions(
+      path.join(rootDir, "prototype-map"),
+      { journeyMap: prototypedMap },
+    ));
+    prototypeReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    assert.deepEqual(await prototypeReporter.onEnd(apiFullResult()), { status: "failed" });
+
+    const unsafeMap = Object.create(null);
+    Object.defineProperty(unsafeMap, "__proto__", {
+      enumerable: true,
+      value: "journey-unsafe",
+    });
+    const unsafeMapReporter = new ZenoPlaywrightReporter(reporterOptions(
+      path.join(rootDir, "unsafe-map"),
+      { journeyMap: unsafeMap },
+    ));
+    unsafeMapReporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+    assert.deepEqual(await unsafeMapReporter.onEnd(apiFullResult()), { status: "failed" });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+});
+
+test("onBegin, onTestEnd, and onEnd snapshot public lifecycle values before caller mutation", async (t) => {
+  const rootDir = await workspace(t);
+  const otherRoot = await workspace(t);
+  await mkdir(path.join(rootDir, "tests"), { recursive: true });
+  const sourcePath = path.join(rootDir, "tests", "snapshot.spec.ts");
+  await writeFile(sourcePath, "export const snapshot = true;\n");
+  const outputDir = path.join(rootDir, "evidence");
+  const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir, {
+    browserName: undefined,
+    browserVersion: undefined,
+  }));
+  const project = {
+    name: "captured-project",
+    metadata: { zenoEvidence: { browserName: "captured-browser", browserVersion: "126.0" } },
+  };
+  const location = { file: sourcePath, line: 7, column: 3 };
+  const annotations = [{ type: "zeno:journey", description: "captured-journey" }];
+  const titlePath = ["suite", "captured title"];
+  const testCase = {
+    id: "captured-test-id",
+    title: "captured title",
+    titlePath: () => titlePath,
+    location,
+    expectedStatus: "passed",
+    annotations,
+    outcome: () => "flaky",
+    parent: { project: () => project },
+  };
+  const body = Buffer.from("captured body", "utf8");
+  const attachment = { name: "captured", contentType: "text/plain", body };
+  const result = {
+    retry: 1,
+    status: "passed",
+    startTime: new Date("2026-07-13T10:00:00.500Z"),
+    duration: 1000,
+    error: undefined,
+    attachments: [attachment],
+  };
+  const config = apiConfig(rootDir, { version: "1.42.0" });
+  reporter.onBegin(config, { allTests: () => [testCase] });
+  config.rootDir = otherRoot;
+  config.version = "mutated-version";
+  config.shard = { current: 9, total: 9 };
+  reporter.onTestEnd(testCase, result);
+
+  testCase.id = "mutated-test-id";
+  testCase.title = "mutated title";
+  testCase.titlePath = () => ["mutated", "title"];
+  location.file = path.join(otherRoot, "missing.spec.ts");
+  location.line = 99;
+  location.column = 99;
+  annotations[0].description = "mutated-journey";
+  testCase.expectedStatus = "failed";
+  testCase.outcome = () => "unexpected";
+  project.name = "mutated-project";
+  project.metadata.zenoEvidence.browserName = "mutated-browser";
+  project.metadata.zenoEvidence.browserVersion = "999.0";
+  result.retry = 9;
+  result.status = "failed";
+  result.startTime = new Date("2026-07-13T10:00:10.000Z");
+  result.duration = 9999;
+  result.error = { message: "mutated error" };
+  attachment.name = "mutated";
+  attachment.contentType = "application/zip";
+  attachment.body = Buffer.from("mutated replacement");
+  body.fill(0x78);
+  result.attachments = [];
+
+  const fullResult = apiFullResult({
+    status: "passed",
+    startTime: new Date("2026-07-13T10:00:00.000Z"),
+    duration: 2000,
+  });
+  const completion = reporter.onEnd(fullResult);
+  fullResult.status = "interrupted";
+  fullResult.startTime = new Date("2027-01-01T00:00:00.000Z");
+  fullResult.duration = 1;
+  assert.equal(await completion, undefined);
+
+  const validation = await validateEvidencePackage(path.join(outputDir, "evidence.json"));
+  const manifest = validation.manifest;
+  const item = manifest.items[0];
+  const extension = item.extensions["dev.playwright.test"];
+  const capturedDigest = sha256Bytes(Buffer.from("captured-test-id"));
+  assert.equal(manifest.producer.version, "1.42.0");
+  assert.equal(manifest.run.outcome, "passed");
+  assert.equal(manifest.run.startedAt, "2026-07-13T10:00:00.000Z");
+  assert.equal(manifest.run.endedAt, "2026-07-13T10:00:02.000Z");
+  assert.equal(item.externalId, `playwright:${capturedDigest.slice("sha256:".length)}`);
+  assert.equal(extension.sourceTestIdDigest, capturedDigest);
+  assert.deepEqual(extension.titlePath, ["suite", "captured title"]);
+  assert.deepEqual(extension.location, { relativeFile: "tests/snapshot.spec.ts", line: 7, column: 3 });
+  assert.equal(extension.projectName, "captured-project");
+  assert.equal(extension.expectedStatus, "passed");
+  assert.equal(extension.aggregateOutcome, "flaky");
+  assert.equal(item.journeyId, "captured-journey");
+  assert.equal(item.attempt, 1);
+  assert.equal(item.outcome, "passed");
+  assert.equal(item.startedAt, "2026-07-13T10:00:00.500Z");
+  assert.equal(item.endedAt, "2026-07-13T10:00:01.500Z");
+  assert.deepEqual(item.execution, {
+    kind: "browser",
+    browserName: "captured-browser",
+    browserVersion: "126.0",
+  });
+  assert.equal(item.artifacts.length, 1);
+  assert.equal(
+    await readFile(path.join(outputDir, item.artifacts[0].path), "utf8"),
+    "captured body",
+  );
+  assert.doesNotMatch(JSON.stringify(manifest), /mutated/);
 });

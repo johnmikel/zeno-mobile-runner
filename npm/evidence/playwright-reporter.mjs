@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { constants as fsConstants, readFileSync } from "node:fs";
+import { lstat, mkdir, open, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -19,6 +19,29 @@ const PACKAGE_VERSION = JSON.parse(
 ).version;
 const IDENTITY_PATTERN = /^(?!\s)(?!.*\s$)[^\u0000-\u001f\u007f]+$/;
 const GIT_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+const UNSUPPORTED_ATTACHMENT_BODY = Symbol("unsupported attachment body");
+const REPORTER_OPTION_KEYS = new Set([
+  "artifactRoot",
+  "browserName",
+  "browserVersion",
+  "buildManifestDigest",
+  "buildManifestPath",
+  "commitSha",
+  "configDigest",
+  // Playwright 1.42 injects configDir when it constructs a configured custom reporter.
+  "configDir",
+  "deploymentId",
+  "environment",
+  "journeyAnnotation",
+  "journeyMap",
+  "outputDir",
+  "projectId",
+  "releaseId",
+  "runId",
+  "submitterId",
+  "submitterType",
+]);
+const UNSAFE_PROPERTY_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 function reporterError(code, message, field) {
   return new EvidenceValidationError(message, {
@@ -29,6 +52,59 @@ function reporterError(code, message, field) {
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertPlainRecord(value, field) {
+  if (!isObject(value)) {
+    throw reporterError("invalid_reporter_options", `${field} must be an object`, field);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw reporterError(
+      "invalid_reporter_options",
+      `${field} must be a plain or null-prototype object`,
+      field,
+    );
+  }
+}
+
+function snapshotOwnDataProperties(value, field, allowedKeys) {
+  assertPlainRecord(value, field);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const snapshot = Object.create(null);
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (
+      typeof key !== "string"
+      || (allowedKeys !== null && !allowedKeys.has(key))
+      || UNSAFE_PROPERTY_KEYS.has(key)
+    ) {
+      throw reporterError(
+        "invalid_reporter_options",
+        `${field} contains an unsupported property`,
+        field,
+      );
+    }
+    const descriptor = descriptors[key];
+    if (!Object.hasOwn(descriptor, "value")) {
+      throw reporterError(
+        "invalid_reporter_options",
+        `${field}.${key} must be a data property`,
+        `${field}.${key}`,
+      );
+    }
+    snapshot[key] = descriptor.value;
+  }
+  return snapshot;
+}
+
+function snapshotReporterOptions(options) {
+  const snapshot = snapshotOwnDataProperties(options, "Reporter options", REPORTER_OPTION_KEYS);
+  if (Object.hasOwn(snapshot, "journeyMap") && snapshot.journeyMap !== undefined) {
+    snapshot.journeyMap = Object.freeze(
+      snapshotOwnDataProperties(snapshot.journeyMap, "journeyMap", null),
+    );
+  }
+  return Object.freeze(snapshot);
 }
 
 function assertIdentity(value, field) {
@@ -66,6 +142,7 @@ function validateOptions(options) {
     throw reporterError("invalid_reporter_options", "Reporter options must be an object");
   }
   assertPath(options.outputDir, "outputDir");
+  if (options.configDir !== undefined) assertPath(options.configDir, "configDir");
   for (const field of [
     "projectId",
     "submitterId",
@@ -149,6 +226,133 @@ function testProject(testCase) {
   return project;
 }
 
+function snapshotConfig(config) {
+  if (!isObject(config)) {
+    throw reporterError("invalid_playwright_config", "FullConfig is required");
+  }
+  const rootDir = assertPath(config.rootDir, "config.rootDir");
+  const version = assertIdentity(config.version, "config.version");
+  const shardValue = config.shard;
+  let shard = null;
+  if (shardValue !== null && shardValue !== undefined) {
+    const { current, total } = shardValue;
+    if (
+      !Number.isSafeInteger(current)
+      || !Number.isSafeInteger(total)
+      || current < 1
+      || total < 1
+      || current > total
+    ) {
+      throw reporterError("invalid_playwright_shard", "FullConfig shard must be a valid current/total tuple");
+    }
+    shard = Object.freeze({ current, total });
+  }
+  return Object.freeze({ rootDir, version, shard });
+}
+
+function snapshotTestError(error) {
+  if (!isObject(error)) return null;
+  return Object.freeze({
+    message: error.message,
+    value: error.value,
+  });
+}
+
+function snapshotAttachments(attachments) {
+  if (!Array.isArray(attachments)) {
+    throw reporterError("invalid_playwright_result", "TestResult attachments must be an array");
+  }
+  return Object.freeze(attachments.map((attachment) => {
+    if (!isObject(attachment)) {
+      throw reporterError("invalid_attachment", "Attachment must be an object");
+    }
+    const body = attachment.body;
+    return Object.freeze({
+      name: attachment.name,
+      contentType: attachment.contentType,
+      path: attachment.path,
+      body: body === undefined
+        ? undefined
+        : Buffer.isBuffer(body)
+          ? Buffer.from(body)
+          : UNSUPPORTED_ATTACHMENT_BODY,
+    });
+  }));
+}
+
+function snapshotTestRecord(testCase, result, rootDir) {
+  if (!isObject(testCase)) {
+    throw reporterError("invalid_playwright_test", "TestCase is required");
+  }
+  if (!isObject(result)) {
+    throw reporterError("invalid_playwright_result", "TestResult is required");
+  }
+  const rawProject = testProject(testCase);
+  const rawLocation = testCase.location;
+  if (!isObject(rawLocation)) {
+    throw reporterError("invalid_test_location", "Test location is required");
+  }
+  const location = Object.freeze({
+    file: rawLocation.file,
+    line: rawLocation.line,
+    column: rawLocation.column,
+  });
+  const relativeFile = safeRelativeTestFile(rootDir, location.file);
+  const rawTitlePath = testCase.titlePath();
+  if (!Array.isArray(rawTitlePath)) {
+    throw reporterError("invalid_playwright_test", "TestCase titlePath must be an array");
+  }
+  const titlePath = Object.freeze([...rawTitlePath]);
+  const id = assertIdentity(testCase.id, "test.id");
+  const rawAnnotations = Array.isArray(testCase.annotations) ? testCase.annotations : [];
+  const annotations = Object.freeze(rawAnnotations.map((annotation) => Object.freeze({
+    type: annotation?.type,
+    description: annotation?.description,
+  })));
+  const evidenceMetadata = rawProject.metadata?.zenoEvidence;
+  const project = Object.freeze({
+    name: rawProject.name,
+    browserName: evidenceMetadata?.browserName,
+    browserVersion: evidenceMetadata?.browserVersion,
+  });
+  const capturedResult = Object.freeze({
+    retry: result.retry,
+    status: result.status,
+    startTimeMs: result.startTime instanceof Date
+      ? result.startTime.valueOf()
+      : new Date(result.startTime).valueOf(),
+    duration: result.duration,
+    error: snapshotTestError(result.error),
+    attachments: snapshotAttachments(result.attachments),
+  });
+  const externalId = `playwright:${sha256Bytes(Buffer.from(id, "utf8")).slice("sha256:".length)}`;
+  return Object.freeze({
+    id,
+    location,
+    relativeFile,
+    titlePath,
+    annotations,
+    expectedStatus: testCase.expectedStatus,
+    aggregateOutcome: testCase.outcome(),
+    project,
+    result: capturedResult,
+    externalId,
+  });
+}
+
+function snapshotFullResult(fullResult) {
+  if (!isObject(fullResult)) {
+    throw reporterError("invalid_full_result", "FullResult is required");
+  }
+  return Object.freeze({
+    status: fullResult.status,
+    startTimeMs: fullResult.startTime instanceof Date
+      ? fullResult.startTime.valueOf()
+      : new Date(fullResult.startTime).valueOf(),
+    duration: fullResult.duration,
+  });
+}
+
 function isWindowsAbsolute(value) {
   return typeof value === "string"
     && /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+(?:[\\/]|$))/.test(value);
@@ -211,7 +415,7 @@ function sanitizeErrorMessage(error, knownPaths) {
   if (typeof raw !== "string") {
     throw reporterError("invalid_test_error", "TestError message or value must be a string");
   }
-  let sanitized = raw.replace(/[\u0000-\u001f\u007f]/g, "");
+  let sanitized = raw.replace(/[\u0000-\u001f\u007f]/g, " ");
   const paths = [...new Set(knownPaths.filter((value) => typeof value === "string" && value.length > 0))]
     .sort((left, right) => right.length - left.length);
   for (const knownPath of paths) {
@@ -264,17 +468,100 @@ function artifactInputsFor(result, itemIndex, artifactRoot) {
   return inputs;
 }
 
+function sameNativePath(left, right) {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+async function assertUnlinkedDirectoryPath(outputDir, createMissing) {
+  const absoluteOutputDir = path.resolve(outputDir);
+  const { root } = path.parse(absoluteOutputDir);
+  let current = root;
+  const rootStats = await lstat(root);
+  if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
+    throw reporterError("unsafe_failure_output", "Failure output root must be a real directory");
+  }
+  for (const segment of absoluteOutputDir.slice(root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    let stats;
+    try {
+      stats = await lstat(current);
+    } catch (error) {
+      if (error?.code !== "ENOENT" || !createMissing) throw error;
+      try {
+        await mkdir(current, { mode: 0o700 });
+      } catch (mkdirError) {
+        if (mkdirError?.code !== "EEXIST") throw mkdirError;
+      }
+      stats = await lstat(current);
+    }
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw reporterError(
+        "unsafe_failure_output",
+        "Failure output path must not contain links or non-directories",
+      );
+    }
+  }
+  const resolvedOutputDir = await realpath(absoluteOutputDir);
+  if (!sameNativePath(resolvedOutputDir, absoluteOutputDir)) {
+    throw reporterError("unsafe_failure_output", "Failure output path must not contain links");
+  }
+  return absoluteOutputDir;
+}
+
 async function writeFailureFile(outputDir) {
   if (typeof outputDir !== "string" || outputDir.length === 0) return;
+  let handle;
   try {
-    await mkdir(outputDir, { recursive: true });
-    await writeFile(
-      path.join(outputDir, "evidence-error.json"),
-      `${JSON.stringify({ error: "Evidence generation failed" }, null, 2)}\n`,
-      { flag: "wx" },
-    );
+    const absoluteOutputDir = await assertUnlinkedDirectoryPath(outputDir, true);
+    await assertUnlinkedDirectoryPath(absoluteOutputDir, false);
+    const markerPath = path.join(absoluteOutputDir, "evidence-error.json");
+    const flags = fsConstants.O_WRONLY
+      | fsConstants.O_CREAT
+      | fsConstants.O_EXCL
+      | (fsConstants.O_NOFOLLOW ?? 0);
+    handle = await open(markerPath, flags, 0o600);
+
+    const handleStats = await handle.stat();
+    await assertUnlinkedDirectoryPath(absoluteOutputDir, false);
+    const markerStats = await lstat(markerPath);
+    if (
+      !handleStats.isFile()
+      || markerStats.isSymbolicLink()
+      || !markerStats.isFile()
+      || handleStats.dev !== markerStats.dev
+      || handleStats.ino !== markerStats.ino
+    ) {
+      throw reporterError("unsafe_failure_output", "Failure marker must be a new regular file");
+    }
+    const [resolvedOutputDir, resolvedMarkerPath] = await Promise.all([
+      realpath(absoluteOutputDir),
+      realpath(markerPath),
+    ]);
+    if (
+      !sameNativePath(resolvedOutputDir, absoluteOutputDir)
+      || !sameNativePath(
+        resolvedMarkerPath,
+        path.join(resolvedOutputDir, "evidence-error.json"),
+      )
+    ) {
+      throw reporterError("unsafe_failure_output", "Failure marker escaped its output directory");
+    }
+    await handle.writeFile(`${JSON.stringify({ error: "Evidence generation failed" }, null, 2)}\n`);
+    await handle.sync();
   } catch {
     // Best effort only: the failed status remains the authoritative signal.
+  } finally {
+    if (handle !== undefined) {
+      try {
+        await handle.close();
+      } catch {
+        // Best effort only.
+      }
+    }
   }
 }
 
@@ -284,7 +571,7 @@ export function playwrightJourneyKey({ projectName, relativeFile, titlePath }) {
 
 export default class ZenoPlaywrightReporter {
   constructor(options) {
-    this.options = options;
+    this.options = Object.freeze(Object.create(null));
     this.fatalError = null;
     this.config = null;
     this.outputDir = null;
@@ -293,7 +580,8 @@ export default class ZenoPlaywrightReporter {
     this.shard = null;
     this.records = [];
     try {
-      validateOptions(options);
+      this.options = snapshotReporterOptions(options);
+      validateOptions(this.options);
     } catch (error) {
       this.fatalError = error;
     }
@@ -305,36 +593,23 @@ export default class ZenoPlaywrightReporter {
 
   onBegin(config, _suite) {
     try {
-      if (!isObject(config)) throw reporterError("invalid_playwright_config", "FullConfig is required");
-      assertPath(config.rootDir, "config.rootDir");
-      assertIdentity(config.version, "config.version");
-      this.config = config;
+      this.config = snapshotConfig(config);
       if (typeof this.options?.outputDir === "string" && this.options.outputDir.length > 0) {
-        this.outputDir = resolveFromRoot(config.rootDir, this.options.outputDir);
+        this.outputDir = resolveFromRoot(this.config.rootDir, this.options.outputDir);
       }
       this.artifactRoot = resolveFromRoot(
-        config.rootDir,
-        this.options?.artifactRoot ?? config.rootDir,
+        this.config.rootDir,
+        this.options?.artifactRoot ?? this.config.rootDir,
       );
       if (this.options?.buildManifestPath !== undefined) {
-        this.buildManifestPath = resolveFromRoot(config.rootDir, this.options.buildManifestPath);
+        this.buildManifestPath = resolveFromRoot(this.config.rootDir, this.options.buildManifestPath);
       }
-      if (config.shard !== null && config.shard !== undefined) {
-        const { current, total } = config.shard;
-        if (
-          !Number.isSafeInteger(current)
-          || !Number.isSafeInteger(total)
-          || current < 1
-          || total < 1
-          || current > total
-        ) {
-          throw reporterError("invalid_playwright_shard", "FullConfig shard must be a valid current/total tuple");
-        }
-        this.shard = { current, total };
+      if (this.config.shard !== null) {
+        this.shard = this.config.shard;
         if (this.outputDir !== null) {
-          this.outputDir = rootPathImplementation(config.rootDir).join(
+          this.outputDir = rootPathImplementation(this.config.rootDir).join(
             this.outputDir,
-            `shard-${current}-of-${total}`,
+            `shard-${this.shard.current}-of-${this.shard.total}`,
           );
         }
       }
@@ -346,12 +621,7 @@ export default class ZenoPlaywrightReporter {
   onTestEnd(testCase, result) {
     try {
       if (!this.config) throw reporterError("reporter_not_started", "onBegin must run before onTestEnd");
-      if (!isObject(result)) throw reporterError("invalid_playwright_result", "TestResult is required");
-      const project = testProject(testCase);
-      const relativeFile = safeRelativeTestFile(this.config.rootDir, testCase.location?.file);
-      const titlePath = testCase.titlePath();
-      const externalId = `playwright:${sha256Bytes(Buffer.from(assertIdentity(testCase.id, "test.id"), "utf8")).slice("sha256:".length)}`;
-      this.records.push({ testCase, result, project, relativeFile, titlePath, externalId });
+      this.records.push(snapshotTestRecord(testCase, result, this.config.rootDir));
     } catch (error) {
       this.fatalError ??= error;
     }
@@ -359,9 +629,9 @@ export default class ZenoPlaywrightReporter {
 
   async onEnd(fullResult) {
     try {
+      const capturedFullResult = snapshotFullResult(fullResult);
       if (this.fatalError) throw this.fatalError;
       if (!this.config) throw reporterError("reporter_not_started", "onBegin must run before onEnd");
-      if (!isObject(fullResult)) throw reporterError("invalid_full_result", "FullResult is required");
       if (this.records.length === 0) {
         throw reporterError("empty_evidence_run", "A Playwright run must contain at least one result");
       }
@@ -373,22 +643,28 @@ export default class ZenoPlaywrightReporter {
       const artifactInputs = [];
       const sourceRecords = [];
       for (const record of this.records) {
-        const fileBytes = await readFile(record.testCase.location.file);
+        const revalidatedRelativeFile = safeRelativeTestFile(
+          this.config.rootDir,
+          record.location.file,
+        );
+        if (revalidatedRelativeFile !== record.relativeFile) {
+          throw reporterError("test_file_outside_root", "Captured test location changed before read");
+        }
+        const fileBytes = await readFile(record.location.file);
         const fileDigest = sha256Bytes(fileBytes);
         const scenarioHash = sha256Bytes(canonicalBytes({
           fileDigest,
           titlePath: record.titlePath,
         }));
         const browserName = assertIdentity(
-          this.options.browserName ?? record.project.metadata?.zenoEvidence?.browserName,
+          this.options.browserName ?? record.project.browserName,
           "browserName",
         );
         const browserVersion = assertIdentity(
-          this.options.browserVersion ?? record.project.metadata?.zenoEvidence?.browserVersion,
+          this.options.browserVersion ?? record.project.browserVersion,
           "browserVersion",
         );
-        const annotations = Array.isArray(record.testCase.annotations) ? record.testCase.annotations : [];
-        const annotation = annotations
+        const annotation = record.annotations
           .filter((entry) => entry?.type === (this.options.journeyAnnotation ?? "zeno:journey"))
           .at(-1);
         const journeyKey = playwrightJourneyKey({
@@ -402,18 +678,15 @@ export default class ZenoPlaywrightReporter {
           : annotation === undefined
             ? null
             : assertIdentity(annotation.description, "journeyId");
-        const started = record.result.startTime instanceof Date
-          ? record.result.startTime
-          : new Date(record.result.startTime);
+        const started = new Date(record.result.startTimeMs);
         const durationMs = record.result.duration;
         const ended = new Date(started.valueOf() + durationMs);
         const itemIndex = items.length;
         const inputs = artifactInputsFor(record.result, itemIndex, this.artifactRoot);
         artifactInputs.push(...inputs);
-        const aggregateOutcome = record.testCase.outcome();
         const errorMessage = sanitizeErrorMessage(record.result.error, [
           this.config.rootDir,
-          record.testCase.location.file,
+          record.location.file,
           ...record.result.attachments.map((attachment) => attachment.path),
         ]);
         items.push({
@@ -431,16 +704,16 @@ export default class ZenoPlaywrightReporter {
           ...(errorMessage === null ? {} : { error: { message: errorMessage } }),
           extensions: {
             "dev.playwright.test": {
-              sourceTestIdDigest: sha256Bytes(Buffer.from(record.testCase.id, "utf8")),
+              sourceTestIdDigest: sha256Bytes(Buffer.from(record.id, "utf8")),
               titlePath: record.titlePath,
               location: {
                 relativeFile: record.relativeFile,
-                line: record.testCase.location.line,
-                column: record.testCase.location.column,
+                line: record.location.line,
+                column: record.location.column,
               },
               projectName: assertIdentity(record.project.name, "projectName"),
-              expectedStatus: record.testCase.expectedStatus,
-              aggregateOutcome,
+              expectedStatus: record.expectedStatus,
+              aggregateOutcome: record.aggregateOutcome,
               mappingState: journeyId === null ? "unmapped" : "mapped",
             },
           },
@@ -449,7 +722,7 @@ export default class ZenoPlaywrightReporter {
           externalId: record.externalId,
           attempt: record.result.retry,
           status: record.result.status,
-          expectedStatus: record.testCase.expectedStatus,
+          expectedStatus: record.expectedStatus,
           startTime: started.toISOString(),
           durationMs,
           scenarioHash,
@@ -457,10 +730,8 @@ export default class ZenoPlaywrightReporter {
         });
       }
 
-      const startedAt = fullResult.startTime instanceof Date
-        ? fullResult.startTime
-        : new Date(fullResult.startTime);
-      const endedAt = new Date(startedAt.valueOf() + fullResult.duration);
+      const startedAt = new Date(capturedFullResult.startTimeMs);
+      const endedAt = new Date(startedAt.valueOf() + capturedFullResult.duration);
       const targetFingerprint = createWebFingerprint({
         recipe: "web-v1",
         surface: "web",
@@ -484,7 +755,7 @@ export default class ZenoPlaywrightReporter {
           durationMs,
         })),
       }));
-      const runOutcome = statusOutcome(fullResult.status);
+      const runOutcome = statusOutcome(capturedFullResult.status);
       const manifest = {
         schemaVersion: "1.0",
         project: { externalId: this.options.projectId },

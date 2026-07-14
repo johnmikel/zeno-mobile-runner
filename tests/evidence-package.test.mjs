@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -48,6 +48,7 @@ const DIGEST_D = `sha256:${"d".repeat(64)}`;
 const COMMIT_A = "1".repeat(40);
 const COMMIT_B = "2".repeat(40);
 const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
+const PACKAGE_WRITER_TEST_HOOK = Symbol.for("dev.zmr.evidence.package-writer.test-hook");
 
 function mobileTarget(overrides = {}) {
   const target = {
@@ -689,6 +690,36 @@ test("reversing artifact input order produces byte-identical evidence", async ()
   });
 });
 
+test("equal artifact bytes with different metadata produce byte-identical evidence in either input order", async () => {
+  await withTemporaryDirectory("zmr-evidence-equal-body-order-", async (parent) => {
+    const body = Buffer.from("identical body");
+    const inputs = [
+      bodyArtifactInput(body, { type: "z_type" }),
+      bodyArtifactInput(body, { type: "a_type" }),
+    ];
+    const firstDestination = join(parent, "first-package");
+    const secondDestination = join(parent, "second-package");
+    const first = await writeEvidencePackage({
+      destination: firstDestination,
+      manifest: validMobileManifest(),
+      artifactInputs: inputs,
+    });
+    const second = await writeEvidencePackage({
+      destination: secondDestination,
+      manifest: validMobileManifest(),
+      artifactInputs: [...inputs].reverse(),
+    });
+
+    assert.deepEqual(
+      await readFile(join(firstDestination, "evidence.json")),
+      await readFile(join(secondDestination, "evidence.json")),
+    );
+    assert.deepEqual(first.manifest.items[0].artifacts, second.manifest.items[0].artifacts);
+    assert.deepEqual(first.manifest.items[0].artifacts.map(({ type }) => type), ["a_type", "z_type"]);
+    assert.equal(first.manifestDigest, second.manifestDigest);
+  });
+});
+
 test("Buffer, Uint8Array, and regular source file inputs retain exact bytes", async () => {
   await withTemporaryDirectory("zmr-evidence-inputs-", async (parent) => {
     const sourceRoot = join(parent, "source");
@@ -747,6 +778,82 @@ test("failed assembly leaves no destination or sibling temporary directory", asy
     await assertPathMissing(destination);
     assert.deepEqual(
       (await readdir(parent)).filter((name) => name.includes(".tmp-")),
+      [],
+    );
+  });
+});
+
+test("post-staging failures remove the sibling staging directory and leave no destination", async () => {
+  await withTemporaryDirectory("zmr-evidence-post-stage-error-", async (parent) => {
+    const destination = join(parent, "package");
+    let stagedPath;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = async ({ phase, tempPath }) => {
+      if (phase !== "staged") return;
+      stagedPath = tempPath;
+      assert.equal(dirname(tempPath), parent);
+      assert.match(basename(tempPath), /^\.package\.tmp-/);
+      assert.deepEqual(await readdir(tempPath), []);
+      throw new Error("intentional post-staging failure");
+    };
+
+    try {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [bodyArtifactInput(Buffer.from("artifact"))],
+        }),
+        /intentional post-staging failure/,
+      );
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    assert.equal(typeof stagedPath, "string");
+    await assertPathMissing(stagedPath);
+    await assertPathMissing(destination);
+    assert.deepEqual(
+      (await readdir(parent)).filter((name) => name.includes(".tmp-")),
+      [],
+    );
+  });
+});
+
+test("force publish failures restore the original destination and remove staging state", async () => {
+  await withTemporaryDirectory("zmr-evidence-force-rollback-", async (parent) => {
+    const destination = join(parent, "package");
+    await mkdir(destination);
+    const sentinel = join(destination, "sentinel.txt");
+    await writeFile(sentinel, "original package");
+    let backupMoved = false;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = async ({ phase }) => {
+      if (phase !== "backup_moved") return;
+      backupMoved = true;
+      await assert.rejects(readFile(sentinel), (error) => error?.code === "ENOENT");
+      throw new Error("intentional force publish failure");
+    };
+
+    try {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [bodyArtifactInput(Buffer.from("replacement"))],
+          force: true,
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "package_publish_failed"
+        ),
+      );
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    assert.equal(backupMoved, true);
+    assert.equal(await readFile(sentinel, "utf8"), "original package");
+    assert.deepEqual(
+      (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".backup-")),
       [],
     );
   });

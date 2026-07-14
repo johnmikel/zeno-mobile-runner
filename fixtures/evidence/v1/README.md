@@ -16,6 +16,11 @@ compatibility review as changes to `schemas/evidence-v1.schema.json`.
 - `manifests/missing-optional-artifacts.json` — valid evidence with no optional artifacts.
 - `manifests/redacted-omitted-screenshot.json` — valid redaction metadata with an omitted screenshot.
 
+## Valid Playwright source fixtures
+
+- `sources/playwright/passed.json` — valid single-attempt passing lifecycle source.
+- `sources/playwright/retry-pass.json` — valid retry lifecycle source ending in a pass.
+
 ## Intentionally invalid fixtures
 
 - `invalid/missing-target-fingerprint.json` — required target fingerprint omitted.

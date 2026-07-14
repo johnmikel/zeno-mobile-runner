@@ -1,5 +1,6 @@
 import {
   assertSafeRelativePath,
+  canonicalize,
   EvidenceValidationError,
   isSha256Digest,
 } from "./canonical-json.mjs";
@@ -974,6 +975,7 @@ function cloneWithSortedKeys(value, path, active) {
         cloned.sort((left, right) => (
           compareText(String(left?.path ?? ""), String(right?.path ?? ""))
           || compareText(String(left?.digest ?? ""), String(right?.digest ?? ""))
+          || compareText(canonicalize(left), canonicalize(right))
         ));
       }
       return cloned;

@@ -59,6 +59,12 @@ function fixturePath(input) {
   return fileURLToPath(new URL(input, new URL("../fixtures/evidence/v1/", import.meta.url)));
 }
 
+test("README individually identifies both Playwright source fixtures as valid", async () => {
+  const readme = await readFile(new URL("../fixtures/evidence/v1/README.md", import.meta.url), "utf8");
+  assert.ok(readme.includes("- `sources/playwright/passed.json` — valid"));
+  assert.ok(readme.includes("- `sources/playwright/retry-pass.json` — valid"));
+});
+
 async function readManifestCase(entry) {
   return JSON.parse(await readFile(fixturePath(entry.input), "utf8"));
 }

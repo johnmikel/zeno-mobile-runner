@@ -32,6 +32,7 @@ import {
 } from "./contract.mjs";
 
 const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024;
+const PACKAGE_WRITER_TEST_HOOK = Symbol.for("dev.zmr.evidence.package-writer.test-hook");
 const ARTIFACT_REDACTION_STATES = ["unreviewed", "reviewed", "redacted"];
 const DISCLOSURE_STATES = ["private", "review_eligible", "disclosed", "withheld"];
 const BODY_INPUT_PROPERTIES = new Set([
@@ -73,6 +74,11 @@ function invalidInput(index, field, message = "artifact input is invalid") {
 
 function invalidSource(message = "artifact source is not an authorized regular file") {
   return validationError("invalid_artifact_source", message, "/artifactInputs/sourcePath");
+}
+
+async function runPackageWriterTestHook(event) {
+  const hook = globalThis[PACKAGE_WRITER_TEST_HOOK];
+  if (typeof hook === "function") await hook(Object.freeze(event));
 }
 
 function isContained(rootPath, candidatePath) {
@@ -314,6 +320,7 @@ async function syncFile(path) {
 
 async function writeStagedPackage(tempPath, manifest, evidenceBytes, uniqueArtifacts) {
   await mkdir(tempPath, { mode: 0o700 });
+  await runPackageWriterTestHook({ phase: "staged", tempPath });
   for (const [digest, bytes] of [...uniqueArtifacts.entries()].sort(([left], [right]) => (
     left < right ? -1 : left > right ? 1 : 0
   ))) {
@@ -376,6 +383,7 @@ async function publishStagedPackage(tempPath, destination, force) {
     if (force && await pathExists(destination)) {
       await rename(destination, backup);
       backupExists = true;
+      await runPackageWriterTestHook({ phase: "backup_moved", destination, tempPath });
     }
     await rename(tempPath, destination);
     tempExists = false;
@@ -394,7 +402,6 @@ async function publishStagedPackage(tempPath, destination, force) {
       );
       if (restored) {
         backupExists = false;
-        tempExists = false;
         newPublished = false;
       }
     }

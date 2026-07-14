@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   open,
@@ -16,6 +17,7 @@ import test from "node:test";
 
 import {
   canonicalBytes,
+  canonicalize,
   EvidenceValidationError as CanonicalEvidenceValidationError,
   sha256Bytes,
 } from "../npm/evidence/canonical-json.mjs";
@@ -179,6 +181,16 @@ function validMobileManifest(overrides = {}) {
   return { ...manifest, ...overrides };
 }
 
+function manifestAtCanonicalDepth(depth) {
+  const manifest = validMobileManifest();
+  let extensionValue = "leaf";
+  for (let currentDepth = 2; currentDepth < depth; currentDepth += 1) {
+    extensionValue = { value: extensionValue };
+  }
+  manifest.extensions = { "dev.example.deep": extensionValue };
+  return manifest;
+}
+
 function validWebManifest(overrides = {}) {
   const manifest = validMobileManifest({
     producer: {
@@ -225,6 +237,155 @@ test("valid mobile and web manifests return no issues", () => {
     assert.deepEqual(validateEvidenceManifest(manifest), { ok: true, issues: [] });
     assert.equal(assertValidEvidenceManifest(manifest), manifest);
     assert.equal(isQualifyingTarget(manifest.target), true);
+  }
+});
+
+test("manifest APIs accept depth 512 and reject deeper values without raw stack errors", () => {
+  const boundary = manifestAtCanonicalDepth(512);
+  assert.doesNotThrow(() => canonicalize(boundary));
+  assert.deepEqual(validateEvidenceManifest(boundary), { ok: true, issues: [] });
+  assert.equal(assertValidEvidenceManifest(boundary), boundary);
+  assert.doesNotThrow(() => stableSortManifest(boundary));
+
+  for (const depth of [513, 20_000]) {
+    const manifest = manifestAtCanonicalDepth(depth);
+    const result = validateEvidenceManifest(manifest);
+    assert.equal(result.ok, false, `depth ${depth}`);
+    assert.equal(result.issues.length, 1, `depth ${depth}`);
+    assert.equal(result.issues[0].code, "canonical_depth_exceeded", `depth ${depth}`);
+
+    for (const action of [
+      () => assertValidEvidenceManifest(manifest),
+      () => stableSortManifest(manifest),
+    ]) {
+      assert.throws(action, (error) => {
+        assert.ok(error instanceof CanonicalEvidenceValidationError);
+        assert.notEqual(error.name, "RangeError");
+        assert.equal(error.code, "invalid_evidence_manifest");
+        assert.equal(error.issues?.[0]?.code, "canonical_depth_exceeded");
+        return true;
+      });
+    }
+  }
+});
+
+test("manifest APIs never invoke enumerable accessors in objects or arrays", async () => {
+  await withTemporaryDirectory("zmr-evidence-accessors-", async (parent) => {
+    const cases = [
+      {
+        label: "core object field",
+        path: "/project/externalId",
+        install(manifest, getter) {
+          Object.defineProperty(manifest.project, "externalId", { enumerable: true, get: getter });
+        },
+      },
+      {
+        label: "extension object field",
+        path: "/extensions/dev.example.state/stateful",
+        install(manifest, getter) {
+          manifest.extensions = { "dev.example.state": {} };
+          Object.defineProperty(
+            manifest.extensions["dev.example.state"],
+            "stateful",
+            { enumerable: true, get: getter },
+          );
+        },
+      },
+      {
+        label: "array index",
+        path: "/items/0",
+        install(manifest, getter) {
+          Object.defineProperty(manifest.items, "0", { enumerable: true, get: getter });
+        },
+      },
+    ];
+
+    for (let index = 0; index < cases.length; index += 1) {
+      const { install, label, path } = cases[index];
+      const manifest = validMobileManifest();
+      let getterCalls = 0;
+      install(manifest, () => {
+        getterCalls += 1;
+        throw new Error(`${label} getter must not run`);
+      });
+
+      const result = validateEvidenceManifest(manifest);
+      assert.deepEqual(issuePairs(result), [[path, "invalid_property_descriptor"]], label);
+      for (const action of [
+        () => assertValidEvidenceManifest(manifest),
+        () => stableSortManifest(manifest),
+      ]) {
+        assert.throws(action, (error) => {
+          assert.ok(error instanceof CanonicalEvidenceValidationError, label);
+          assert.equal(error.code, "invalid_evidence_manifest", label);
+          assert.deepEqual(issuePairs(error), [[path, "invalid_property_descriptor"]], label);
+          return true;
+        });
+      }
+      await assert.rejects(
+        writeEvidencePackage({
+          destination: join(parent, `package-${index}`),
+          manifest,
+          artifactInputs: [],
+        }),
+        (error) => {
+          assert.ok(error instanceof CanonicalEvidenceValidationError, label);
+          assert.equal(error.code, "invalid_evidence_manifest", label);
+          assert.deepEqual(issuePairs(error), [[path, "invalid_property_descriptor"]], label);
+          return true;
+        },
+      );
+      assert.equal(getterCalls, 0, label);
+    }
+  });
+});
+
+test("manifest APIs reject non-plain object and array containers deterministically", () => {
+  class ItemList extends Array {}
+  const cases = [
+    {
+      path: "/project",
+      manifest() {
+        const value = validMobileManifest();
+        value.project = Object.assign(Object.create({ inherited: true }), value.project);
+        return value;
+      },
+    },
+    {
+      path: "/extensions/dev.example.value",
+      manifest() {
+        const value = validMobileManifest();
+        value.extensions = { "dev.example.value": new Map() };
+        return value;
+      },
+    },
+    {
+      path: "/items",
+      manifest() {
+        const value = validMobileManifest();
+        value.items = ItemList.from(value.items);
+        return value;
+      },
+    },
+  ];
+
+  for (const entry of cases) {
+    const manifest = entry.manifest();
+    assert.deepEqual(
+      issuePairs(validateEvidenceManifest(manifest)),
+      [[entry.path, "invalid_container"]],
+    );
+    for (const action of [
+      () => assertValidEvidenceManifest(manifest),
+      () => stableSortManifest(manifest),
+    ]) {
+      assert.throws(action, (error) => {
+        assert.ok(error instanceof CanonicalEvidenceValidationError);
+        assert.equal(error.code, "invalid_evidence_manifest");
+        assert.deepEqual(issuePairs(error), [[entry.path, "invalid_container"]]);
+        return true;
+      });
+    }
   }
 });
 
@@ -579,6 +740,25 @@ async function assertPathMissing(path) {
   await assert.rejects(readFile(path), (error) => error?.code === "ENOENT" || error?.code === "EISDIR");
 }
 
+test("package writing rejects extreme manifest depth before cloning", async () => {
+  await withTemporaryDirectory("zmr-evidence-deep-writer-", async (parent) => {
+    await assert.rejects(
+      writeEvidencePackage({
+        destination: join(parent, "package"),
+        manifest: manifestAtCanonicalDepth(20_000),
+        artifactInputs: [],
+      }),
+      (error) => {
+        assert.ok(error instanceof CanonicalEvidenceValidationError);
+        assert.notEqual(error.name, "RangeError");
+        assert.equal(error.code, "invalid_evidence_manifest");
+        assert.equal(error.issues?.[0]?.code, "canonical_depth_exceeded");
+        return true;
+      },
+    );
+  });
+});
+
 test("artifactPathForDigest uses every digest hex character", () => {
   const first = `sha256:${"123456789abc"}${"0".repeat(52)}`;
   const second = `sha256:${"123456789abc"}${"f".repeat(52)}`;
@@ -777,7 +957,7 @@ test("failed assembly leaves no destination or sibling temporary directory", asy
 
     await assertPathMissing(destination);
     assert.deepEqual(
-      (await readdir(parent)).filter((name) => name.includes(".tmp-")),
+      (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".publish.lock")),
       [],
     );
   });
@@ -813,7 +993,109 @@ test("post-staging failures remove the sibling staging directory and leave no de
     await assertPathMissing(stagedPath);
     await assertPathMissing(destination);
     assert.deepEqual(
-      (await readdir(parent)).filter((name) => name.includes(".tmp-")),
+      (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".publish.lock")),
+      [],
+    );
+  });
+});
+
+test("non-force publication preserves a destination created during staging", async () => {
+  await withTemporaryDirectory("zmr-evidence-destination-race-", async (parent) => {
+    const destination = join(parent, "package");
+    let createdDestination;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = async ({ phase }) => {
+      if (phase !== "staged") return;
+      await mkdir(destination, { mode: 0o711 });
+      createdDestination = await lstat(destination);
+    };
+
+    try {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "destination_exists"
+        ),
+      );
+    } finally {
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+    }
+
+    const retainedDestination = await lstat(destination);
+    assert.equal(retainedDestination.dev, createdDestination.dev);
+    assert.equal(retainedDestination.ino, createdDestination.ino);
+    await assert.rejects(
+      readFile(join(destination, "evidence.json")),
+      (error) => error?.code === "ENOENT",
+    );
+    assert.deepEqual(
+      (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".publish.lock")),
+      [],
+    );
+  });
+});
+
+test("simultaneous cooperating writers are serialized by a sibling publication lock", {
+  timeout: 5_000,
+}, async () => {
+  await withTemporaryDirectory("zmr-evidence-concurrent-writers-", async (parent) => {
+    const destination = join(parent, "package");
+    let releaseFirst;
+    const firstCanContinue = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstStaged;
+    const firstReachedStaging = new Promise((resolve) => {
+      firstStaged = resolve;
+    });
+    let stagedCount = 0;
+    globalThis[PACKAGE_WRITER_TEST_HOOK] = async ({ phase }) => {
+      if (phase !== "staged") return;
+      stagedCount += 1;
+      if (stagedCount === 1) {
+        firstStaged();
+        await firstCanContinue;
+      }
+    };
+
+    const firstWrite = writeEvidencePackage({
+      destination,
+      manifest: validMobileManifest(),
+      artifactInputs: [],
+    });
+    await firstReachedStaging;
+    let firstError;
+    try {
+      await assert.rejects(
+        writeEvidencePackage({
+          destination,
+          manifest: validMobileManifest(),
+          artifactInputs: [],
+        }),
+        (error) => (
+          error instanceof CanonicalEvidenceValidationError
+          && error.code === "package_publish_locked"
+        ),
+      );
+    } finally {
+      releaseFirst();
+      delete globalThis[PACKAGE_WRITER_TEST_HOOK];
+      try {
+        await firstWrite;
+      } catch (error) {
+        firstError = error;
+      }
+    }
+
+    assert.equal(firstError, undefined);
+    assert.equal(stagedCount, 1);
+    assert.equal(JSON.parse(await readFile(join(destination, "evidence.json"), "utf8")).schemaVersion, "1.0");
+    assert.deepEqual(
+      (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".publish.lock")),
       [],
     );
   });
@@ -853,7 +1135,9 @@ test("force publish failures restore the original destination and remove staging
     assert.equal(backupMoved, true);
     assert.equal(await readFile(sentinel, "utf8"), "original package");
     assert.deepEqual(
-      (await readdir(parent)).filter((name) => name.includes(".tmp-") || name.includes(".backup-")),
+      (await readdir(parent)).filter((name) => (
+        name.includes(".tmp-") || name.includes(".backup-") || name.includes(".publish.lock")
+      )),
       [],
     );
   });

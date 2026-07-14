@@ -80,6 +80,23 @@ test("public fixtures conform independently through Draft 2020-12 and runtime va
         );
       }
     }
+
+    const leapSecondManifest = JSON.parse(
+      await readFile(new URL("manifests/zeno-passed.json", fixturesUrl), "utf8"),
+    );
+    leapSecondManifest.run.startedAt = "2016-12-31T23:59:59Z";
+    leapSecondManifest.run.endedAt = "2017-01-01T00:00:01Z";
+    leapSecondManifest.items[0].startedAt = "2016-12-31T23:59:60Z";
+    leapSecondManifest.items[0].endedAt = "2017-01-01T00:00:00.500Z";
+    leapSecondManifest.items[0].durationMs = 500;
+
+    assert.equal(
+      validateSchema(leapSecondManifest),
+      true,
+      `leap-second schema errors: ${JSON.stringify(validateSchema.errors)}`,
+    );
+    assert.deepEqual(validateEvidenceManifest(leapSecondManifest), { ok: true, issues: [] });
+    assert.equal(leapSecondManifest.items[0].startedAt, "2016-12-31T23:59:60Z");
   } finally {
     await rm(consumer, { recursive: true, force: true });
   }

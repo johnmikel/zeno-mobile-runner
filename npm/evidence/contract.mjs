@@ -60,6 +60,7 @@ const IDENTITY_PATTERN = /^(?!\s)(?!.*\s$)[^\u0000-\u001f\u007f]+$/;
 const GIT_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const EXTENSION_NAMESPACE_PATTERN = /^[a-z0-9]+(?:[.-][a-z0-9-]+)+$/;
 const RFC3339_PATTERN = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/;
+const MAX_MANIFEST_DEPTH = 512;
 
 const ROOT_REQUIRED = [
   "schemaVersion",
@@ -117,6 +118,107 @@ function createCollector() {
       issues.push({ path, code, message });
     },
   };
+}
+
+function validateManifestStructure(manifest) {
+  const collector = createCollector();
+  const active = new Set();
+  const stack = [{ depth: 0, path: "", value: manifest }];
+
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (frame.exit) {
+      active.delete(frame.value);
+      continue;
+    }
+    if (frame.depth > MAX_MANIFEST_DEPTH) {
+      collector.add(
+        frame.path,
+        "canonical_depth_exceeded",
+        `Evidence manifest exceeds maximum depth of ${MAX_MANIFEST_DEPTH}`,
+      );
+      continue;
+    }
+    if (frame.value === null || typeof frame.value !== "object") continue;
+
+    const array = Array.isArray(frame.value);
+    const prototype = Object.getPrototypeOf(frame.value);
+    if (
+      (array && prototype !== Array.prototype)
+      || (!array && prototype !== Object.prototype && prototype !== null)
+    ) {
+      collector.add(
+        frame.path,
+        "invalid_container",
+        "Evidence manifest containers must be plain objects or arrays",
+      );
+      continue;
+    }
+    if (Object.getOwnPropertySymbols(frame.value).length > 0) {
+      collector.add(
+        frame.path,
+        "invalid_container",
+        "Evidence manifest containers cannot have symbol properties",
+      );
+      continue;
+    }
+    if (active.has(frame.value)) {
+      collector.add(frame.path, "invalid_container", "Evidence manifest cannot contain cycles");
+      continue;
+    }
+
+    active.add(frame.value);
+    stack.push({ exit: true, value: frame.value });
+    const names = Object.getOwnPropertyNames(frame.value).sort().reverse();
+    for (const key of names) {
+      if (array && key === "length") continue;
+      const keyPath = childPath(frame.path, key);
+      if (array && !/^(?:0|[1-9][0-9]*)$/.test(key)) {
+        collector.add(
+          keyPath,
+          "invalid_container",
+          "Evidence manifest arrays cannot have named properties",
+        );
+        continue;
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(frame.value, key);
+      if (descriptor === undefined || !("value" in descriptor)) {
+        collector.add(
+          keyPath,
+          "invalid_property_descriptor",
+          "Evidence manifest properties must be data properties",
+        );
+        continue;
+      }
+      if (!array && !descriptor.enumerable) {
+        collector.add(
+          keyPath,
+          "invalid_property_descriptor",
+          "Evidence manifest object properties must be enumerable",
+        );
+        continue;
+      }
+      stack.push({
+        depth: frame.depth + 1,
+        path: keyPath,
+        value: descriptor.value,
+      });
+    }
+  }
+
+  return sortIssues(collector.issues);
+}
+
+function invalidManifestError(issues) {
+  const error = new EvidenceValidationError(
+    `Evidence manifest is invalid (${issues.length} issue${issues.length === 1 ? "" : "s"})`,
+    {
+      code: "invalid_evidence_manifest",
+      path: issues[0]?.path,
+    },
+  );
+  error.issues = issues;
+  return error;
 }
 
 function validateObjectShape(value, path, required, properties, collector) {
@@ -247,14 +349,19 @@ function parseTimestamp(value, path, collector) {
   if (
     month < 1 || month > 12
     || day < 1 || day > daysInMonth
-    || hour > 23 || minute > 59 || second > 59
+    || hour > 23 || minute > 59 || second > 60
     || offsetHour > 23 || offsetMinute > 59
   ) {
     collector.add(path, "invalid_timestamp", "timestamp contains an invalid date or time");
     return null;
   }
 
-  const milliseconds = Date.parse(value);
+  const leapSecond = second === 60;
+  const parseableValue = leapSecond
+    ? `${value.slice(0, 17)}59${value.slice(19)}`
+    : value;
+  const parsedMilliseconds = Date.parse(parseableValue);
+  const milliseconds = parsedMilliseconds + (leapSecond ? 1_000 : 0);
   if (!Number.isFinite(milliseconds)) {
     collector.add(path, "invalid_timestamp", "timestamp contains an invalid date or time");
     return null;
@@ -873,6 +980,9 @@ export function isQualifyingTarget(target) {
 }
 
 export function validateEvidenceManifest(manifest) {
+  const structuralIssues = validateManifestStructure(manifest);
+  if (structuralIssues.length > 0) return { ok: false, issues: structuralIssues };
+
   const collector = createCollector();
   if (!validateObjectShape(manifest, "", ROOT_REQUIRED, ROOT_PROPERTIES, collector)) {
     return { ok: false, issues: sortIssues(collector.issues) };
@@ -935,15 +1045,7 @@ export function validateEvidenceManifest(manifest) {
 export function assertValidEvidenceManifest(manifest) {
   const result = validateEvidenceManifest(manifest);
   if (!result.ok) {
-    const error = new EvidenceValidationError(
-      `Evidence manifest is invalid (${result.issues.length} issue${result.issues.length === 1 ? "" : "s"})`,
-      {
-        code: "invalid_evidence_manifest",
-        path: result.issues[0]?.path,
-      },
-    );
-    error.issues = result.issues;
-    throw error;
+    throw invalidManifestError(result.issues);
   }
   return manifest;
 }
@@ -997,5 +1099,7 @@ function cloneWithSortedKeys(value, path, active) {
 }
 
 export function stableSortManifest(manifest) {
+  const structuralIssues = validateManifestStructure(manifest);
+  if (structuralIssues.length > 0) throw invalidManifestError(structuralIssues);
   return cloneWithSortedKeys(manifest, [], new Set());
 }

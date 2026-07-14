@@ -99,6 +99,27 @@ async function pathExists(path) {
   }
 }
 
+async function acquirePublishLock(destination) {
+  const lockPath = join(dirname(destination), `.${basename(destination)}.publish.lock`);
+  try {
+    await mkdir(lockPath, { mode: 0o700 });
+  } catch (cause) {
+    if (cause?.code === "EEXIST") {
+      throw validationError(
+        "package_publish_locked",
+        "Another evidence package writer is publishing to this destination",
+        "/destination",
+      );
+    }
+    throw validationError(
+      "package_publish_failed",
+      "Evidence package publication lock could not be acquired",
+      "/destination",
+    );
+  }
+  return lockPath;
+}
+
 function cloneDraft(value, path = "", active = new Set()) {
   if (value === null || typeof value !== "object") return value;
   if (active.has(value)) {
@@ -385,6 +406,18 @@ async function publishStagedPackage(tempPath, destination, force) {
       backupExists = true;
       await runPackageWriterTestHook({ phase: "backup_moved", destination, tempPath });
     }
+    if (!force) {
+      // Portable Node 18 has no directory rename-without-replace primitive. The sibling
+      // lock serializes cooperating writers; this lstat narrows, but cannot eliminate,
+      // the final recheck-to-rename race with an arbitrary noncooperating creator.
+      if (await pathExists(destination)) {
+        throw validationError(
+          "destination_exists",
+          "Evidence package destination already exists",
+          "/destination",
+        );
+      }
+    }
     await rename(tempPath, destination);
     tempExists = false;
     newPublished = true;
@@ -447,6 +480,7 @@ export async function writeEvidencePackage({
     );
   }
 
+  assertValidEvidenceManifest(manifest);
   const draft = cloneDraft(manifest);
   assertValidEvidenceManifest(draft);
   for (let index = 0; index < draft.items.length; index += 1) {
@@ -476,6 +510,7 @@ export async function writeEvidencePackage({
   const manifestDigest = sha256Bytes(canonicalBytes(finalManifest));
   const evidenceBytes = Buffer.from(`${JSON.stringify(finalManifest, null, 2)}\n`, "utf8");
   const tempPath = join(parent, `.${stem}.tmp-${randomUUID()}`);
+  const lockPath = await acquirePublishLock(destinationPath);
 
   try {
     await writeStagedPackage(tempPath, finalManifest, evidenceBytes, uniqueArtifacts);
@@ -483,6 +518,8 @@ export async function writeEvidencePackage({
   } catch (error) {
     await rm(tempPath, { recursive: true, force: true }).catch(() => {});
     throw error;
+  } finally {
+    await rm(lockPath, { recursive: true, force: true }).catch(() => {});
   }
 
   return {

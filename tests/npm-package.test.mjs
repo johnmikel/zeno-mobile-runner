@@ -39,6 +39,13 @@ const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), ".."
 test("package test script builds zmr before client examples need the binary", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.match(pkg.scripts.test, /^npm run build:zmr && /);
+  assert.equal(pkg.dependencies, undefined);
+  assert.equal(fs.existsSync(path.join(root, "package-lock.json")), false);
+  assert.equal(
+    pkg.scripts["test:evidence"],
+    "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs",
+  );
+  assert.match(pkg.scripts.test, /^npm run build:zmr && npm run test:evidence && node --test /);
 });
 
 test("scaffold helpers centralize generated app commands and scenarios", () => {
@@ -369,6 +376,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.match(pkg.homepage, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner#readme$/);
   assert.match(pkg.bugs.url, /^https:\/\/github\.com\/johnmikel\/zeno-mobile-runner\/issues$/);
   assert.equal(pkg.bin.zmr, "npm/zmr.mjs");
+  assert.equal(pkg.bin["zmr-evidence"], "npm/evidence-cli.mjs");
   assert.equal(pkg.bin["zmr-benchmark"], "scripts/benchmark.sh");
   assert.equal(pkg.bin["zmr-benchmark-lab"], "scripts/benchmark-lab.py");
   assert.equal(pkg.bin["zmr-benchmark-command"], "scripts/benchmark-command.sh");
@@ -393,6 +401,7 @@ test("package exposes zmr bin and public files for npm publishing", () => {
   assert.ok(pkg.keywords.includes("ai-testing"));
   assert.equal(pkg.keywords.includes("zig"), false);
   assert.ok(pkg.files.includes("npm/"));
+  assert.ok(pkg.files.includes("fixtures/evidence/"));
   assert.ok(pkg.files.includes("clients/README.md"));
   assert.ok(pkg.files.includes("clients/typescript/"));
   assert.ok(pkg.files.includes("clients/python/zmr_client.py"));
@@ -466,6 +475,11 @@ test("npm package excludes internal tests caches traces and build outputs", () =
   }
 
   assert.ok(paths.includes("src/main.zig"));
+  assert.ok(paths.includes("npm/evidence-cli.mjs"));
+  assert.ok(paths.includes("npm/evidence/contract.mjs"));
+  assert.ok(paths.includes("schemas/evidence-v1.schema.json"));
+  assert.ok(paths.includes("fixtures/evidence/v1/README.md"));
+  assert.ok(paths.includes("fixtures/evidence/v1/manifests/zeno-passed.json"));
   assert.ok(paths.includes("docs/frameworks.md"));
   assert.ok(paths.includes("docs/expo-smoke.md"));
   assert.ok(paths.includes("docs/production-readiness.md"));

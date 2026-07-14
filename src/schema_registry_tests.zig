@@ -8,14 +8,21 @@ test "registry exposes stable public schema metadata" {
     try std.testing.expectEqualStrings("json-rpc", schemas[0].name);
     try std.testing.expectEqualStrings("schemas/json-rpc.schema.json", schemas[0].path);
     var saw_release_readiness = false;
+    var found_evidence_v1 = false;
     for (schemas) |schema| {
         if (std.mem.eql(u8, schema.name, "release-readiness-output")) {
             saw_release_readiness = true;
             try std.testing.expectEqualStrings("schemas/release-readiness-output.schema.json", schema.path);
             try std.testing.expectEqualStrings("https://zmr.dev/schemas/release-readiness-output.schema.json", schema.id);
         }
+        if (std.mem.eql(u8, schema.name, "evidence-v1")) {
+            found_evidence_v1 = true;
+            try std.testing.expectEqualStrings("schemas/evidence-v1.schema.json", schema.path);
+            try std.testing.expectEqualStrings("https://zmr.dev/schemas/evidence-v1.schema.json", schema.id);
+        }
     }
     try std.testing.expect(saw_release_readiness);
+    try std.testing.expect(found_evidence_v1);
     var found_inspect_output = false;
     var found_discover_output = false;
     var found_draft_output = false;

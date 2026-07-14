@@ -32,6 +32,12 @@ const public_schemas = [_]PublicSchema{
     .{ .name = "draft-output", .path = "schemas/draft-output.schema.json", .id = "https://zmr.dev/schemas/draft-output.schema.json", .description = "Machine-readable zmr draft --json scenario draft output" },
     .{ .name = "release-manifest", .path = "schemas/release-manifest.schema.json", .id = "https://zmr.dev/schemas/release-manifest.schema.json", .description = "Machine-readable RELEASE_MANIFEST.json emitted with release archives" },
     .{ .name = "release-readiness-output", .path = "schemas/release-readiness-output.schema.json", .id = "https://zmr.dev/schemas/release-readiness-output.schema.json", .description = "Machine-readable zmr-release-readiness --json release evidence gate output" },
+    .{
+        .name = "evidence-v1",
+        .path = "schemas/evidence-v1.schema.json",
+        .id = "https://zmr.dev/schemas/evidence-v1.schema.json",
+        .description = "Platform-neutral Zeno Evidence Contract v1 manifest",
+    },
     .{ .name = "schemas-output", .path = "schemas/schemas-output.schema.json", .id = "https://zmr.dev/schemas/schemas-output.schema.json", .description = "Machine-readable zmr schemas --json public schema index" },
 };
 

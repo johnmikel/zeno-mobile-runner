@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
+  closeSync,
   cpSync,
   existsSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,6 +50,36 @@ function runCli(args, options = {}) {
     cwd: options.cwd ?? root,
     env: { ...process.env, ...options.env },
     encoding: "utf8",
+  });
+}
+
+function runCliWithClosedOutput(args, { close, cwd = root, env = {} }) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [cliPath, ...args], {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    if (close === "stdout") {
+      child.stdout.destroy();
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+    } else {
+      assert.equal(close, "stderr");
+      child.stderr.destroy();
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+    }
+    child.once("error", rejectPromise);
+    child.once("close", (status, signal) => {
+      resolvePromise({ status, signal, stdout, stderr });
+    });
   });
 }
 
@@ -110,6 +143,20 @@ function withoutOption(args, option) {
   return [...args.slice(0, index), ...args.slice(index + 2)];
 }
 
+function withEqualsOptions(args) {
+  const converted = [args[0]];
+  for (let index = 1; index < args.length; index += 1) {
+    const option = args[index];
+    if (option === "--force") {
+      converted.push(option);
+      continue;
+    }
+    converted.push(`${option}=${args[index + 1]}`);
+    index += 1;
+  }
+  return converted;
+}
+
 test("no command reports concise JSON usage on stderr and exits 2", () => {
   const result = runCli([]);
 
@@ -161,6 +208,69 @@ test("help exits 0 and the executable starts with a Node shebang", () => {
     assert.equal(direct.status, 0, direct.stderr);
     assert.match(direct.stdout, /^Usage: zmr-evidence/m);
   }
+});
+
+test("closed stdout is a quiet EPIPE with the intended help and success exit codes", async (t) => {
+  const directory = makeFixture(t);
+  for (const [args, cwd] of [
+    [["--help"], directory],
+    [fromZmrArgs(), directory],
+  ]) {
+    const result = await runCliWithClosedOutput(args, { close: "stdout", cwd });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.signal, null);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "");
+    assert.equal(result.stderr.includes("Unhandled 'error' event"), false);
+    assert.equal(result.stderr.includes("node:events"), false);
+    assert.equal(result.stderr.includes(directory), false);
+    assert.equal(result.stderr.includes(root), false);
+  }
+});
+
+test("closed stderr is a quiet EPIPE with usage and domain exit codes", async (t) => {
+  const directory = makeFixture(t);
+  const missing = join(directory, "SUPER_SECRET_MISSING_MANIFEST", "evidence.json");
+  for (const [args, expectedStatus] of [
+    [[], 2],
+    [["validate", missing], 1],
+  ]) {
+    const result = await runCliWithClosedOutput(args, {
+      close: "stderr",
+      cwd: directory,
+      env: { ZENO_EVIDENCE_DEBUG: "1" },
+    });
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.signal, null);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stdout.includes("SUPER_SECRET"), false);
+    assert.equal(result.stdout.includes(directory), false);
+    assert.equal(result.stdout.includes(root), false);
+  }
+});
+
+test("non-EPIPE output failures terminate quietly without recursive diagnostics", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = makeFixture(t);
+  const readOnlyPath = join(directory, "read-only-output");
+  writeFileSync(readOnlyPath, "");
+  const readOnlyFd = openSync(readOnlyPath, "r");
+  let result;
+  try {
+    result = spawnSync(process.execPath, [cliPath, "--help"], {
+      cwd: directory,
+      encoding: "utf8",
+      stdio: ["ignore", readOnlyFd, "pipe"],
+    });
+  } finally {
+    closeSync(readOnlyFd);
+  }
+  assert.equal(result.status, 1);
+  assert.equal(result.signal, null);
+  assert.equal(result.stderr, "");
+  assert.equal(result.stderr.includes(directory), false);
+  assert.equal(result.stderr.includes(root), false);
 });
 
 test("from-zmr creates an evidence package and prints exactly one compact JSON result", (t) => {
@@ -248,6 +358,116 @@ test("from-zmr preserves identities verbatim and rejects edge whitespace or cont
   }
 });
 
+test("adapter validation exposes only fixed actionable option rules", (t) => {
+  const directory = makeFixture(t);
+  const secret = "SUPER_SECRET_DO_NOT_ECHO";
+  const cases = [
+    ["--surface", `web-${secret}`, "invalid_adapter_options", "--surface must be ios or android"],
+    [
+      "--submitter-type",
+      `robot-${secret}`,
+      "invalid_adapter_options",
+      "--submitter-type must be user or automation",
+    ],
+    [
+      "--project-id",
+      ` ${secret}/Users/attacker/.ssh/id_rsa`,
+      "invalid_identity",
+      "--project-id must be 1 to 256 characters with no edge whitespace or controls",
+    ],
+  ];
+  for (const [option, value, code, message] of cases) {
+    for (const debug of [false, true]) {
+      const result = runCli(fromZmrArgs({
+        overrides: { [option]: value },
+      }), {
+        cwd: directory,
+        env: { ZENO_EVIDENCE_DEBUG: debug ? "1" : "0" },
+      });
+      assert.equal(result.status, 1, option);
+      assert.equal(result.stdout, "", option);
+      const [jsonLine] = result.stderr.split("\n");
+      const payload = JSON.parse(jsonLine);
+      assert.deepEqual(payload, {
+        ok: false,
+        error: { code, message, issues: [] },
+      });
+      assert.equal(result.stderr.includes(secret), false, option);
+      assert.equal(result.stderr.includes("/Users/attacker"), false, option);
+      assert.equal(result.stderr.includes(directory), false, option);
+      assert.equal(result.stderr.includes(root), false, option);
+    }
+  }
+});
+
+test("every strict identity error names its CLI flag with a fixed rule", (t) => {
+  const directory = makeFixture(t);
+  const identityOptions = requiredFromZmrOptions.filter((option) => ![
+    "--trace",
+    "--submitter-type",
+    "--surface",
+    "--app-artifact",
+    "--out",
+  ].includes(option));
+  for (const option of identityOptions) {
+    const args = withEqualsOptions(fromZmrArgs({
+      overrides: { [option]: "" },
+    }));
+    const result = runCli(args, { cwd: directory });
+    assert.equal(result.status, 1, option);
+    assert.equal(result.stdout, "", option);
+    assert.deepEqual(parseJsonLine(result.stderr).error, {
+      code: "invalid_identity",
+      message: `${option} must be 1 to 256 characters with no edge whitespace or controls`,
+      issues: [],
+    });
+  }
+});
+
+test("unknown validation fields and codes keep generic no-leak errors", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = makeFixture(t);
+  const secret = "SUPER_SECRET_UNKNOWN_VALIDATION_DETAIL";
+  const traceManifestPath = join(directory, "trace", "trace.json");
+  const traceManifest = JSON.parse(readFileSync(traceManifestPath, "utf8"));
+  traceManifest.runnerVersion = ` ${secret}/Users/attacker/.ssh/id_rsa`;
+  writeFileSync(traceManifestPath, `${JSON.stringify(traceManifest, null, 2)}\n`);
+  symlinkSync(join(directory, "trace"), join(directory, secret), "dir");
+
+  const cases = [
+    [fromZmrArgs({ overrides: { "--out": "unknown-field-evidence" } }), {
+      code: "invalid_identity",
+      message: "Evidence identity is invalid",
+      issues: [],
+    }],
+    [fromZmrArgs({ overrides: {
+      "--trace": secret,
+      "--out": "unknown-code-evidence",
+    } }), {
+      code: "evidence_validation_error",
+      message: "Evidence command failed",
+      issues: [],
+    }],
+  ];
+  for (const [args, expectedError] of cases) {
+    for (const debug of [false, true]) {
+      const result = runCli(args, {
+        cwd: directory,
+        env: { ZENO_EVIDENCE_DEBUG: debug ? "1" : "0" },
+      });
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, "");
+      const [jsonLine] = result.stderr.split("\n");
+      assert.deepEqual(JSON.parse(jsonLine).error, expectedError);
+      assert.equal(result.stderr.includes(secret), false);
+      assert.equal(result.stderr.includes("/Users/attacker"), false);
+      assert.equal(result.stderr.includes(directory), false);
+      assert.equal(result.stderr.includes(root), false);
+    }
+  }
+});
+
 test("strict option parsing rejects unknown, duplicate, missing-value, and positional arguments", (t) => {
   const directory = makeFixture(t);
   const cases = [
@@ -257,6 +477,54 @@ test("strict option parsing rejects unknown, duplicate, missing-value, and posit
     [[...fromZmrArgs(), "positional"], "unexpected_argument"],
   ];
   for (const [args, code] of cases) {
+    const result = runCli(args, { cwd: directory });
+    assert.equal(result.status, 2, code);
+    assert.equal(result.stdout, "", code);
+    assert.equal(parseJsonLine(result.stderr).error.code, code);
+  }
+});
+
+test("equals-form options preserve literal dash values and empty values", (t) => {
+  const directory = makeFixture(t);
+  cpSync(join(directory, "trace"), join(directory, "--trace"), { recursive: true });
+  writeFileSync(join(directory, "--app"), "dash-prefixed app binary\n");
+  const literalValue = "--surface";
+  const args = withEqualsOptions(fromZmrArgs({
+    overrides: {
+      "--trace": "--trace",
+      "--project-id": literalValue,
+      "--release-id": "--client",
+      "--app-artifact": "--app",
+      "--out": "--evidence",
+    },
+  })).map((argument) => argument === "--scenario=trace/scenario.json"
+    ? "--scenario=--trace/scenario.json"
+    : argument);
+  const result = runCli(args, { cwd: directory });
+  assert.equal(result.status, 0, result.stderr);
+  const manifest = JSON.parse(readFileSync(join(directory, "--evidence", "evidence.json"), "utf8"));
+  assert.equal(manifest.project.externalId, literalValue);
+  assert.equal(manifest.release.externalId, "--client");
+
+  const empty = runCli(withEqualsOptions(fromZmrArgs({
+    overrides: { "--project-id": "", "--out": "empty-value-evidence" },
+  })), { cwd: directory });
+  assert.equal(empty.status, 1);
+  assert.deepEqual(parseJsonLine(empty.stderr).error, {
+    code: "invalid_identity",
+    message: "--project-id must be 1 to 256 characters with no edge whitespace or controls",
+    issues: [],
+  });
+});
+
+test("equals-form options retain strict duplicate and unknown checks", (t) => {
+  const directory = makeFixture(t);
+  for (const [args, code] of [
+    [[...withEqualsOptions(fromZmrArgs()), "--project-id=duplicate"], "duplicate_option"],
+    [[...withEqualsOptions(fromZmrArgs()), "--unknown=value"], "unknown_option"],
+    [[...withoutOption(fromZmrArgs(), "--project-id"), "--project-id", "--client"], "missing_option_value"],
+    [[...withoutOption(fromZmrArgs(), "--project-id"), "--project-id", "--surface"], "missing_option_value"],
+  ]) {
     const result = runCli(args, { cwd: directory });
     assert.equal(result.status, 2, code);
     assert.equal(result.stdout, "", code);
@@ -306,6 +574,29 @@ test("validate verifies evidence.json and sibling artifacts with compact success
     artifacts: manifest.items.reduce((count, item) => count + item.artifacts.length, 0),
   });
   assert.match(success.manifestDigest, /^sha256:[a-f0-9]{64}$/);
+});
+
+test("validate supports -- before a literal dash-prefixed manifest path", (t) => {
+  const directory = makeFixture(t);
+  const created = runCli(fromZmrArgs(), { cwd: directory });
+  assert.equal(created.status, 0, created.stderr);
+  const packageRoot = join(directory, "zeno-evidence");
+  const literalManifest = join(packageRoot, "--manifest");
+  writeFileSync(literalManifest, readFileSync(join(packageRoot, "evidence.json")));
+
+  const result = runCli(["validate", "--", "--manifest"], { cwd: packageRoot });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(parseJsonLine(result.stdout).output, realpathSync(literalManifest));
+
+  for (const args of [
+    ["validate", "--"],
+    ["validate", "--", "--manifest", "extra"],
+    ["validate", "--", "--manifest", "--force"],
+  ]) {
+    const rejected = runCli(args, { cwd: packageRoot });
+    assert.equal(rejected.status, 2, args.join(" "));
+    assert.equal(rejected.stdout, "", args.join(" "));
+  }
 });
 
 test("validate detects sibling artifact tampering and keeps normal failures on stderr only", (t) => {

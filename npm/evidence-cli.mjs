@@ -9,6 +9,36 @@ import {
 } from "./evidence/package-writer.mjs";
 import { adaptZmrTrace } from "./evidence/zmr-adapter.mjs";
 
+let intendedSemanticExitCode = 0;
+let terminatingForStreamError = false;
+
+function setIntendedSemanticExitCode(code) {
+  intendedSemanticExitCode = code;
+  process.exitCode = code;
+}
+
+function terminateForStreamError(error) {
+  if (terminatingForStreamError) return;
+  terminatingForStreamError = true;
+  process.exit(error?.code === "EPIPE" ? intendedSemanticExitCode : 1);
+}
+
+process.stdout.on("error", terminateForStreamError);
+process.stderr.on("error", terminateForStreamError);
+
+function writeStream(stream, output) {
+  try {
+    stream.write(output);
+  } catch (error) {
+    terminateForStreamError(error);
+  }
+}
+
+function writeSuccess(output) {
+  setIntendedSemanticExitCode(0);
+  writeStream(process.stdout, output);
+}
+
 const USAGE = `Usage: zmr-evidence <command> [options]
 
 Commands:
@@ -78,12 +108,54 @@ const SAFE_EVIDENCE_MESSAGES = new Map([
   ["invalid_evidence_json", "Evidence manifest is not valid JSON"],
   ["invalid_evidence_manifest", "Evidence manifest is invalid"],
   ["invalid_evidence_package", "Evidence package is invalid"],
+  ["invalid_adapter_options", "Evidence adapter options are invalid"],
+  ["invalid_identity", "Evidence identity is invalid"],
+  ["invalid_scenario_identity", "Evidence scenario identity is invalid"],
+]);
+
+const SAFE_ADAPTER_FIELD_MESSAGES = new Map([
+  ["invalid_adapter_options", new Map([
+    ["tracePath", "--trace must be a non-empty path"],
+    ["scenarioPath", "--scenario must be a non-empty path"],
+    ["appArtifactPath", "--app-artifact must be a non-empty path"],
+    ["submitterType", "--submitter-type must be user or automation"],
+    ["surface", "--surface must be ios or android"],
+  ])],
+  ["invalid_identity", new Map([
+    ["projectId", "--project-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["submitterId", "--submitter-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["releaseId", "--release-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["commitSha", "--commit-sha must be 1 to 256 characters with no edge whitespace or controls"],
+    ["appId", "--app-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["appVersion", "--app-version must be 1 to 256 characters with no edge whitespace or controls"],
+    ["buildNumber", "--build-number must be 1 to 256 characters with no edge whitespace or controls"],
+    ["environment", "--environment must be 1 to 256 characters with no edge whitespace or controls"],
+    ["journeyId", "--journey-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["itemId", "--item-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["runId", "--run-id must be 1 to 256 characters with no edge whitespace or controls"],
+    ["deviceName", "--device-name must be 1 to 256 characters with no edge whitespace or controls"],
+    ["osName", "--os-name must be 1 to 256 characters with no edge whitespace or controls"],
+    ["osVersion", "--os-version must be 1 to 256 characters with no edge whitespace or controls"],
+  ])],
+  ["invalid_scenario_identity", new Map([
+    ["scenarioHash", "--scenario-hash must be a SHA-256 digest"],
+  ])],
+]);
+
+const SAFE_EVIDENCE_CODES = new Set([
+  "evidence_validation_error",
+  ...SAFE_EVIDENCE_MESSAGES.keys(),
 ]);
 
 function safeEvidenceCode(error) {
-  return typeof error.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(error.code)
+  return typeof error.code === "string" && SAFE_EVIDENCE_CODES.has(error.code)
     ? error.code
     : "evidence_validation_error";
+}
+
+function safeAdapterFieldMessage(error, code) {
+  if (typeof error.field !== "string" || error.field !== error.path) return undefined;
+  return SAFE_ADAPTER_FIELD_MESSAGES.get(code)?.get(error.field);
 }
 
 function publicError(error) {
@@ -98,7 +170,9 @@ function publicError(error) {
     const code = safeEvidenceCode(error);
     return {
       code,
-      message: SAFE_EVIDENCE_MESSAGES.get(code) ?? `Evidence command failed (${code})`,
+      message: safeAdapterFieldMessage(error, code)
+        ?? SAFE_EVIDENCE_MESSAGES.get(code)
+        ?? "Evidence command failed",
       issues: [],
     };
   }
@@ -110,22 +184,24 @@ function publicError(error) {
 }
 
 function printHelp() {
-  process.stdout.write(`${USAGE}\n`);
+  writeSuccess(`${USAGE}\n`);
 }
 
-function printError(error) {
+function printError(error, exitCode) {
+  setIntendedSemanticExitCode(exitCode);
   const payload = {
     ok: false,
     error: publicError(error),
   };
-  process.stderr.write(`${JSON.stringify(payload)}\n`);
+  writeStream(process.stderr, `${JSON.stringify(payload)}\n`);
   if (process.env.ZENO_EVIDENCE_DEBUG === "1") {
     const debugName = error instanceof CliUsageError
       ? "CliUsageError"
       : error instanceof EvidenceValidationError
         ? "EvidenceValidationError"
         : "Error";
-    process.stderr.write(
+    writeStream(
+      process.stderr,
       `Debug stack:\n${debugName}: ${payload.error.message}\n    at zmr-evidence\n`,
     );
   }
@@ -134,17 +210,20 @@ function printError(error) {
 function parseFromZmrOptions(args) {
   const options = {};
   for (let index = 0; index < args.length; index += 1) {
-    const option = args[index];
-    if (option === "--force") {
+    const argument = args[index];
+    if (argument === "--force") {
       if (Object.hasOwn(options, "force")) {
         throw new CliUsageError("duplicate_option", "--force may only be provided once");
       }
       options.force = true;
       continue;
     }
+    const separator = argument.indexOf("=");
+    const hasInlineValue = separator !== -1;
+    const option = hasInlineValue ? argument.slice(0, separator) : argument;
     const property = FROM_ZMR_OPTIONS.get(option);
     if (property === undefined) {
-      const code = typeof option === "string" && option.startsWith("-")
+      const code = typeof argument === "string" && argument.startsWith("-")
         ? "unknown_option"
         : "unexpected_argument";
       throw new CliUsageError(code, code === "unknown_option"
@@ -153,6 +232,10 @@ function parseFromZmrOptions(args) {
     }
     if (Object.hasOwn(options, property)) {
       throw new CliUsageError("duplicate_option", `${option} may only be provided once`);
+    }
+    if (hasInlineValue) {
+      options[property] = argument.slice(separator + 1);
+      continue;
     }
     if (index + 1 >= args.length || args[index + 1].startsWith("--")) {
       throw new CliUsageError("missing_option_value", `${option} requires a value`);
@@ -197,7 +280,7 @@ async function runFromZmr(args) {
     (count, item) => count + item.artifacts.length,
     0,
   );
-  process.stdout.write(`${JSON.stringify({
+  writeSuccess(`${JSON.stringify({
     ok: true,
     command: "from-zmr",
     output: resolve(destination),
@@ -208,21 +291,23 @@ async function runFromZmr(args) {
 }
 
 async function runValidate(args) {
-  if (args.length === 0) {
+  if (args.length === 0 || (args[0] === "--" && args.length === 1)) {
     throw new CliUsageError("missing_manifest", "validate requires a path to evidence.json");
   }
-  if (args[0].startsWith("-")) {
+  const terminated = args[0] === "--";
+  const manifestPath = terminated ? args[1] : args[0];
+  if (!terminated && manifestPath.startsWith("-")) {
     throw new CliUsageError("unknown_option", "Unknown validate option");
   }
-  if (args.length !== 1) {
+  if (args.length !== (terminated ? 2 : 1)) {
     throw new CliUsageError("unexpected_argument", "validate accepts exactly one evidence.json path");
   }
-  const validated = await validateEvidencePackage(args[0]);
+  const validated = await validateEvidencePackage(manifestPath);
   const artifacts = validated.manifest.items.reduce(
     (count, item) => count + item.artifacts.length,
     0,
   );
-  process.stdout.write(`${JSON.stringify({
+  writeSuccess(`${JSON.stringify({
     ok: true,
     command: "validate",
     output: validated.manifestPath,
@@ -263,6 +348,5 @@ async function main(args) {
 try {
   await main(process.argv.slice(2));
 } catch (error) {
-  printError(error);
-  process.exitCode = error instanceof CliUsageError ? 2 : 1;
+  printError(error, error instanceof CliUsageError ? 2 : 1);
 }

@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs";
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const WINDOWS_DRIVE_PATTERN = /^[A-Za-z]:/;
-const WINDOWS_RESERVED_DEVICE_PATTERN = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i;
+const WINDOWS_RESERVED_DEVICE_PATTERN = /^(?:CON|PRN|AUX|NUL|(?:COM|LPT)[1-9\u00b9\u00b2\u00b3])(?:\..*)?$/i;
 const MAX_CANONICAL_DEPTH = 512;
 
 export class EvidenceValidationError extends Error {

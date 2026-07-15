@@ -6,6 +6,9 @@ import threading
 import time
 
 from .support import *  # noqa: F401,F403
+from scripts.run_evidence_lib import command_state, command_supervisor
+
+from . import command_state as state_cases
 
 try:
     import resource
@@ -28,6 +31,224 @@ class CommandCaptureTests(CommandTestCase):
         @staticmethod
         def wait():
             return 0
+
+    def test_command_supervise_cli_uses_durable_state_and_capture_pipe(self):
+        backend = command_supervisor.ProcessBackend()
+        command_state.initialize_control_layout(
+            self.root,
+            state_cases.valid_session(
+                runId=self.root.name,
+                ownerPid=os.getpid(),
+                ownerBirthIdentity=backend.current_identity(os.getpid()),
+            ),
+        )
+        command_id = state_cases.COMMAND_ID
+        read_fd, write_fd = os.pipe()
+        envelope_chunks = []
+
+        def drain():
+            while True:
+                chunk = os.read(read_fd, 65536)
+                if not chunk:
+                    return
+                envelope_chunks.append(chunk)
+
+        reader = threading.Thread(target=drain)
+        reader.start()
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command-supervise",
+                "--root",
+                str(self.root),
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                "1",
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "durable-cli",
+                "--failure-code",
+                "runner.driver_protocol",
+                "--failure-policy",
+                "handled",
+                "--stop-policy",
+                "none",
+                "--mode",
+                "capture-both",
+                "--stdin-policy",
+                "devnull",
+                "--capture-fd",
+                str(write_fd),
+                "--",
+                sys.executable,
+                "-c",
+                (
+                    "import os;os.write(1,b'raw-out\\xff\\n');"
+                    "os.write(2,b'raw-err\\x80\\n')"
+                ),
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            pass_fds=(write_fd,),
+            timeout=15,
+            check=False,
+        )
+        os.close(write_fd)
+        reader.join(timeout=5.0)
+        os.close(read_fd)
+        self.assertFalse(reader.is_alive())
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(process.stdout, b"")
+        envelope = command_supervisor.decode_capture_envelope(
+            b"".join(envelope_chunks), expected_command_id=command_id
+        )
+        self.assertEqual(envelope["stdout"], b"raw-out\xff\n")
+        self.assertEqual(envelope["stderr"], b"raw-err\x80\n")
+        stored = command_state.read_command_state(
+            self.root, command_id, state_cases.SESSION_ID
+        )
+        self.assertEqual(stored["stage"], "committed")
+        self.assertEqual(stored["outcome"]["exitStatus"], 0)
+        metadata = self.read_json(self.root / stored["paths"]["metadata"])
+        self.assertEqual(metadata["commandId"], command_id)
+        self.assertIs(metadata["captureComplete"], True)
+
+    def test_command_id_cli_returns_one_strict_random_identifier(self):
+        first = self.cli("command-id", text=True)
+        second = self.cli("command-id", text=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertRegex(first.stdout, r"^[0-9a-f]{32}\n$")
+        self.assertRegex(second.stdout, r"^[0-9a-f]{32}\n$")
+        self.assertNotEqual(first.stdout, second.stdout)
+
+    def test_command_supervise_foreground_replays_only_sanitized_logs(self):
+        backend = command_supervisor.ProcessBackend()
+        secret = "durable-supervisor-secret"
+        command_state.initialize_control_layout(
+            self.root,
+            state_cases.valid_session(
+                runId=self.root.name,
+                ownerPid=os.getpid(),
+                ownerBirthIdentity=backend.current_identity(os.getpid()),
+            ),
+        )
+        result = self.cli(
+            "command-supervise",
+            "--root",
+            self.root,
+            "--command-id",
+            state_cases.COMMAND_ID,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "foreground-redaction",
+            "--failure-code",
+            "runner.driver_protocol",
+            "--failure-policy",
+            "handled",
+            "--stop-policy",
+            "none",
+            "--mode",
+            "foreground",
+            "--stdin-policy",
+            "devnull",
+            "--",
+            sys.executable,
+            "-c",
+            "import os;print(os.environ['API_TOKEN'])",
+            env={"API_TOKEN": secret},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(secret.encode(), result.stdout)
+        self.assertIn(b"<redacted>", result.stdout)
+        state = command_state.read_command_state(
+            self.root, state_cases.COMMAND_ID, state_cases.SESSION_ID
+        )
+        self.assertEqual(state["stage"], "committed")
+        status = self.cli(
+            "command-status",
+            "--root",
+            self.root,
+            "--command-id",
+            state_cases.COMMAND_ID,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            text=True,
+        )
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(
+            json.loads(status.stdout),
+            {
+                "schemaVersion": 1,
+                "commandId": state_cases.COMMAND_ID,
+                "stage": "committed",
+                "shellStatus": 0,
+                "captureComplete": True,
+            },
+        )
+        persisted = (
+            (self.root / state["paths"]["stdout"]).read_bytes()
+            + (self.root / state["paths"]["stderr"]).read_bytes()
+            + (self.root / state["paths"]["metadata"]).read_bytes()
+        )
+        self.assertNotIn(secret.encode(), persisted)
+
+    def test_command_supervise_rejects_invalid_request_before_reservation(self):
+        backend = command_supervisor.ProcessBackend()
+        command_state.initialize_control_layout(
+            self.root,
+            state_cases.valid_session(
+                runId=self.root.name,
+                ownerPid=os.getpid(),
+                ownerBirthIdentity=backend.current_identity(os.getpid()),
+            ),
+        )
+        result = self.cli(
+            "command-supervise",
+            "--root",
+            self.root,
+            "--command-id",
+            state_cases.COMMAND_ID,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "invalid-policy",
+            "--failure-code",
+            "runner.capture_failed",
+            "--failure-policy",
+            "handled",
+            "--stop-policy",
+            "none",
+            "--mode",
+            "foreground",
+            "--stdin-policy",
+            "devnull",
+            "--",
+            sys.executable,
+            "-c",
+            "raise SystemExit('must not run')",
+        )
+        self.assertEqual(result.returncode, 2)
+        commands_root = self.root / ".evidence-control" / "commands"
+        self.assertEqual(list(commands_root.iterdir()), [])
 
     def test_long_running_command_does_not_hold_mutation_locks(self):
         errors = []
@@ -1234,9 +1455,15 @@ class CommandCaptureTests(CommandTestCase):
         timed_out = False
         try:
             deadline = time.monotonic() + 3
-            while time.monotonic() < deadline and not pid_file.exists():
+            while time.monotonic() < deadline:
+                if pid_file.exists():
+                    content = pid_file.read_text(encoding="ascii").strip()
+                    if content:
+                        descendant_pid = int(content)
+                        break
                 time.sleep(0.02)
-            descendant_pid = int(pid_file.read_text(encoding="ascii"))
+            if descendant_pid is None:
+                self.fail("descendant PID was not durably published")
             worker.join(timeout=1)
             timed_out = worker.is_alive()
             if timed_out and self._process_is_running(descendant_pid):

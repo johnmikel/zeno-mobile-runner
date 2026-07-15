@@ -27,6 +27,7 @@ from typing import Any
 
 from . import bounded_io
 from . import command_state
+from . import safe_io
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -1752,6 +1753,307 @@ def verify_committed_command_materialization(
                     return copy.deepcopy(state)
 
 
+def new_command_id() -> str:
+    """Return one collision-resistant opaque command identifier."""
+
+    return os.urandom(16).hex()
+
+
+def command_status(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    *,
+    wait: bool = False,
+) -> dict[str, Any]:
+    """Return one bounded command status, recovering a lost supervisor when waiting."""
+
+    from .command_supervisor import recover_command
+
+    root = Path(root).absolute()
+    session_id = command_state._identifier(session_id, "sessionId")
+    generation = command_state._integer(
+        generation, "generation", minimum=1
+    )
+    command_id = command_state._identifier(command_id, "commandId")
+    if type(wait) is not bool:
+        raise ValueError("command status wait must be a boolean")
+    while True:
+        session = command_state.read_session(root)
+        if (
+            session["sessionId"] != session_id
+            or session["generation"] != generation
+        ):
+            raise ValueError("command status session is stale")
+        state = command_state.read_command_state(root, command_id, session_id)
+        if state["stage"] == "committed":
+            state = verify_committed_command_materialization(
+                root, session_id, generation, command_id
+            )
+        if not wait or state["stage"] == "committed":
+            outcome = state["outcome"]
+            capture = state["capture"]
+            return {
+                "schemaVersion": 1,
+                "commandId": command_id,
+                "stage": state["stage"],
+                "shellStatus": (
+                    None if outcome is None else outcome["shellVisibleStatus"]
+                ),
+                "captureComplete": (
+                    None if capture is None else capture["captureComplete"]
+                ),
+            }
+        try:
+            recover_command(root, session_id, generation, command_id)
+        except TimeoutError:
+            time.sleep(0.02)
+
+
+def _prepared_command_state(
+    *,
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    reservation: command_state.CommandLayoutReservation,
+    phase: str,
+    name: str,
+    failure_code: str,
+    failure_policy: str,
+    stop_policy: str,
+    mode: str,
+    stdin_policy: str,
+    sanitized_argv: list[str],
+    sequence: int,
+) -> dict[str, Any]:
+    from .command_supervisor import ProcessBackend
+
+    stem = f"{sequence:06d}-{name}-{command_id[:8]}"
+    paths = {
+        "metadata": f"commands/{stem}.json",
+        "stdout": f"commands/{stem}.stdout.log",
+        "stderr": f"commands/{stem}.stderr.log",
+    }
+    request = {
+        "phase": phase,
+        "name": name,
+        "failureCode": failure_code,
+        "failurePolicy": failure_policy,
+        "stopPolicy": stop_policy,
+        "mode": mode,
+        "stdinPolicy": stdin_policy,
+        "sanitizedArgv": list(sanitized_argv),
+    }
+    backend = ProcessBackend()
+    state = {
+        "schemaVersion": 1,
+        "commandId": command_id,
+        "sessionId": session_id,
+        "creationGeneration": generation,
+        "stage": "prepared",
+        "requestFingerprint": command_state.request_fingerprint(
+            session_id, generation, request, paths
+        ),
+        "request": request,
+        "paths": paths,
+        "startedEvent": {
+            "schemaVersion": 1,
+            "seq": sequence,
+            "timestamp": safe_io._utc_now(),
+            "phase": phase,
+            "status": "started",
+            "command": paths["metadata"],
+        },
+        "supervisor": {
+            "pid": os.getpid(),
+            "birthIdentity": backend.current_identity(os.getpid()),
+            "leaseIdentity": reservation.identity,
+            "role": "launch",
+            "predecessor": None,
+        },
+        "anchorReservation": reservation.anchor_reservation,
+        "anchor": None,
+        "child": None,
+        "stopIntent": None,
+        "outcome": None,
+        "capture": None,
+        "materialized": None,
+    }
+    return command_state.validate_command_state(state)
+
+
+@_rooted_attempt_mutation
+def supervise_command(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    phase: str,
+    name: str,
+    failure_code: str,
+    failure_policy: str,
+    stop_policy: str,
+    mode: str,
+    stdin_policy: str,
+    argv: list[str],
+    *,
+    capture_fd: int | None = None,
+    stdout_stream: Any = None,
+    stderr_stream: Any = None,
+) -> dict[str, Any]:
+    """Prepare, execute, materialize, and replay one durable command."""
+
+    from .command_supervisor import (
+        DurableCommandSupervisor,
+        _validate_capture_transport,
+    )
+
+    root = Path(root).absolute()
+    argv = _own_command_argv(argv)
+    name = _own_command_scalar(
+        name, diagnostic="command name must be a safe slug"
+    )
+    phase = _own_command_scalar(
+        phase, diagnostic="command phase must be a declared phase"
+    )
+    failure_code = _own_command_scalar(
+        failure_code, diagnostic="failure code must be registered"
+    )
+    _validate_command_name(name)
+    session_id = command_state._identifier(session_id, "sessionId")
+    generation = command_state._integer(
+        generation, "generation", minimum=1
+    )
+    session = command_state.read_session(root)
+    if (
+        session["sessionId"] != session_id
+        or session["generation"] != generation
+        or session["state"] != "active"
+    ):
+        raise ValueError("command session is stale or not active")
+    _recover_pending_transactions(_publication_root_for_attempt(root))
+    roots = _sanitization_roots(root)
+    secrets = _collect_secret_values()
+    sanitized_argv = _sanitize_argv(argv, roots=roots, secrets=secrets)
+    request_preview = command_state._validate_request(
+        {
+            "phase": phase,
+            "name": name,
+            "failureCode": failure_code,
+            "failurePolicy": failure_policy,
+            "stopPolicy": stop_policy,
+            "mode": mode,
+            "stdinPolicy": stdin_policy,
+            "sanitizedArgv": sanitized_argv,
+        }
+    )
+    del request_preview
+    if (mode in ("capture-stdout", "capture-both")) != (
+        capture_fd is not None
+    ):
+        raise ValueError("raw capture mode and capture descriptor must be paired")
+    if capture_fd is not None:
+        _validate_capture_transport(capture_fd)
+    command_id = command_state._identifier(command_id, "commandId")
+    reservation = command_state.reserve_command_layout(
+        root, session_id, generation, command_id
+    )
+    state_created = False
+    supervisor: Any = None
+    try:
+        with command_state._stable_lock(
+            command_state._control_path(
+                root, command_state.COMMANDS_LOCK_NAME
+            )
+        ):
+            with _exclusive_lock(root / ".lifecycle.lock"):
+                with _exclusive_lock(root / ".events.lock"):
+                    sequence = len(_read_bootstrap_events(root)) + 1
+                    _preflight_started_and_terminal_events(
+                        root,
+                        phase,
+                        sequence,
+                        roots=roots,
+                        secrets=secrets,
+                        reserve_maximum_terminal_line=True,
+                    )
+                    prepared = _prepared_command_state(
+                        root=root,
+                        session_id=session_id,
+                        generation=generation,
+                        command_id=command_id,
+                        reservation=reservation,
+                        phase=phase,
+                        name=name,
+                        failure_code=failure_code,
+                        failure_policy=failure_policy,
+                        stop_policy=stop_policy,
+                        mode=mode,
+                        stdin_policy=stdin_policy,
+                        sanitized_argv=sanitized_argv,
+                        sequence=sequence,
+                    )
+                    prepared_content = command_state.encode_command_state(
+                        prepared
+                    )
+                    command_state._create_command_state_unlocked(
+                        root,
+                        prepared,
+                        prepared_content,
+                        reservation,
+                    )
+                    state_created = True
+                    _repair_started_event_unlocked(root, prepared)
+        supervisor = DurableCommandSupervisor(
+            root=root,
+            session_id=session_id,
+            generation=generation,
+            command_id=command_id,
+            supervisor_lease=reservation,
+            argv=argv,
+            argv_projector=lambda raw: _sanitize_argv(
+                raw, roots=roots, secrets=secrets
+            ),
+            capture_mode=mode,
+            capture_fd=capture_fd,
+            roots=roots,
+            secrets=secrets,
+        )
+        supervisor.run()
+        committed = materialize_command(
+            root,
+            session_id,
+            generation,
+            command_id,
+            supervisor_lease=reservation,
+        )
+        stdout_content = _read_recovery_spool(root, committed, "stdout")
+        stderr_content = _read_recovery_spool(root, committed, "stderr")
+        if stdout_stream is None:
+            stdout_stream = sys.stdout
+        if stderr_stream is None:
+            stderr_stream = sys.stderr
+        if mode == "foreground":
+            _replay_bytes(stdout_stream, stdout_content)
+            _replay_bytes(stderr_stream, stderr_content)
+        elif mode == "capture-stdout":
+            _replay_bytes(stderr_stream, stderr_content)
+        return committed
+    finally:
+        reservation.close()
+        if not state_created:
+            command_state.retire_unprepared_command_layout(
+                root, session_id, generation, command_id
+            )
+        if supervisor is None and capture_fd is not None:
+            try:
+                os.close(capture_fd)
+            except OSError:
+                pass
+
+
 def _preflight_started_and_terminal_events(
     root: Path,
     phase: str,
@@ -2519,6 +2821,10 @@ __all__ = (
     "_replay_bytes",
     "repair_command_started_event",
     "materialize_command",
+    "verify_committed_command_materialization",
+    "new_command_id",
+    "command_status",
+    "supervise_command",
     "_run_command_during_lifecycle",
     "_run_command",
     "_record_external_during_lifecycle",

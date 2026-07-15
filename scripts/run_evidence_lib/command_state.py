@@ -3460,82 +3460,93 @@ def create_command_state(
         raise ValueError("new command anchorReservation is not reserved")
     content = encode_command_state(candidate)
     with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
-        _validate_control_layout_unlocked(root)
-        session = _load_session_unlocked(root)
-        _load_terminal_intent_unlocked(
-            root, session["sessionId"], session["generation"]
+        return _create_command_state_unlocked(
+            root, candidate, content, supervisor_lease
         )
-        _authorize_session(
-            session, candidate["sessionId"], candidate["creationGeneration"]
+
+
+def _create_command_state_unlocked(
+    root: Path,
+    candidate: dict[str, Any],
+    content: bytes,
+    supervisor_lease: CommandLayoutReservation,
+) -> dict[str, Any]:
+    """Install a prevalidated state while the caller holds ``.commands.lock``."""
+
+    _validate_control_layout_unlocked(root)
+    session = _load_session_unlocked(root)
+    _load_terminal_intent_unlocked(
+        root, session["sessionId"], session["generation"]
+    )
+    _authorize_session(
+        session, candidate["sessionId"], candidate["creationGeneration"]
+    )
+    if session["state"] != "active":
+        raise ValueError("new commands require an active session")
+    command_root = _command_path(root, candidate["commandId"])
+    existing = safe_io._active_rooted_io().stat(command_root, missing_ok=True)
+    if existing is None:
+        raise ValueError("new command layout has not been reserved")
+    supervisor_lease._revalidate(root, candidate["commandId"])
+    states = _scan_commands_unlocked(
+        root,
+        session,
+        exclude_command_id=candidate["commandId"],
+    )
+    candidate_targets = set(candidate["paths"].values())
+    for stored_state in states:
+        if candidate_targets.intersection(stored_state["paths"].values()):
+            raise ValueError("command output path collides with an existing command")
+    authority = safe_io._active_rooted_io()
+    _assert_private_directory(command_root, "private command directory")
+    names = set(_bounded_names(command_root, 7, "private command directory"))
+    stable_names = {
+        "state.lock",
+        "supervisor.lease",
+        "group.lease",
+        "stdout.recovery",
+        "stderr.recovery",
+    }
+    if names not in (stable_names, stable_names | {"state.json"}):
+        raise ValueError("reserved private command layout is unsafe")
+    for name in stable_names:
+        metadata = _assert_private_file(
+            command_root / name, f"reserved private command {name}"
         )
-        if session["state"] != "active":
-            raise ValueError("new commands require an active session")
-        command_root = _command_path(root, candidate["commandId"])
-        existing = safe_io._active_rooted_io().stat(command_root, missing_ok=True)
-        if existing is None:
-            raise ValueError("new command layout has not been reserved")
-        supervisor_lease._revalidate(root, candidate["commandId"])
-        states = _scan_commands_unlocked(
-            root,
-            session,
-            exclude_command_id=candidate["commandId"],
-        )
-        candidate_targets = set(candidate["paths"].values())
-        for stored_state in states:
-            if candidate_targets.intersection(stored_state["paths"].values()):
-                raise ValueError("command output path collides with an existing command")
-        authority = safe_io._active_rooted_io()
-        _assert_private_directory(command_root, "private command directory")
-        names = set(
-            _bounded_names(command_root, 7, "private command directory")
-        )
-        stable_names = {
-            "state.lock",
-            "supervisor.lease",
-            "group.lease",
-            "stdout.recovery",
-            "stderr.recovery",
-        }
-        if names not in (stable_names, stable_names | {"state.json"}):
-            raise ValueError("reserved private command layout is unsafe")
-        for name in stable_names:
-            metadata = _assert_private_file(
-                command_root / name, f"reserved private command {name}"
-            )
-            if metadata.st_size != 0:
-                raise ValueError("reserved private command stable file is not empty")
-        supervisor_metadata = _assert_private_file(
-            command_root / "supervisor.lease", "reserved command supervisor lease"
-        )
-        group_metadata = _assert_private_file(
-            command_root / "group.lease", "reserved command group lease"
-        )
-        if candidate["supervisor"]["leaseIdentity"] != _inode_identity(
-            supervisor_metadata
-        ):
-            raise ValueError("command supervisor lease binding disagrees with state")
-        if candidate["anchorReservation"]["groupLeaseIdentity"] != _inode_identity(
-            group_metadata
-        ):
-            raise ValueError("command group lease binding disagrees with state")
-        if "state.json" in names:
-            _validate_command_layout_unlocked(root, candidate["commandId"])
-            with _stable_lock(command_root / "state.lock"):
-                stored = _load_command_state_unlocked(
-                    root, candidate["commandId"], session["sessionId"]
-                )
-            if stored != candidate:
-                raise ValueError("existing command state does not match creation")
-            return copy.deepcopy(stored)
-        if len(states) >= MAX_SESSION_COMMANDS:
-            raise ValueError("session command count exceeds its limit")
-        if sum(item["stage"] != "committed" for item in states) >= MAX_ACTIVE_COMMANDS:
-            raise ValueError("session active command count exceeds its limit")
-        with _stable_lock(command_root / "state.lock"):
-            supervisor_lease._revalidate(root, candidate["commandId"])
-            authority.atomic_write(command_root / "state.json", content, 0o600)
+        if metadata.st_size != 0:
+            raise ValueError("reserved private command stable file is not empty")
+    supervisor_metadata = _assert_private_file(
+        command_root / "supervisor.lease", "reserved command supervisor lease"
+    )
+    group_metadata = _assert_private_file(
+        command_root / "group.lease", "reserved command group lease"
+    )
+    if candidate["supervisor"]["leaseIdentity"] != _inode_identity(
+        supervisor_metadata
+    ):
+        raise ValueError("command supervisor lease binding disagrees with state")
+    if candidate["anchorReservation"]["groupLeaseIdentity"] != _inode_identity(
+        group_metadata
+    ):
+        raise ValueError("command group lease binding disagrees with state")
+    if "state.json" in names:
         _validate_command_layout_unlocked(root, candidate["commandId"])
-        return copy.deepcopy(candidate)
+        with _stable_lock(command_root / "state.lock"):
+            stored = _load_command_state_unlocked(
+                root, candidate["commandId"], session["sessionId"]
+            )
+        if stored != candidate:
+            raise ValueError("existing command state does not match creation")
+        return copy.deepcopy(stored)
+    if len(states) >= MAX_SESSION_COMMANDS:
+        raise ValueError("session command count exceeds its limit")
+    if sum(item["stage"] != "committed" for item in states) >= MAX_ACTIVE_COMMANDS:
+        raise ValueError("session active command count exceeds its limit")
+    with _stable_lock(command_root / "state.lock"):
+        supervisor_lease._revalidate(root, candidate["commandId"])
+        authority.atomic_write(command_root / "state.json", content, 0o600)
+    _validate_command_layout_unlocked(root, candidate["commandId"])
+    return copy.deepcopy(candidate)
 
 
 def read_command_state(

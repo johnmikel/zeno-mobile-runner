@@ -89,6 +89,40 @@ def _build_parser() -> argparse.ArgumentParser:
     command_parser.add_argument("--capture-stdout", action="store_true")
     command_parser.add_argument("command_argv", nargs=argparse.REMAINDER)
 
+    subparsers.add_parser("command-id")
+
+    supervise_parser = subparsers.add_parser("command-supervise")
+    supervise_parser.add_argument("--root", required=True, type=Path)
+    supervise_parser.add_argument("--command-id", required=True)
+    supervise_parser.add_argument("--session-id", required=True)
+    supervise_parser.add_argument("--generation", required=True, type=int)
+    supervise_parser.add_argument("--phase", required=True, choices=PHASES)
+    supervise_parser.add_argument("--name", required=True)
+    supervise_parser.add_argument("--failure-code", required=True)
+    supervise_parser.add_argument(
+        "--failure-policy", required=True, choices=("terminal", "handled")
+    )
+    supervise_parser.add_argument(
+        "--stop-policy", required=True, choices=("none", "expected-term")
+    )
+    supervise_parser.add_argument(
+        "--mode",
+        required=True,
+        choices=("foreground", "background", "capture-stdout", "capture-both"),
+    )
+    supervise_parser.add_argument(
+        "--stdin-policy", required=True, choices=("devnull", "inherit")
+    )
+    supervise_parser.add_argument("--capture-fd", type=int)
+    supervise_parser.add_argument("command_argv", nargs=argparse.REMAINDER)
+
+    status_parser = subparsers.add_parser("command-status")
+    status_parser.add_argument("--root", required=True, type=Path)
+    status_parser.add_argument("--command-id", required=True)
+    status_parser.add_argument("--session-id", required=True)
+    status_parser.add_argument("--generation", required=True, type=int)
+    status_parser.add_argument("--wait", action="store_true")
+
     external_parser = subparsers.add_parser("external")
     external_parser.add_argument("--root", required=True, type=Path)
     external_parser.add_argument("--phase", required=True, choices=PHASES)
@@ -167,6 +201,9 @@ def _parse_json_argument(value: str, label: str) -> dict:
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    if args.action == "command-id":
+        print(new_command_id())
+        return 0
     if args.action == "init":
         context = _parse_json_argument(args.context_json, "--context-json")
         stored = _initialize_attempt(args.index, args.root, context)
@@ -199,6 +236,37 @@ def _dispatch(args: argparse.Namespace) -> int:
             capture_stdout=args.capture_stdout,
         )
         return return_code if return_code >= 0 else 128 + -return_code
+    if args.action == "command-supervise":
+        command_argv = list(args.command_argv)
+        if command_argv and command_argv[0] == "--":
+            command_argv.pop(0)
+        state = supervise_command(
+            args.root,
+            args.session_id,
+            args.generation,
+            args.command_id,
+            args.phase,
+            args.name,
+            args.failure_code,
+            args.failure_policy,
+            args.stop_policy,
+            args.mode,
+            args.stdin_policy,
+            command_argv,
+            capture_fd=args.capture_fd,
+        )
+        return state["outcome"]["shellVisibleStatus"]
+    if args.action == "command-status":
+        _print_json(
+            command_status(
+                args.root,
+                args.session_id,
+                args.generation,
+                args.command_id,
+                wait=args.wait,
+            )
+        )
+        return 0
     if args.action == "external":
         return _record_external(
             args.root,

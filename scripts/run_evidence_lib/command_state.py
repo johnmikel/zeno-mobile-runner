@@ -8,12 +8,15 @@ recovery and session orchestration can call these primitives without a cycle.
 from __future__ import annotations
 
 import copy
+import ctypes
 import errno
 import hashlib
 import os
 import re
 import stat
+import sys
 import time
+import weakref
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +33,7 @@ from .constants import (
     MAX_COMMAND_ARGV_COUNT,
     MAX_COMMAND_ARG_BYTES,
     MAX_COMMAND_STATE_BYTES,
+    MAX_JSONL_LINE_BYTES,
     MAX_SESSION_COMMANDS,
     MAX_SESSION_STATE_BYTES,
     MAX_TERMINAL_INTENT_BYTES,
@@ -183,7 +187,21 @@ _STREAM_KEYS = {
 }
 _MATERIALIZED_KEYS = {"metadata", "stdout", "stderr", "terminalEvent"}
 _FILE_BINDING_KEYS = {"path", "bytes", "sha256"}
-_EVENT_BINDING_KEYS = {"seq", "bytes", "sha256"}
+_EVENT_BINDING_KEYS = {"seq", "bytes", "sha256", "event"}
+_TERMINAL_EVENT_REQUIRED_KEYS = {
+    "schemaVersion",
+    "seq",
+    "timestamp",
+    "phase",
+    "status",
+    "command",
+    "artifact",
+}
+_TERMINAL_EVENT_OPTIONAL_KEYS = {
+    "errorCode",
+    "summary",
+    "commandStatus",
+}
 _STAGES = (
     "prepared",
     "anchored",
@@ -196,6 +214,16 @@ _STAGES = (
 )
 _SESSION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _LEASE_IDENTITY_RE = re.compile(r"^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$")
+_RETIREMENT_TOMBSTONE_RE = re.compile(
+    r"^\.retiring-([0-9a-f]{32})-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)$"
+)
+_COMMAND_STABLE_NAMES = (
+    "group.lease",
+    "state.lock",
+    "stderr.recovery",
+    "stdout.recovery",
+    "supervisor.lease",
+)
 _MAX_TEXT_BYTES = 4096
 _MAX_IDENTITY_BYTES = 4096
 _MAX_COUNTER = (1 << 63) - 1
@@ -528,6 +556,8 @@ def _validate_request(value: Any) -> dict[str, Any]:
         raise ValueError("command request failureCode is not registered")
     if failure_code in SUPERVISOR_ONLY_FAILURE_CODES:
         raise ValueError("command request failureCode is supervisor-owned")
+    if ERROR_CLASSIFICATION[failure_code] == "cancelled":
+        raise ValueError("command request failureCode is cancellation-class")
     if request["failurePolicy"] not in ("terminal", "handled"):
         raise ValueError("command request failurePolicy is invalid")
     if request["stopPolicy"] not in ("none", "expected-term"):
@@ -904,11 +934,208 @@ def _validate_negative_exec_capture(value: Any) -> dict[str, Any]:
     return capture
 
 
+def _timestamp_instant(value: str) -> datetime:
+    return datetime.fromisoformat(value[:-1] + "+00:00")
+
+
+def _terminal_outcome_timestamp(outcome: dict[str, Any]) -> str:
+    return outcome[
+        {
+            "exit": "finishedAt",
+            "signal": "finishedAt",
+            "exec_failure": "execFailedAt",
+            "supervisor_failure": "failedAt",
+            "stopped_before_ack": "stoppedAt",
+        }[outcome["kind"]]
+    ]
+
+
+def _terminal_event_signature(event: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        event["status"],
+        event.get("errorCode"),
+        "commandStatus" in event,
+        event.get("commandStatus"),
+        event.get("summary"),
+    )
+
+
+def _historical_terminal_signature(
+    request: dict[str, Any],
+    outcome: dict[str, Any],
+    stop_intent: dict[str, Any] | None,
+) -> tuple[Any, ...]:
+    kind = outcome["kind"]
+    if stop_intent is not None and kind in (
+        "exit",
+        "signal",
+        "stopped_before_ack",
+    ):
+        if stop_intent["killAuthorizedAt"] is not None:
+            return (
+                "failed",
+                "runner.cleanup_failed",
+                False,
+                None,
+                "Command cleanup required forced termination",
+            )
+        if stop_intent["kind"] == "expected":
+            return ("passed", None, True, 0, None)
+        return (
+            "cancelled",
+            "run.cancelled",
+            False,
+            None,
+            (
+                "Command stopped before execution acknowledgement"
+                if kind == "stopped_before_ack"
+                else "Command cancelled after execution acknowledgement"
+            ),
+        )
+    if kind == "exit":
+        status = outcome["exitStatus"]
+        if status == 0:
+            return ("passed", None, True, 0, None)
+        return (
+            "failed",
+            request["failureCode"],
+            True,
+            status,
+            f"Command exited with status {status}",
+        )
+    if kind == "signal":
+        return (
+            "failed",
+            request["failureCode"],
+            False,
+            None,
+            f"Command terminated by signal {outcome['signal']}",
+        )
+    if kind == "exec_failure":
+        return (
+            "failed",
+            request["failureCode"],
+            True,
+            outcome["exitStatus"],
+            "Command execution failed before acknowledgement",
+        )
+    if kind == "stopped_before_ack":
+        raise ValueError("stopped-before-ack outcome requires a stop intent")
+    status = outcome["exitStatus"]
+    summary = (
+        "Command capture failed"
+        if outcome["errorCode"] == "runner.capture_failed"
+        else "Command supervision failed"
+    )
+    return (
+        "failed",
+        outcome["errorCode"],
+        status is not None,
+        status,
+        summary,
+    )
+
+
+def _recovery_loss_terminal_signature(
+    outcome: dict[str, Any]
+) -> tuple[Any, ...]:
+    return (
+        "failed",
+        "runner.command_supervisor_lost",
+        False,
+        None,
+        "Command supervision failed",
+    )
+
+
+def _validate_frozen_terminal_event(
+    value: Any,
+    *,
+    request: dict[str, Any],
+    paths: dict[str, str],
+    started_event: dict[str, Any],
+    supervisor: dict[str, Any],
+    outcome: dict[str, Any],
+    stop_intent: dict[str, Any] | None,
+) -> bytes:
+    if type(value) is not dict:
+        raise ValueError("command frozen terminal event must be an object")
+    keys = set(value)
+    if not _TERMINAL_EVENT_REQUIRED_KEYS.issubset(keys) or not keys.issubset(
+        _TERMINAL_EVENT_REQUIRED_KEYS | _TERMINAL_EVENT_OPTIONAL_KEYS
+    ):
+        raise ValueError("command frozen terminal event has an invalid object shape")
+    if value["schemaVersion"] != 1 or type(value["schemaVersion"]) is not int:
+        raise ValueError("command frozen terminal event schemaVersion must equal 1")
+    _integer(value["seq"], "command frozen terminal event seq", minimum=1)
+    _utc_timestamp(
+        value["timestamp"], "command frozen terminal event timestamp"
+    )
+    if value["phase"] != request["phase"]:
+        raise ValueError("command frozen terminal event phase disagrees with request")
+    if value["status"] not in ("passed", "failed", "cancelled"):
+        raise ValueError("command frozen terminal event status is not terminal")
+    if value["command"] != paths["metadata"]:
+        raise ValueError(
+            "command frozen terminal event command disagrees with metadata path"
+        )
+    if value["artifact"] != paths["metadata"]:
+        raise ValueError(
+            "command frozen terminal event artifact disagrees with metadata path"
+        )
+    if "errorCode" in value:
+        error_code = _text(
+            value["errorCode"], "command frozen terminal event errorCode"
+        )
+        if error_code not in ERROR_CLASSIFICATION:
+            raise ValueError("command frozen terminal event errorCode is unknown")
+    if "summary" in value:
+        _text(value["summary"], "command frozen terminal event summary")
+    if "commandStatus" in value:
+        _integer(
+            value["commandStatus"],
+            "command frozen terminal event commandStatus",
+        )
+    if value["status"] == "passed":
+        if "errorCode" in value or "summary" in value:
+            raise ValueError("passed frozen terminal event cannot contain failure detail")
+    elif "errorCode" not in value or "summary" not in value:
+        raise ValueError("non-passing frozen terminal event requires failure detail")
+
+    if value["seq"] <= started_event["seq"]:
+        raise ValueError("command terminal event must follow its started event")
+    terminal_instant = _timestamp_instant(value["timestamp"])
+    if terminal_instant < _timestamp_instant(started_event["timestamp"]):
+        raise ValueError("command terminal event predates its started event")
+    if terminal_instant < _timestamp_instant(
+        _terminal_outcome_timestamp(outcome)
+    ):
+        raise ValueError("command terminal event predates its terminal outcome")
+
+    observed = _terminal_event_signature(value)
+    allowed = {
+        _historical_terminal_signature(request, outcome, stop_intent)
+    }
+    if supervisor["role"] == "recovery":
+        allowed.add(_recovery_loss_terminal_signature(outcome))
+    if observed not in allowed:
+        raise ValueError("command frozen terminal event contradicts terminal outcome")
+    return bounded_io._jsonl_line_bytes_bounded(
+        value,
+        maximum=MAX_JSONL_LINE_BYTES,
+        label="command frozen terminal event",
+    )
+
+
 def _validate_materialized(
     value: Any,
     paths: dict[str, str],
     started_event: dict[str, Any],
     capture: dict[str, Any],
+    request: dict[str, Any],
+    supervisor: dict[str, Any],
+    outcome: dict[str, Any],
+    stop_intent: dict[str, Any] | None,
 ) -> dict[str, Any]:
     materialized = _closed_object(value, _MATERIALIZED_KEYS, "command materialized")
     for name in ("metadata", "stdout", "stderr"):
@@ -929,10 +1156,25 @@ def _validate_materialized(
         "command terminal event binding",
     )
     sequence = _integer(event["seq"], "command terminal event seq", minimum=1)
-    if sequence <= started_event["seq"]:
-        raise ValueError("command terminal event must follow its started event")
-    _integer(event["bytes"], "command terminal event bytes", minimum=1)
-    _digest(event["sha256"], "command terminal event sha256")
+    content = _validate_frozen_terminal_event(
+        event["event"],
+        request=request,
+        paths=paths,
+        started_event=started_event,
+        supervisor=supervisor,
+        outcome=outcome,
+        stop_intent=stop_intent,
+    )
+    if sequence != event["event"]["seq"]:
+        raise ValueError("command terminal event binding seq disagrees with event")
+    byte_count = _integer(
+        event["bytes"], "command terminal event bytes", minimum=1
+    )
+    if byte_count != len(content):
+        raise ValueError("command terminal event binding bytes disagree with event")
+    digest = _digest(event["sha256"], "command terminal event sha256")
+    if digest != "sha256:" + hashlib.sha256(content).hexdigest():
+        raise ValueError("command terminal event binding sha256 disagrees with event")
     return materialized
 
 
@@ -1006,17 +1248,11 @@ def _validate_stage_shape(state: dict[str, Any]) -> None:
         if outcome_kind == "exec_failure":
             if anchor is None or child is not None or stop_intent is not None:
                 raise ValueError("negative exec handshake has invalid identities")
-            if supervisor["role"] != "launch" or supervisor["predecessor"] is not None:
-                raise ValueError("negative exec handshake requires its launch supervisor")
             _validate_exec_failure_outcome(outcome)
             _validate_negative_exec_capture(capture)
         elif outcome_kind == "stopped_before_ack":
             if anchor is None or child is not None or stop_intent is None:
                 raise ValueError("stopped-before-ack has invalid identities")
-            if supervisor["role"] != "launch" or supervisor["predecessor"] is not None:
-                raise ValueError(
-                    "stopped-before-ack requires its launch supervisor"
-                )
             _validate_stopped_before_ack_outcome(outcome, stop_intent)
             stopped_capture = _validate_capture(capture)
             if stopped_capture["captureComplete"] is not True:
@@ -1053,8 +1289,6 @@ def _validate_stage_shape(state: dict[str, Any]) -> None:
         else:
             if anchor is None or child is None:
                 raise ValueError("normal outcome requires anchor and child identities")
-            if supervisor["role"] != "launch" or supervisor["predecessor"] is not None:
-                raise ValueError("normal outcome requires its launch supervisor")
             _validate_normal_outcome(outcome, stop_intent)
             normal_capture = _validate_capture(capture)
             if normal_capture["captureComplete"] is not True:
@@ -1070,6 +1304,10 @@ def _validate_stage_shape(state: dict[str, Any]) -> None:
                 state["paths"],
                 state["startedEvent"],
                 capture,
+                state["request"],
+                supervisor,
+                outcome,
+                stop_intent,
             )
     pids = [supervisor["pid"]]
     if anchor is not None:
@@ -1215,6 +1453,18 @@ def validate_command_transition(
     if pair not in allowed_pairs:
         raise ValueError("command stage transition is not monotonic")
 
+    if (
+        pair == ("exited", "materialized")
+        and before["supervisor"]["role"] == "recovery"
+        and _terminal_event_signature(
+            after["materialized"]["terminalEvent"]["event"]
+        )
+        != _recovery_loss_terminal_signature(after["outcome"])
+    ):
+        raise ValueError(
+            "recovery materialization requires the exact supervisor loss event"
+        )
+
     if pair in (
         ("anchored", "anchor_stop_requested"),
         ("running", "stop_requested"),
@@ -1292,6 +1542,535 @@ def _command_path(root: Path, command_id: str, name: str = "") -> Path:
 
 def _inode_identity(metadata: os.stat_result) -> str:
     return f"{metadata.st_dev}:{metadata.st_ino}"
+
+
+def _command_recovery_checkpoint(
+    stage: str, path: Path | None = None
+) -> None:
+    """No-op fault seam for deterministic command recovery tests."""
+
+
+def _atomic_rename_no_replace(
+    source: str,
+    target: str,
+    *,
+    src_dir_fd: int,
+    dst_dir_fd: int,
+) -> None:
+    """Atomically rename one descriptor-relative entry without replacement."""
+
+    for value, label in ((source, "source"), (target, "target")):
+        if (
+            type(value) is not str
+            or value in ("", ".", "..")
+            or "/" in value
+            or "\x00" in value
+        ):
+            raise ValueError(f"atomic rename {label} is not a safe component")
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform.startswith("linux"):
+        rename = getattr(library, "renameat2", None)
+        flags = 1  # RENAME_NOREPLACE
+    elif sys.platform == "darwin":
+        rename = getattr(library, "renameatx_np", None)
+        flags = 0x00000004  # RENAME_EXCL
+    else:
+        raise RuntimeError(
+            "atomic no-replace rename is unsupported on this platform"
+        )
+    if rename is None:
+        raise RuntimeError(
+            "atomic no-replace rename is unavailable on this platform"
+        )
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    result = rename(
+        src_dir_fd,
+        os.fsencode(source),
+        dst_dir_fd,
+        os.fsencode(target),
+        flags,
+    )
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number in (errno.EEXIST, errno.ENOTEMPTY):
+        raise FileExistsError(error_number, os.strerror(error_number), target)
+    if error_number in (
+        errno.ENOSYS,
+        getattr(errno, "ENOTSUP", errno.EINVAL),
+        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+    ):
+        raise RuntimeError(
+            "atomic no-replace rename is unsupported by this filesystem"
+        )
+    raise OSError(error_number, os.strerror(error_number), target)
+
+
+def _retirement_tombstone_name(
+    command_id: str, identity: tuple[int, int]
+) -> str:
+    return f".retiring-{command_id}-{identity[0]}-{identity[1]}"
+
+
+def _retirement_survivors(names: set[str]) -> tuple[str, ...]:
+    for offset in range(len(_COMMAND_STABLE_NAMES) + 1):
+        survivors = _COMMAND_STABLE_NAMES[offset:]
+        if names == set(survivors):
+            return survivors
+    raise ValueError(
+        "retirement tombstone is not a deterministic crash-prefix layout"
+    )
+
+
+class _RetirementHandles:
+    """Descriptor-bound locks retained after a command directory is renamed."""
+
+    def __init__(
+        self,
+        directory_descriptor: int,
+        directory_identity: tuple[int, int],
+        entry_descriptors: dict[str, int],
+        entry_identities: dict[str, tuple[int, int]],
+    ) -> None:
+        self.directory_descriptor = directory_descriptor
+        self.directory_identity = directory_identity
+        self.entry_descriptors = entry_descriptors
+        self.entry_identities = entry_identities
+
+    def close(self) -> None:
+        descriptors = tuple(self.entry_descriptors.values())
+        directory_descriptor = self.directory_descriptor
+        self.entry_descriptors.clear()
+        self.directory_descriptor = -1
+        cleanup_error = _cleanup_retirement_descriptors(
+            descriptors, directory_descriptor
+        )
+        if cleanup_error is not None:
+            raise cleanup_error
+
+
+def _cleanup_retirement_descriptors(
+    entry_descriptors: Any,
+    directory_descriptor: int,
+) -> BaseException | None:
+    """Attempt every unlock and close, retaining the first cleanup error."""
+
+    first_error: BaseException | None = None
+    for descriptor in tuple(entry_descriptors):
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except BaseException as exc:
+            if first_error is None:
+                first_error = exc
+        try:
+            os.close(descriptor)
+        except BaseException as exc:
+            if first_error is None:
+                first_error = exc
+    if directory_descriptor >= 0:
+        try:
+            os.close(directory_descriptor)
+        except BaseException as exc:
+            if first_error is None:
+                first_error = exc
+    return first_error
+
+
+def _close_retirement_scope(
+    handles: _RetirementHandles | None,
+    commands_descriptor: int,
+) -> None:
+    """Close every retirement owner and raise the first cleanup error."""
+
+    first_error: BaseException | None = None
+    if handles is not None:
+        try:
+            handles.close()
+        except BaseException as exc:
+            first_error = exc
+    try:
+        os.close(commands_descriptor)
+    except BaseException as exc:
+        if first_error is None:
+            first_error = exc
+    if first_error is not None:
+        raise first_error
+
+
+def _private_owner_is_current(metadata: os.stat_result) -> bool:
+    return not hasattr(os, "geteuid") or metadata.st_uid == os.geteuid()
+
+
+def _validate_retirement_directory_metadata(
+    metadata: os.stat_result,
+    expected_identity: tuple[int, int],
+) -> None:
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or (metadata.st_dev, metadata.st_ino) != expected_identity
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+        or not _private_owner_is_current(metadata)
+    ):
+        raise ValueError("retirement command directory binding is unsafe")
+
+
+def _validate_retirement_entry_metadata(
+    metadata: os.stat_result,
+    *,
+    identity: tuple[int, int] | None = None,
+) -> None:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or (identity is not None and (metadata.st_dev, metadata.st_ino) != identity)
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or not _private_owner_is_current(metadata)
+        or metadata.st_size != 0
+    ):
+        raise ValueError("retirement command entry is unsafe")
+
+
+def _descriptor_names(
+    descriptor: int, maximum: int, label: str
+) -> list[str]:
+    names: list[str] = []
+    with os.scandir(descriptor) as entries:
+        for entry in entries:
+            if len(names) >= maximum:
+                raise ValueError(f"{label} exceeds {maximum} entries")
+            name = entry.name
+            if name in ("", ".", "..") or "/" in name or "\x00" in name:
+                raise ValueError(f"{label} contains an unsafe entry")
+            names.append(name)
+    return sorted(names)
+
+
+def _revalidate_retirement_handles(
+    commands_descriptor: int,
+    directory_name: str,
+    handles: _RetirementHandles,
+    expected_names: tuple[str, ...],
+) -> None:
+    directory_metadata = os.fstat(handles.directory_descriptor)
+    visible_directory = os.stat(
+        directory_name,
+        dir_fd=commands_descriptor,
+        follow_symlinks=False,
+    )
+    _validate_retirement_directory_metadata(
+        directory_metadata, handles.directory_identity
+    )
+    _validate_retirement_directory_metadata(
+        visible_directory, handles.directory_identity
+    )
+    names = _descriptor_names(
+        handles.directory_descriptor,
+        len(_COMMAND_STABLE_NAMES) + 1,
+        "retirement command directory",
+    )
+    if names != sorted(expected_names):
+        raise ValueError("retirement command directory layout changed")
+    if set(handles.entry_descriptors) != set(expected_names):
+        raise ValueError("retirement command descriptor set changed")
+    for name in expected_names:
+        descriptor = handles.entry_descriptors[name]
+        opened = os.fstat(descriptor)
+        visible = os.stat(
+            name,
+            dir_fd=handles.directory_descriptor,
+            follow_symlinks=False,
+        )
+        identity = handles.entry_identities[name]
+        _validate_retirement_entry_metadata(opened, identity=identity)
+        _validate_retirement_entry_metadata(visible, identity=identity)
+
+
+def _open_retirement_handles(
+    commands_descriptor: int,
+    directory_name: str,
+    expected_identity: tuple[int, int],
+    expected_names: tuple[str, ...],
+) -> _RetirementHandles | None:
+    directory_descriptor = -1
+    entry_descriptors: dict[str, int] = {}
+    entry_identities: dict[str, tuple[int, int]] = {}
+    try:
+        directory_descriptor = os.open(
+            directory_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=commands_descriptor,
+        )
+        os.set_inheritable(directory_descriptor, False)
+        opened_directory = os.fstat(directory_descriptor)
+        visible_directory = os.stat(
+            directory_name,
+            dir_fd=commands_descriptor,
+            follow_symlinks=False,
+        )
+        _validate_retirement_directory_metadata(
+            opened_directory, expected_identity
+        )
+        _validate_retirement_directory_metadata(
+            visible_directory, expected_identity
+        )
+        names = _descriptor_names(
+            directory_descriptor,
+            len(_COMMAND_STABLE_NAMES) + 1,
+            "retirement command directory",
+        )
+        if names != sorted(expected_names):
+            raise ValueError("retirement command directory layout changed")
+        for name in expected_names:
+            descriptor = os.open(
+                name,
+                os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory_descriptor,
+            )
+            entry_descriptors[name] = descriptor
+            os.set_inheritable(descriptor, False)
+            opened = os.fstat(descriptor)
+            visible = os.stat(
+                name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            identity = (opened.st_dev, opened.st_ino)
+            _validate_retirement_entry_metadata(opened, identity=identity)
+            _validate_retirement_entry_metadata(visible, identity=identity)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
+                    cleanup_error = _cleanup_retirement_descriptors(
+                        entry_descriptors.values(), directory_descriptor
+                    )
+                    entry_descriptors.clear()
+                    directory_descriptor = -1
+                    if cleanup_error is not None:
+                        raise cleanup_error
+                    return None
+                raise
+            entry_identities[name] = identity
+        handles = _RetirementHandles(
+            directory_descriptor,
+            expected_identity,
+            entry_descriptors,
+            entry_identities,
+        )
+        directory_descriptor = -1
+        entry_descriptors = {}
+        try:
+            _revalidate_retirement_handles(
+                commands_descriptor,
+                directory_name,
+                handles,
+                expected_names,
+            )
+        except BaseException:
+            handles.close()
+            raise
+        return handles
+    except FileNotFoundError as exc:
+        raise ValueError("retirement command binding disappeared") from exc
+    finally:
+        cleanup_error = _cleanup_retirement_descriptors(
+            entry_descriptors.values(), directory_descriptor
+        )
+        if cleanup_error is not None:
+            raise cleanup_error
+
+
+def _validate_tombstone_unlocked(
+    root: Path,
+    tombstone_name: str,
+    match: re.Match[str],
+) -> tuple[tuple[int, int], tuple[str, ...]]:
+    command_id, device_text, inode_text = match.groups()
+    _identifier(command_id, "retirement tombstone commandId")
+    device = int(device_text)
+    inode = int(inode_text)
+    if device > (1 << 64) - 1 or inode > (1 << 64) - 1:
+        raise ValueError("retirement tombstone identity is out of range")
+    identity = (device, inode)
+    path = _control_path(root, COMMANDS_DIRECTORY_NAME) / tombstone_name
+    metadata = _assert_private_directory(path, "retirement command directory")
+    _validate_retirement_directory_metadata(metadata, identity)
+    names = set(
+        _bounded_names(
+            path,
+            len(_COMMAND_STABLE_NAMES) + 1,
+            "retirement command directory",
+        )
+    )
+    survivors = _retirement_survivors(names)
+    for name in survivors:
+        entry = _assert_private_file(
+            path / name, f"retirement command {name}"
+        )
+        _validate_retirement_entry_metadata(entry)
+    return identity, survivors
+
+
+def _inspect_command_entries_unlocked(
+    root: Path,
+) -> tuple[set[str], dict[str, tuple[str, tuple[int, int], tuple[str, ...]]]]:
+    commands_root = _control_path(root, COMMANDS_DIRECTORY_NAME)
+    names = _bounded_names(
+        commands_root,
+        MAX_SESSION_COMMANDS * 2 + 1,
+        "private commands directory",
+    )
+    active: set[str] = set()
+    tombstones: dict[
+        str, tuple[str, tuple[int, int], tuple[str, ...]]
+    ] = {}
+    for name in names:
+        if name.startswith(".retiring-"):
+            match = _RETIREMENT_TOMBSTONE_RE.fullmatch(name)
+            if match is None:
+                raise ValueError("private commands directory has a malformed tombstone")
+            command_id = match.group(1)
+            if command_id in tombstones:
+                raise ValueError("private commands directory has duplicate tombstones")
+            identity, survivors = _validate_tombstone_unlocked(
+                root, name, match
+            )
+            tombstones[command_id] = (name, identity, survivors)
+            continue
+        active.add(_identifier(name, "command directory name"))
+    if active.intersection(tombstones):
+        raise ValueError("active command and retirement tombstone are ambiguous")
+    if len(active) + len(tombstones) > MAX_SESSION_COMMANDS:
+        raise ValueError("session command count exceeds its limit")
+    return active, tombstones
+
+
+def _open_commands_descriptor(root: Path) -> tuple[Any, int, str]:
+    authority = safe_io._active_rooted_io()
+    commands = _control_path(root, COMMANDS_DIRECTORY_NAME)
+    relative = authority._relative(commands)
+    descriptor = authority._open_directory_unchecked(relative)
+    try:
+        authority._validate_directory(relative, descriptor)
+    except BaseException as exc:
+        try:
+            os.close(descriptor)
+        except BaseException as cleanup_exc:
+            raise cleanup_exc from exc
+        raise
+    return authority, descriptor, relative
+
+
+def _delete_locked_tombstone_unlocked(
+    root: Path,
+    commands_descriptor: int,
+    commands_relative: str,
+    tombstone_name: str,
+    handles: _RetirementHandles,
+    survivors: tuple[str, ...],
+) -> None:
+    authority = safe_io._active_rooted_io()
+    _revalidate_retirement_handles(
+        commands_descriptor,
+        tombstone_name,
+        handles,
+        survivors,
+    )
+    remaining = list(survivors)
+    for name in survivors:
+        descriptor = handles.entry_descriptors[name]
+        opened = os.fstat(descriptor)
+        visible = os.stat(
+            name,
+            dir_fd=handles.directory_descriptor,
+            follow_symlinks=False,
+        )
+        identity = handles.entry_identities[name]
+        _validate_retirement_entry_metadata(opened, identity=identity)
+        _validate_retirement_entry_metadata(visible, identity=identity)
+        os.unlink(name, dir_fd=handles.directory_descriptor)
+        remaining.pop(0)
+        if _descriptor_names(
+            handles.directory_descriptor,
+            len(_COMMAND_STABLE_NAMES) + 1,
+            "retirement command directory",
+        ) != sorted(remaining):
+            raise ValueError("retirement command directory changed during deletion")
+        os.fsync(handles.directory_descriptor)
+        _command_recovery_checkpoint(
+            "after_retire_unlink",
+            _control_path(root, COMMANDS_DIRECTORY_NAME)
+            / tombstone_name
+            / name,
+        )
+    if _descriptor_names(
+        handles.directory_descriptor,
+        1,
+        "retirement command directory",
+    ):
+        raise ValueError("retirement command directory is not empty")
+    os.fsync(handles.directory_descriptor)
+    authority._validate_directory(commands_relative, commands_descriptor)
+    visible = os.stat(
+        tombstone_name,
+        dir_fd=commands_descriptor,
+        follow_symlinks=False,
+    )
+    _validate_retirement_directory_metadata(
+        visible, handles.directory_identity
+    )
+    os.rmdir(tombstone_name, dir_fd=commands_descriptor)
+    os.fsync(commands_descriptor)
+    authority._validate_directory(commands_relative, commands_descriptor)
+    _command_recovery_checkpoint(
+        "after_retire_rmdir",
+        _control_path(root, COMMANDS_DIRECTORY_NAME) / tombstone_name,
+    )
+
+
+def _resume_tombstone_unlocked(
+    root: Path,
+    tombstone: tuple[str, tuple[int, int], tuple[str, ...]],
+) -> bool:
+    tombstone_name, identity, survivors = tombstone
+    authority, commands_descriptor, commands_relative = (
+        _open_commands_descriptor(root)
+    )
+    handles: _RetirementHandles | None = None
+    try:
+        handles = _open_retirement_handles(
+            commands_descriptor,
+            tombstone_name,
+            identity,
+            survivors,
+        )
+        if handles is None:
+            return False
+        _delete_locked_tombstone_unlocked(
+            root,
+            commands_descriptor,
+            commands_relative,
+            tombstone_name,
+            handles,
+            survivors,
+        )
+        return True
+    finally:
+        _close_retirement_scope(handles, commands_descriptor)
+
+
+def _recover_retirement_tombstones_unlocked(root: Path) -> None:
+    _active, tombstones = _inspect_command_entries_unlocked(root)
+    for command_id in sorted(tombstones):
+        if not _resume_tombstone_unlocked(root, tombstones[command_id]):
+            raise TimeoutError("retirement tombstone is still leased")
 
 
 class CommandLayoutReservation:
@@ -1390,6 +2169,99 @@ class CommandLayoutReservation:
 
     def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
         self.close()
+
+
+_RECOVERY_CLAIM_ISSUER = object()
+
+
+class CommandRecoveryClaim(CommandLayoutReservation):
+    """A live, server-constructed recovery supervisor claim."""
+
+    def __init__(
+        self,
+        *,
+        root: Path,
+        command_id: str,
+        session_id: str,
+        generation: int,
+        state: dict[str, Any],
+        authority: Any,
+        lease_context: Any,
+        lease: Any,
+        group_lease_identity: str,
+        group_lease_context: Any = None,
+        group_lease: Any = None,
+        _issuer: object | None = None,
+    ) -> None:
+        if _issuer is not _RECOVERY_CLAIM_ISSUER:
+            raise ValueError(
+                "recovery authority requires a server-issued recovery claim"
+            )
+        super().__init__(
+            root=root,
+            command_id=command_id,
+            authority=authority,
+            lease_context=lease_context,
+            lease=lease,
+            group_lease_identity=group_lease_identity,
+        )
+        self._session_id = session_id
+        self._generation = generation
+        self._state = copy.deepcopy(state)
+        self._group_lease_context = group_lease_context
+        self._group_lease = group_lease
+
+    @property
+    def state(self) -> dict[str, Any]:
+        return copy.deepcopy(self._state)
+
+    def _accept_state(self, state: dict[str, Any]) -> None:
+        self._state = copy.deepcopy(state)
+
+    def transition(self, state: Any) -> dict[str, Any]:
+        candidate = transition_command_state(
+            self._root,
+            self._session_id,
+            self._generation,
+            state,
+            supervisor_lease=self,
+        )
+        self._accept_state(candidate)
+        return copy.deepcopy(candidate)
+
+    def refresh(self) -> dict[str, Any]:
+        self._revalidate(self._root, self._command_id)
+        state = read_command_state(
+            self._root, self._command_id, self._session_id
+        )
+        if state["supervisor"] != self._state["supervisor"]:
+            raise ValueError("recovery claim supervisor changed")
+        self._accept_state(state)
+        return copy.deepcopy(state)
+
+    def close(self) -> None:
+        _ISSUED_RECOVERY_CLAIMS.discard(self)
+        if self._closed:
+            return
+        group_error: BaseException | None = None
+        if self._group_lease_context is not None:
+            try:
+                self._group_lease_context.__exit__(None, None, None)
+            except BaseException as exc:
+                group_error = exc
+            finally:
+                self._group_lease_context = None
+                self._group_lease = None
+        try:
+            super().close()
+        finally:
+            if group_error is not None:
+                raise group_error
+
+
+_ISSUED_RECOVERY_CLAIMS: weakref.WeakSet[CommandRecoveryClaim] = (
+    weakref.WeakSet()
+)
 
 
 def _assert_private_directory(path: Path, label: str) -> os.stat_result:
@@ -1759,7 +2631,6 @@ def _with_rooted_read(root: Path):
 def read_session(root: Path) -> dict[str, Any]:
     root = Path(root).absolute()
     with _with_rooted_read(root):
-        _validate_control_layout_unlocked(root)
         with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
             _validate_control_layout_unlocked(root)
             session = _load_session_unlocked(root)
@@ -1772,7 +2643,6 @@ def read_session(root: Path) -> dict[str, Any]:
 def read_terminal_intent(root: Path) -> dict[str, Any]:
     root = Path(root).absolute()
     with _with_rooted_read(root):
-        _validate_control_layout_unlocked(root)
         with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
             _validate_control_layout_unlocked(root)
             session = _load_session_unlocked(root)
@@ -1792,7 +2662,6 @@ def transition_session_state(
     root = Path(root).absolute()
     if state not in ("active", "finalizing", "committed"):
         raise ValueError("candidate session state is invalid")
-    _validate_control_layout_unlocked(root)
     with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
         _validate_control_layout_unlocked(root)
         session = _load_session_unlocked(root)
@@ -1851,7 +2720,6 @@ def reserve_command_layout(
 
     root = Path(root).absolute()
     command_id = _identifier(command_id, "commandId")
-    _validate_control_layout_unlocked(root)
     with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
         _validate_control_layout_unlocked(root)
         session = _load_session_unlocked(root)
@@ -1861,6 +2729,7 @@ def reserve_command_layout(
         )
         if session["state"] != "active":
             raise ValueError("new command reservations require an active session")
+        _recover_retirement_tombstones_unlocked(root)
 
         authority = safe_io._active_rooted_io()
         command_root = _command_path(root, command_id)
@@ -1952,6 +2821,579 @@ def reserve_command_layout(
         )
 
 
+def _validate_unprepared_command_unlocked(
+    root: Path, command_id: str
+) -> tuple[int, int]:
+    command_root = _command_path(root, command_id)
+    metadata = _assert_private_directory(
+        command_root, "unprepared private command directory"
+    )
+    names = set(
+        _bounded_names(
+            command_root,
+            len(_COMMAND_STABLE_NAMES) + 1,
+            "unprepared private command directory",
+        )
+    )
+    if names != set(_COMMAND_STABLE_NAMES):
+        raise ValueError("unprepared private command layout is not exact")
+    for name in _COMMAND_STABLE_NAMES:
+        entry = _assert_private_file(
+            command_root / name, f"unprepared private command {name}"
+        )
+        _validate_retirement_entry_metadata(entry)
+    return metadata.st_dev, metadata.st_ino
+
+
+def _read_private_file_snapshot(
+    path: Path, maximum: int, label: str
+) -> tuple[tuple[int, int], bytes]:
+    authority = safe_io._active_rooted_io()
+    parent, name, parent_relative, _relative = authority._parent(path)
+    descriptor = -1
+    try:
+        authority._validate_directory(parent_relative, parent)
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent,
+        )
+        os.set_inheritable(descriptor, False)
+        opened = os.fstat(descriptor)
+        identity = (opened.st_dev, opened.st_ino)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or not _private_owner_is_current(opened)
+            or opened.st_size > maximum
+        ):
+            raise ValueError(f"{label} is unsafe or oversized")
+        visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(visible.st_mode)
+            or (visible.st_dev, visible.st_ino) != identity
+            or stat.S_IMODE(visible.st_mode) != 0o600
+            or not _private_owner_is_current(visible)
+        ):
+            raise ValueError(f"{label} binding changed")
+        chunks: list[bytes] = []
+        remaining = maximum + 1
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        if len(content) > maximum:
+            raise ValueError(f"{label} exceeds {maximum} bytes")
+        final_opened = os.fstat(descriptor)
+        final_visible = os.stat(
+            name, dir_fd=parent, follow_symlinks=False
+        )
+        if (
+            (final_opened.st_dev, final_opened.st_ino) != identity
+            or (final_visible.st_dev, final_visible.st_ino) != identity
+            or final_opened.st_size != len(content)
+            or final_visible.st_size != len(content)
+        ):
+            raise ValueError(f"{label} changed while read")
+        authority._validate_directory(parent_relative, parent)
+        return identity, content
+    except FileNotFoundError as exc:
+        raise ValueError(f"{label} disappeared") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def _capture_recovery_snapshot_unlocked(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+) -> dict[str, Any]:
+    session = _load_session_unlocked(root)
+    _authorize_session(session, session_id, generation)
+    _load_terminal_intent_unlocked(
+        root, session["sessionId"], session["generation"]
+    )
+    if session["state"] == "committed":
+        raise ValueError("committed session command state is immutable")
+    active, tombstones = _inspect_command_entries_unlocked(root)
+    if command_id in tombstones or command_id not in active:
+        raise ValueError("recovery command layout is not active")
+    _validate_command_layout_unlocked(root, command_id)
+    state = _load_command_state_unlocked(
+        root, command_id, session["sessionId"]
+    )
+    if state["creationGeneration"] > session["generation"]:
+        raise ValueError("command creationGeneration exceeds session generation")
+    if state["stage"] == "committed":
+        raise ValueError("committed command state is immutable")
+    session_identity, session_content = _read_private_file_snapshot(
+        _control_path(root, SESSION_FILE_NAME),
+        MAX_SESSION_STATE_BYTES,
+        "private session state",
+    )
+    state_identity, state_content = _read_private_file_snapshot(
+        _command_path(root, command_id, "state.json"),
+        MAX_COMMAND_STATE_BYTES,
+        "private command state",
+    )
+    if bounded_io._decode_json_bytes(session_content) != session:
+        raise ValueError("private session state changed while captured")
+    if bounded_io._decode_json_bytes(state_content) != state:
+        raise ValueError("private command state changed while captured")
+    return {
+        "session": copy.deepcopy(session),
+        "sessionIdentity": session_identity,
+        "sessionContent": session_content,
+        "state": copy.deepcopy(state),
+        "stateIdentity": state_identity,
+        "stateContent": state_content,
+    }
+
+
+def _verify_recovery_snapshot_unlocked(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    session = _load_session_unlocked(root)
+    _authorize_session(session, session_id, generation)
+    _load_terminal_intent_unlocked(
+        root, session["sessionId"], session["generation"]
+    )
+    if session != snapshot["session"]:
+        raise ValueError("session changed during recovery claim")
+    session_identity, session_content = _read_private_file_snapshot(
+        _control_path(root, SESSION_FILE_NAME),
+        MAX_SESSION_STATE_BYTES,
+        "private session state",
+    )
+    if (
+        session_identity != snapshot["sessionIdentity"]
+        or session_content != snapshot["sessionContent"]
+    ):
+        raise ValueError("session binding changed during recovery claim")
+    active, tombstones = _inspect_command_entries_unlocked(root)
+    if command_id in tombstones or command_id not in active:
+        raise ValueError("recovery command layout changed")
+    _validate_command_layout_unlocked(root, command_id)
+    state = _load_command_state_unlocked(
+        root, command_id, session["sessionId"]
+    )
+    state_identity, state_content = _read_private_file_snapshot(
+        _command_path(root, command_id, "state.json"),
+        MAX_COMMAND_STATE_BYTES,
+        "private command state",
+    )
+    if (
+        state != snapshot["state"]
+        or state_identity != snapshot["stateIdentity"]
+        or state_content != snapshot["stateContent"]
+    ):
+        raise ValueError("command state changed during recovery claim")
+    return state
+
+
+def _validate_live_claim_lease(
+    authority: Any,
+    path: Path,
+    lease: Any,
+    expected_identity: str,
+    label: str,
+) -> None:
+    opened = os.fstat(lease.descriptor)
+    visible = authority.stat(path, missing_ok=True)
+    if (
+        visible is None
+        or not stat.S_ISREG(opened.st_mode)
+        or not stat.S_ISREG(visible.st_mode)
+        or _inode_identity(opened) != expected_identity
+        or _inode_identity(visible) != expected_identity
+        or stat.S_IMODE(opened.st_mode) != 0o600
+        or stat.S_IMODE(visible.st_mode) != 0o600
+        or not _private_owner_is_current(opened)
+        or not _private_owner_is_current(visible)
+    ):
+        raise ValueError(f"{label} binding changed")
+
+
+@safe_io._rooted_attempt_mutation
+def retire_unprepared_command_layout(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+) -> bool:
+    """Atomically tombstone and retire one never-prepared command layout."""
+
+    root = Path(root).absolute()
+    command_id = _identifier(command_id, "commandId")
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        _validate_control_layout_unlocked(root)
+        session = _load_session_unlocked(root)
+        _authorize_session(session, session_id, generation)
+        _load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        if session["state"] == "committed":
+            raise ValueError("committed session command layouts are immutable")
+        active, tombstones = _inspect_command_entries_unlocked(root)
+        tombstone = tombstones.get(command_id)
+        if tombstone is not None:
+            return _resume_tombstone_unlocked(root, tombstone)
+        if command_id not in active:
+            return False
+
+        command_root = _command_path(root, command_id)
+        names = set(
+            _bounded_names(
+                command_root,
+                len(_COMMAND_STABLE_NAMES) + 2,
+                "private command directory",
+            )
+        )
+        if "state.json" in names:
+            _validate_command_layout_unlocked(root, command_id)
+            return False
+        identity = _validate_unprepared_command_unlocked(root, command_id)
+        authority, commands_descriptor, commands_relative = (
+            _open_commands_descriptor(root)
+        )
+        handles: _RetirementHandles | None = None
+        try:
+            handles = _open_retirement_handles(
+                commands_descriptor,
+                command_id,
+                identity,
+                _COMMAND_STABLE_NAMES,
+            )
+            if handles is None:
+                return False
+            _command_recovery_checkpoint(
+                "after_retire_snapshot", command_root
+            )
+            _revalidate_retirement_handles(
+                commands_descriptor,
+                command_id,
+                handles,
+                _COMMAND_STABLE_NAMES,
+            )
+            tombstone_name = _retirement_tombstone_name(
+                command_id, identity
+            )
+            # Threat boundary: .commands.lock serializes cooperative same-owner
+            # writers. No-replace plus inode checks and rollback bounds one-shot
+            # races; a continuously malicious same-EUID actor is outside it.
+            _command_recovery_checkpoint(
+                "before_retire_rename",
+                _control_path(root, COMMANDS_DIRECTORY_NAME)
+                / tombstone_name,
+            )
+            try:
+                _atomic_rename_no_replace(
+                    command_id,
+                    tombstone_name,
+                    src_dir_fd=commands_descriptor,
+                    dst_dir_fd=commands_descriptor,
+                )
+            except FileExistsError as exc:
+                raise ValueError("retirement tombstone already exists") from exc
+            try:
+                renamed = os.stat(
+                    tombstone_name,
+                    dir_fd=commands_descriptor,
+                    follow_symlinks=False,
+                )
+                opened = os.fstat(handles.directory_descriptor)
+                _validate_retirement_directory_metadata(opened, identity)
+                _validate_retirement_directory_metadata(renamed, identity)
+            except BaseException as verification_error:
+                rollback_error: BaseException | None = None
+                try:
+                    _atomic_rename_no_replace(
+                        tombstone_name,
+                        command_id,
+                        src_dir_fd=commands_descriptor,
+                        dst_dir_fd=commands_descriptor,
+                    )
+                except BaseException as exc:
+                    rollback_error = exc
+                try:
+                    os.fsync(commands_descriptor)
+                    authority._validate_directory(
+                        commands_relative, commands_descriptor
+                    )
+                except BaseException as exc:
+                    if rollback_error is None:
+                        rollback_error = exc
+                if rollback_error is not None:
+                    raise ValueError(
+                        "retirement source binding changed and rollback failed"
+                    ) from rollback_error
+                raise ValueError(
+                    "retirement source binding changed before rename"
+                ) from verification_error
+            os.fsync(commands_descriptor)
+            authority._validate_directory(
+                commands_relative, commands_descriptor
+            )
+            _revalidate_retirement_handles(
+                commands_descriptor,
+                tombstone_name,
+                handles,
+                _COMMAND_STABLE_NAMES,
+            )
+            _command_recovery_checkpoint(
+                "after_retire_rename",
+                _control_path(root, COMMANDS_DIRECTORY_NAME)
+                / tombstone_name,
+            )
+            _delete_locked_tombstone_unlocked(
+                root,
+                commands_descriptor,
+                commands_relative,
+                tombstone_name,
+                handles,
+                _COMMAND_STABLE_NAMES,
+            )
+            return True
+        finally:
+            _close_retirement_scope(handles, commands_descriptor)
+
+
+@safe_io._rooted_attempt_mutation
+def claim_command_recovery(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    *,
+    process_backend: Any,
+    timeout: float = 0.0,
+) -> CommandRecoveryClaim:
+    """Exclusively replace an absent command supervisor with this process."""
+
+    root = Path(root).absolute()
+    session_id = _identifier(session_id, "sessionId")
+    generation = _integer(generation, "session generation", minimum=1)
+    command_id = _identifier(command_id, "commandId")
+    if (
+        type(timeout) not in (int, float)
+        or timeout < 0
+        or timeout != timeout
+    ):
+        raise ValueError("recovery claim timeout must be non-negative")
+    current_identity = getattr(process_backend, "current_identity", None)
+    predecessor_absent = getattr(
+        process_backend, "predecessor_absent", None
+    )
+    if not callable(current_identity) or not callable(predecessor_absent):
+        raise ValueError("recovery claim requires a stable process backend")
+
+    long_authority = safe_io._RootedIO(root.parent.parent)
+    supervisor_context: Any = None
+    supervisor_lease: Any = None
+    supervisor_entered = False
+    group_context: Any = None
+    group_lease: Any = None
+    group_entered = False
+    claim: CommandRecoveryClaim | None = None
+    transferred = False
+
+    def release_acquired_leases() -> BaseException | None:
+        nonlocal supervisor_context
+        nonlocal supervisor_lease
+        nonlocal supervisor_entered
+        nonlocal group_context
+        nonlocal group_lease
+        nonlocal group_entered
+        cleanup_error: BaseException | None = None
+        if group_entered:
+            try:
+                group_context.__exit__(None, None, None)
+            except BaseException as exc:
+                cleanup_error = exc
+        group_context = None
+        group_lease = None
+        group_entered = False
+        if supervisor_entered:
+            try:
+                supervisor_context.__exit__(None, None, None)
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+        supervisor_context = None
+        supervisor_lease = None
+        supervisor_entered = False
+        return cleanup_error
+
+    try:
+        deadline = time.monotonic() + min(float(timeout), 5.0)
+        supervisor_path = _command_path(root, command_id, "supervisor.lease")
+        while True:
+            try:
+                with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+                    _validate_control_layout_unlocked(root)
+                    with _stable_lock(
+                        _command_path(root, command_id, "state.lock")
+                    ):
+                        snapshot = _capture_recovery_snapshot_unlocked(
+                            root, session_id, generation, command_id
+                        )
+                        state = snapshot["state"]
+                        supervisor_context = long_authority.lease(
+                            supervisor_path, timeout=0.0
+                        )
+                        supervisor_lease = supervisor_context.__enter__()
+                        supervisor_entered = True
+                        if (
+                            supervisor_lease.identity
+                            != state["supervisor"]["leaseIdentity"]
+                        ):
+                            raise ValueError(
+                                "recovery supervisor lease identity changed"
+                            )
+                        if state["stage"] == "prepared":
+                            group_path = _command_path(
+                                root, command_id, "group.lease"
+                            )
+                            group_context = long_authority.lease(
+                                group_path, timeout=0.0
+                            )
+                            group_lease = group_context.__enter__()
+                            group_entered = True
+                            if (
+                                group_lease.identity
+                                != state["anchorReservation"][
+                                    "groupLeaseIdentity"
+                                ]
+                            ):
+                                raise ValueError(
+                                    "recovery group lease identity changed"
+                                )
+                        _verify_recovery_snapshot_unlocked(
+                            root,
+                            session_id,
+                            generation,
+                            command_id,
+                            snapshot,
+                        )
+                break
+            except TimeoutError:
+                cleanup_error = release_acquired_leases()
+                if cleanup_error is not None:
+                    raise cleanup_error
+                now = time.monotonic()
+                if now >= deadline:
+                    raise
+                time.sleep(min(0.05, max(0.0, deadline - now)))
+
+        replacement_birth_identity = _text(
+            current_identity(os.getpid()),
+            "recovery supervisor birthIdentity",
+            maximum=_MAX_IDENTITY_BYTES,
+        )
+        predecessor = state["supervisor"]
+        same_current_recovery = (
+            predecessor["role"] == "recovery"
+            and predecessor["pid"] == os.getpid()
+            and predecessor["birthIdentity"] == replacement_birth_identity
+        )
+        candidate = copy.deepcopy(state)
+        if same_current_recovery:
+            write_required = False
+        else:
+            if predecessor_absent(
+                predecessor["pid"], predecessor["birthIdentity"]
+            ) is not True:
+                raise ValueError("prior command supervisor is still present")
+            candidate["supervisor"] = {
+                "pid": os.getpid(),
+                "birthIdentity": replacement_birth_identity,
+                "leaseIdentity": supervisor_lease.identity,
+                "role": "recovery",
+                "predecessor": supervisor_fingerprint(predecessor),
+            }
+            validate_command_transition(
+                state,
+                candidate,
+                session_id=session_id,
+                generation=generation,
+            )
+            write_required = True
+        content = encode_command_state(candidate)
+        claim = CommandRecoveryClaim(
+            root=root,
+            command_id=command_id,
+            session_id=session_id,
+            generation=generation,
+            state=candidate,
+            authority=long_authority,
+            lease_context=supervisor_context,
+            lease=supervisor_lease,
+            group_lease_identity=state["anchorReservation"][
+                "groupLeaseIdentity"
+            ],
+            group_lease_context=group_context if group_entered else None,
+            group_lease=group_lease if group_entered else None,
+            _issuer=_RECOVERY_CLAIM_ISSUER,
+        )
+        _ISSUED_RECOVERY_CLAIMS.add(claim)
+
+        with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+            _validate_control_layout_unlocked(root)
+            with _stable_lock(
+                _command_path(root, command_id, "state.lock")
+            ):
+                stored = _verify_recovery_snapshot_unlocked(
+                    root,
+                    session_id,
+                    generation,
+                    command_id,
+                    snapshot,
+                )
+                _validate_live_claim_lease(
+                    long_authority,
+                    supervisor_path,
+                    supervisor_lease,
+                    state["supervisor"]["leaseIdentity"],
+                    "recovery supervisor lease",
+                )
+                if group_entered:
+                    _validate_live_claim_lease(
+                        long_authority,
+                        _command_path(root, command_id, "group.lease"),
+                        group_lease,
+                        state["anchorReservation"][
+                            "groupLeaseIdentity"
+                        ],
+                        "recovery group lease",
+                    )
+                if write_required:
+                    safe_io._active_rooted_io().atomic_write(
+                        _command_path(root, command_id, "state.json"),
+                        content,
+                        0o600,
+                    )
+        transferred = True
+        return claim
+    finally:
+        if not transferred:
+            if claim is not None:
+                _ISSUED_RECOVERY_CLAIMS.discard(claim)
+            cleanup_error = release_acquired_leases()
+            long_authority.close()
+            if cleanup_error is not None:
+                raise cleanup_error
+
+
 @safe_io._rooted_attempt_mutation
 def create_command_state(
     root: Path,
@@ -1980,7 +3422,6 @@ def create_command_state(
     if candidate["anchorReservation"] != supervisor_lease.anchor_reservation:
         raise ValueError("new command anchorReservation is not reserved")
     content = encode_command_state(candidate)
-    _validate_control_layout_unlocked(root)
     with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
         _validate_control_layout_unlocked(root)
         session = _load_session_unlocked(root)
@@ -2068,7 +3509,6 @@ def read_command_state(
     root = Path(root).absolute()
     command_id = _identifier(command_id, "commandId")
     with _with_rooted_read(root):
-        _validate_control_layout_unlocked(root)
         with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
             _validate_control_layout_unlocked(root)
             session = _load_session_unlocked(root)
@@ -2089,6 +3529,50 @@ def read_command_state(
             return copy.deepcopy(state)
 
 
+def _authorize_persisted_supervisor_unlocked(
+    root: Path,
+    persisted: dict[str, Any],
+    supervisor_lease: CommandLayoutReservation | None,
+) -> None:
+    """Authorize a lock-held mutation against the exact persisted supervisor."""
+
+    supervisor = persisted["supervisor"]
+    if supervisor["role"] == "recovery":
+        if (
+            type(supervisor_lease) is not CommandRecoveryClaim
+            or supervisor_lease not in _ISSUED_RECOVERY_CLAIMS
+        ):
+            raise ValueError(
+                "recovery-owned command mutation requires its exact live "
+                "server-issued recovery claim"
+            )
+        assert isinstance(supervisor_lease, CommandRecoveryClaim)
+        if (
+            supervisor_lease._session_id != persisted["sessionId"]
+            or supervisor_lease._state["supervisor"] != supervisor
+        ):
+            raise ValueError(
+                "recovery claim disagrees with the persisted supervisor"
+            )
+    elif type(supervisor_lease) is not CommandLayoutReservation:
+        raise ValueError(
+            "launch-owned command mutation requires its live launch reservation"
+        )
+    assert isinstance(supervisor_lease, CommandLayoutReservation)
+    supervisor_lease._revalidate(root, persisted["commandId"])
+    if supervisor["pid"] != os.getpid():
+        raise ValueError("command supervisor pid must be the current process")
+    if (
+        supervisor["leaseIdentity"] != supervisor_lease.identity
+        or persisted["anchorReservation"]
+        != supervisor_lease.anchor_reservation
+    ):
+        raise ValueError(
+            "command supervisor disagrees with its live reservation"
+        )
+    supervisor_lease._revalidate(root, persisted["commandId"])
+
+
 @safe_io._rooted_attempt_mutation
 def transition_command_state(
     root: Path,
@@ -2101,7 +3585,6 @@ def transition_command_state(
     root = Path(root).absolute()
     candidate = copy.deepcopy(validate_command_state(state))
     content = encode_command_state(candidate)
-    _validate_control_layout_unlocked(root)
     with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
         _validate_control_layout_unlocked(root)
         session = _load_session_unlocked(root)
@@ -2114,6 +3597,10 @@ def transition_command_state(
             previous = _load_command_state_unlocked(
                 root, candidate["commandId"], session["sessionId"]
             )
+            if previous["supervisor"] != candidate["supervisor"]:
+                raise ValueError(
+                    "public command transition cannot replace its persisted supervisor"
+                )
             validate_command_transition(
                 previous,
                 candidate,
@@ -2123,26 +3610,16 @@ def transition_command_state(
             if previous == candidate:
                 return copy.deepcopy(previous)
             _validate_command_file_bindings_unlocked(root, candidate)
-            if not isinstance(supervisor_lease, CommandLayoutReservation):
-                raise ValueError("command transition requires its live supervisor lease")
-            if candidate["supervisor"]["pid"] != os.getpid():
-                raise ValueError("command supervisor pid must be the current process")
-            supervisor_lease._revalidate(root, candidate["commandId"])
-            if (
-                candidate["supervisor"]["leaseIdentity"]
-                != supervisor_lease.identity
-                or candidate["anchorReservation"]
-                != supervisor_lease.anchor_reservation
-            ):
-                raise ValueError(
-                    "command supervisor disagrees with its live reservation"
-                )
-            supervisor_lease._revalidate(root, candidate["commandId"])
+            _authorize_persisted_supervisor_unlocked(
+                root, previous, supervisor_lease
+            )
             safe_io._active_rooted_io().atomic_write(
                 _command_path(root, candidate["commandId"], "state.json"),
                 content,
                 0o600,
             )
+            if isinstance(supervisor_lease, CommandRecoveryClaim):
+                supervisor_lease._accept_state(candidate)
             return copy.deepcopy(candidate)
 
 
@@ -2198,7 +3675,6 @@ def record_terminal_diagnostic(
 
     root = Path(root).absolute()
     caller = copy.deepcopy(validate_caller_diagnostic(diagnostic))
-    _validate_control_layout_unlocked(root)
     with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
         _validate_control_layout_unlocked(root)
         session = _load_session_unlocked(root)
@@ -2246,11 +3722,14 @@ __all__ = (
     "encode_command_state",
     "validate_command_transition",
     "CommandLayoutReservation",
+    "CommandRecoveryClaim",
     "initialize_control_layout",
     "read_session",
     "read_terminal_intent",
     "transition_session_state",
     "reserve_command_layout",
+    "retire_unprepared_command_layout",
+    "claim_command_recovery",
     "create_command_state",
     "read_command_state",
     "transition_command_state",

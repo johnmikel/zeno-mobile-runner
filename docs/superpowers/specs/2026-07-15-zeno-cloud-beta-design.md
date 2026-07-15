@@ -189,10 +189,11 @@ For a gap, a Delivery Lead may:
 Exclusion and risk acceptance are visible resolution overlays. They do not turn
 the underlying deterministic status into Verified.
 
-When every required cell is either Verified or has an authorized visible
-resolution, the Delivery Lead assigns the named reviewer, selects which
-artifacts may be disclosed, and previews the exact client view including that
-reviewer assignment. Publishing then creates an immutable Passport snapshot.
+When every active scope-mapping, target-configuration, and coverage gap is
+closed or has an authorized visible resolution, no relevant ingestion is
+pending, and every selected disclosure is safe, the Delivery Lead assigns the
+named reviewer and previews the exact client view including that reviewer
+assignment. Publishing then creates an immutable Passport snapshot.
 
 ### 4.4 Client decision
 
@@ -502,13 +503,22 @@ Each required coverage cell has exactly one base status:
 
 `not_required` is displayed but does not produce a gap. Every other
 non-verified required status produces or updates an explainable gap. Missing
-evidence, target mismatch, stale journey, processing ingestion, partial outcome,
-and unsupported producer remain distinct rule codes and explanations rather
-than becoming competing top-level statuses.
+evidence, target mismatch, stale journey, and partial outcome remain distinct
+coverage rule codes and explanations rather than becoming competing top-level
+statuses. Processing ingestion uses the transient publication-blocking rule
+`ZB009_INGESTION_PENDING`. An unsupported producer uses ingestion reason
+`ZI001_UNSUPPORTED_PRODUCER`, not a coverage rule, and never creates or changes
+a coverage evaluation or gap.
 
 Ingestion progress is stored as evaluation freshness (`pending` or `current`),
 not as a fifth coverage truth state. A pending relevant ingestion blocks
-publication but does not erase the previous deterministic evaluation.
+publication but does not erase the previous deterministic evaluation. When no
+previous evaluation exists, the required cell is `unverified` with
+`ZB009_INGESTION_PENDING` until ingestion reaches a terminal state. When a
+previous evaluation exists, its base status and existing gap remain unchanged
+while freshness is `pending`; the transient `ZB009` reason is stored alongside
+freshness. `ZB009` cannot be resolved or overridden and disappears when the
+terminal ingestion result causes deterministic re-evaluation.
 
 ### 8.2 Qualification and selection
 
@@ -524,8 +534,11 @@ For beta rule set `beta-1`:
    - `playwright` + `official_adapter` + `unattested` for web, with adapter
      version `1.0.0`, `web-v1`, and recomputed fingerprint.
 4. Imported, unknown, unsupported-version, or contradictory producer tuples
-   cannot qualify. The beta quarantines them before artifact upload rather than
-   treating a conforming self-reported manifest as official evidence.
+   cannot qualify. The beta quarantines them before artifact upload with
+   `ZI001_UNSUPPORTED_PRODUCER` rather than treating a conforming self-reported
+   manifest as official evidence. This ingestion result does not create or
+   modify coverage. Independently, a cell with no supported official evidence
+   remains `unverified` under `ZB003_EVIDENCE_MISSING`.
 5. Evidence must match the authenticated agency, project, and release context;
    self-reported manifest claims cannot broaden that context.
 6. Evidence must match surface, environment, target fingerprint, stable journey
@@ -544,9 +557,11 @@ For beta rule set `beta-1`:
     journey, scenario, or policy yields `stale`; otherwise the result is
     `unverified`. Target mismatch and missing evidence remain distinct gap
     reasons.
-12. A relevant in-progress ingestion marks evaluation freshness `pending`,
-    preserves any previous base status, and blocks publication until completion
-    or terminal failure.
+12. A relevant in-progress ingestion marks evaluation freshness `pending` and
+    blocks publication with `ZB009_INGESTION_PENDING`. It preserves any previous
+    base status and gap. Without a previous evaluation, the cell is
+    `unverified` under transient `ZB009`. Completion or terminal failure removes
+    `ZB009` and deterministically re-evaluates the cell from terminal facts.
 
 Re-evaluating identical inputs under the same rule version must produce the
 same status, explanation, and input digest.
@@ -570,11 +585,21 @@ Each gap contains:
 
 A release is ready to publish only when:
 
-- no relevant evaluation freshness is `pending`;
-- no required target is incomplete;
-- every required cell is `verified`, or its gap has an active authorized
-  `excluded_scope` or `accepted_risk` resolution; and
-- every artifact selected for disclosure has a confirmed safe disclosure state.
+- no relevant evaluation freshness is `pending`; `ZB009` cannot be resolved or
+  overridden;
+- every gap of every subtype under the active release material version and
+  policy is either closed because its mapping, target, or evidence truth was
+  corrected, or has an active policy-allowed and authorized `excluded_scope` or
+  `accepted_risk` resolution; and
+- every artifact selected for disclosure has a confirmed safe disclosure state;
+  `ZB008` cannot be resolved or overridden.
+
+This gate applies equally to `scope_mapping_gaps`,
+`target_configuration_gaps`, and `coverage_gaps`. Therefore an unresolved
+`ZB001` always blocks publication. An authorized, visible risk acceptance may
+permit publication with `ZB002` and an incomplete required target, but the
+missing target never becomes Verified and no journey-matrix cell is fabricated.
+Pending ingestion and unsafe disclosure remain unconditional blockers.
 
 Risk acceptance remains visible to the client and cannot be applied by an
 automation identity or Contributor. Under `beta-1`, Owner and Delivery Lead may
@@ -584,7 +609,7 @@ does not alter its severity or base status.
 ### 8.4 Exact `beta-1` policy
 
 `beta-1` accepts journey criticality values `critical`, `high`, and `normal`.
-The following table pins its initial gap severity:
+The following table pins its initial publication-rule severity:
 
 | Rule | Critical | High | Normal |
 |---|---|---|---|
@@ -595,6 +620,7 @@ The following table pins its initial gap severity:
 | `ZB005_EVIDENCE_STALE_TARGET` | Blocking | Blocking | Warning |
 | `ZB006_EVIDENCE_STALE_SCENARIO_OR_POLICY` | Blocking | Blocking | Warning |
 | `ZB007_RETRY_ONLY_OR_FLAKY` | Blocking | Warning | Warning |
+| `ZB009_INGESTION_PENDING` | Blocking | Blocking | Blocking |
 
 Configuration rules that do not belong to one journey use the severity shown
 in every column. `not_required` and historical evidence that is not selected
@@ -610,9 +636,10 @@ Outcome treatment is fixed:
   selected. The item qualifies as passing only when the trusted adapter's
   `aggregateOutcome` is `expected`, the selected attempt outcome is `passed`,
   and its `expectedStatus` is `passed`.
-- Playwright `flaky` always uses `ZB007` and does not verify coverage even when
-  the final retry passed. `unexpected`, `skipped`, expected non-passing tests,
-  partial runs, and unknown outcomes use `ZB004`.
+- Playwright `flaky` always produces base status `failed` with
+  `ZB007_RETRY_ONLY_OR_FLAKY` and does not verify coverage even when the final
+  retry passed. `unexpected`, `skipped`, expected non-passing tests, partial
+  runs, and unknown outcomes produce base status `failed` with `ZB004`.
 - A newer exact qualifying result supersedes an older result for current status;
   an older pass cannot hide a newer failure.
 
@@ -642,16 +669,21 @@ Artifact and disclosure treatment is fixed:
 
 Resolution treatment is fixed:
 
-- Owner and Delivery Lead may apply `accepted_risk` to `ZB001`–`ZB007` with a
-  bounded non-empty client-visible reason; Contributor and automation may not.
+- Owner and Delivery Lead may apply `accepted_risk` to `ZB001`–`ZB007`,
+  including `ZB002`, with a bounded non-empty client-visible reason;
+  Contributor and automation may not. It may permit publication only and never
+  changes a base status, fabricates a matrix cell, or asserts Verified coverage.
 - Owner and Delivery Lead may exclude an affected scope item with a bounded
   non-empty client-visible reason. Exclusion removes its active coverage routes
-  but preserves their history.
+  but preserves their history. `excluded_scope` is available only when an
+  affected scope item can be excluded under the release model.
 - A target-configuration gap disappears only after a valid target is registered
   or no included mapping requires that surface. Risk acceptance may permit
   publication but never creates Verified coverage.
 - No role can resolve `ZB008` with risk acceptance; the selected artifact must
   be made safe or removed from disclosure.
+- No role can resolve `ZB009`; ingestion must complete or fail terminally before
+  publication can be re-evaluated.
 
 ## 9. AI test proposals
 
@@ -722,7 +754,8 @@ digest or content failure.
 | Failure | Behaviour |
 |---|---|
 | Malformed JSON or invalid manifest shape | Reject before creating a session; retain only a bounded security event |
-| Well-formed unsupported schema or producer tuple | Create a metadata-only quarantined session; request no artifacts |
+| Well-formed unsupported schema | Create a metadata-only quarantined session with `ZI002_UNSUPPORTED_SCHEMA`; request no artifacts and do not create or modify coverage |
+| Well-formed supported schema with an unsupported producer tuple | Create a metadata-only quarantined session with `ZI001_UNSUPPORTED_PRODUCER`; request no artifacts and do not create or modify coverage |
 | Unauthorized project/release claim | Reject without revealing whether the claimed resource exists |
 | Missing, malformed, or contradictory fingerprint | Create a metadata-only quarantined session; never verify coverage |
 | Valid fingerprint for a different active target | Complete as non-qualifying context and produce a Stale target-mismatch gap |
@@ -986,9 +1019,18 @@ screenshots, comments, tokens, email addresses, or evidence payloads.
   synthesized without a persisted coverage row.
 - Gap subtype constraints represent scope-mapping, target-configuration, and
   coverage gaps without impossible foreign keys.
+- The publication gate evaluates every gap subtype: an unresolved mapping gap
+  blocks, while an authorized accepted-risk target gap can permit publication
+  without becoming Verified.
 - The immutable `beta-1` policy hash, severity mapping, producer allowlist,
   exact retry/outcome rules, artifact/disclosure rules, resolution permissions,
   and publication gate.
+- Playwright `flaky` deterministically produces `failed`/`ZB007`.
+- Pending ingestion without a prior evaluation produces
+  `unverified`/`ZB009`; pending ingestion with a prior evaluation preserves its
+  base status; neither case can publish until terminal re-evaluation.
+- An unsupported producer is quarantined with `ZI001`, never mutates coverage,
+  and leaves a cell without supported evidence `unverified`/`ZB003`.
 - Target fingerprint and manifest identity matching.
 - Exact ZMR and Playwright producer tuples qualify while every unknown,
   imported, contradictory, or unsupported adapter tuple does not.
@@ -1135,6 +1177,9 @@ The working beta is accepted only when:
 - every included scope item maps to at least one of three to five protected
   journeys and its required surfaces;
 - every required cell has an explainable deterministic status;
+- publication evaluates scope-mapping, target-configuration, and coverage gaps;
+  unresolved gaps block unless an authorized `beta-1` resolution applies, and
+  accepted risk never creates Verified coverage;
 - AI proposes a scoped test without changing truth state;
 - authorized users can add evidence, exclude scope, or accept visible risk;
 - disclosure is previewed before publishing;

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import ctypes
 import errno
 import fcntl
+import hashlib
 import json
 import os
 import select
@@ -19,12 +22,20 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import command_state, safe_io
+from .sanitization import StreamingSanitizer
 
 
 _PROTOCOL_LIMIT = 64 * 1024
-_STREAM_LIMIT = 10 * 1024 * 1024
-_STREAM_HALF = _STREAM_LIMIT // 2
+SANITIZED_STREAM_LIMIT = 10 * 1024 * 1024
+RAW_CAPTURE_LIMIT = 1 * 1024 * 1024
+CAPTURE_ENVELOPE_LIMIT = 3 * 1024 * 1024
+_STREAM_LIMIT = SANITIZED_STREAM_LIMIT
+_STREAM_HALF = SANITIZED_STREAM_LIMIT // 2
 _SETTLEMENT_SECONDS = 0.05
+
+
+class CaptureFailure(RuntimeError):
+    """A raw capture or its anonymous transport failed closed."""
 
 
 def _linux_start_ticks_from_stat(content: str) -> str:
@@ -251,6 +262,188 @@ def _canonical_message(value: Any) -> bytes:
     if len(content) > _PROTOCOL_LIMIT:
         raise ValueError("anchor protocol message exceeds its limit")
     return content
+
+
+def _capture_payload(content: bytes | None) -> dict[str, Any] | None:
+    if content is None:
+        return None
+    if type(content) is not bytes:
+        raise CaptureFailure("raw capture payload must be bytes")
+    if len(content) > RAW_CAPTURE_LIMIT:
+        raise CaptureFailure("raw capture payload exceeds its limit")
+    if b"\x00" in content:
+        raise CaptureFailure("raw capture payload contains NUL")
+    return {
+        "base64": base64.b64encode(content).decode("ascii"),
+        "decodedBytes": len(content),
+        "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+    }
+
+
+def encode_capture_envelope(
+    command_id: str,
+    shell_status: int,
+    *,
+    stdout: bytes | None,
+    stderr: bytes | None,
+    capture_complete: bool,
+) -> bytes:
+    """Encode the only raw-output representation allowed across the CLI boundary."""
+
+    try:
+        command_id = command_state._identifier(command_id, "commandId")
+    except ValueError as exc:
+        raise CaptureFailure("capture envelope commandId is invalid") from exc
+    if type(shell_status) is not int or not 0 <= shell_status <= 255:
+        raise CaptureFailure("capture envelope shellStatus is invalid")
+    if type(capture_complete) is not bool:
+        raise CaptureFailure("capture envelope captureComplete must be a boolean")
+    if not capture_complete and (stdout is not None or stderr is not None):
+        raise CaptureFailure("incomplete capture envelope cannot contain payloads")
+    envelope = {
+        "schemaVersion": 1,
+        "commandId": command_id,
+        "shellStatus": shell_status,
+        "stdout": _capture_payload(stdout),
+        "stderr": _capture_payload(stderr),
+        "captureComplete": capture_complete,
+    }
+    try:
+        content = json.dumps(
+            envelope,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("ascii")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise CaptureFailure("capture envelope is not encodable") from exc
+    if len(content) > CAPTURE_ENVELOPE_LIMIT:
+        raise CaptureFailure("capture envelope exceeds its limit")
+    return content
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise CaptureFailure("capture envelope contains a duplicate field")
+        value[key] = item
+    return value
+
+
+def _decode_capture_payload(value: Any, label: str) -> bytes | None:
+    if value is None:
+        return None
+    if type(value) is not dict or set(value) != {
+        "base64",
+        "decodedBytes",
+        "sha256",
+    }:
+        raise CaptureFailure(f"capture envelope {label} fields are not exact")
+    encoded = value["base64"]
+    decoded_bytes = value["decodedBytes"]
+    digest = value["sha256"]
+    if type(encoded) is not str or not encoded.isascii():
+        raise CaptureFailure(f"capture envelope {label} base64 is invalid")
+    if (
+        type(decoded_bytes) is not int
+        or not 0 <= decoded_bytes <= RAW_CAPTURE_LIMIT
+    ):
+        raise CaptureFailure(f"capture envelope {label} length is invalid")
+    if (
+        type(digest) is not str
+        or len(digest) != 71
+        or not digest.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in digest[7:])
+    ):
+        raise CaptureFailure(f"capture envelope {label} digest is invalid")
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise CaptureFailure(f"capture envelope {label} base64 is malformed") from exc
+    if len(content) != decoded_bytes:
+        raise CaptureFailure(f"capture envelope {label} length disagrees")
+    if b"\x00" in content:
+        raise CaptureFailure(f"capture envelope {label} contains NUL")
+    if digest != "sha256:" + hashlib.sha256(content).hexdigest():
+        raise CaptureFailure(f"capture envelope {label} digest disagrees")
+    return content
+
+
+def decode_capture_envelope(
+    content: bytes, *, expected_command_id: str
+) -> dict[str, Any]:
+    """Strictly decode and verify a bounded capture envelope."""
+
+    if type(content) is not bytes or not content:
+        raise CaptureFailure("capture envelope must be non-empty bytes")
+    if len(content) > CAPTURE_ENVELOPE_LIMIT:
+        raise CaptureFailure("capture envelope exceeds its limit")
+    try:
+        content.decode("ascii")
+        value = json.loads(content, object_pairs_hook=_unique_json_object)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CaptureFailure("capture envelope is malformed ASCII JSON") from exc
+    expected_fields = {
+        "schemaVersion",
+        "commandId",
+        "shellStatus",
+        "stdout",
+        "stderr",
+        "captureComplete",
+    }
+    if type(value) is not dict or set(value) != expected_fields:
+        raise CaptureFailure("capture envelope fields are not exact")
+    if value["schemaVersion"] != 1 or type(value["schemaVersion"]) is not int:
+        raise CaptureFailure("capture envelope schemaVersion is invalid")
+    try:
+        expected = command_state._identifier(
+            expected_command_id, "expected commandId"
+        )
+    except ValueError as exc:
+        raise CaptureFailure("expected capture commandId is invalid") from exc
+    if value["commandId"] != expected:
+        raise CaptureFailure("capture envelope commandId disagrees")
+    shell_status = value["shellStatus"]
+    if type(shell_status) is not int or not 0 <= shell_status <= 255:
+        raise CaptureFailure("capture envelope shellStatus is invalid")
+    if value["captureComplete"] is not True:
+        raise CaptureFailure("capture envelope is incomplete")
+    return {
+        "schemaVersion": 1,
+        "commandId": expected,
+        "shellStatus": shell_status,
+        "stdout": _decode_capture_payload(value["stdout"], "stdout"),
+        "stderr": _decode_capture_payload(value["stderr"], "stderr"),
+        "captureComplete": True,
+    }
+
+
+def _validate_capture_transport(descriptor: int) -> None:
+    if type(descriptor) is not int or descriptor < 3:
+        raise CaptureFailure("capture transport descriptor is invalid")
+    try:
+        metadata = os.fstat(descriptor)
+    except OSError as exc:
+        raise CaptureFailure("capture transport descriptor is not live") from exc
+    if not (stat.S_ISFIFO(metadata.st_mode) or stat.S_ISSOCK(metadata.st_mode)):
+        raise CaptureFailure("capture transport must be an anonymous pipe or socket")
+
+
+def write_capture_envelope(descriptor: int, content: bytes) -> None:
+    """Write one verified envelope only to a dedicated anonymous channel."""
+
+    _validate_capture_transport(descriptor)
+    if type(content) is not bytes or not content:
+        raise CaptureFailure("capture envelope must be non-empty bytes")
+    if len(content) > CAPTURE_ENVELOPE_LIMIT:
+        raise CaptureFailure("capture envelope exceeds its limit")
+    try:
+        content.decode("ascii")
+        _write_all(descriptor, content)
+    except (UnicodeDecodeError, BrokenPipeError, OSError) as exc:
+        raise CaptureFailure("capture envelope transport failed") from exc
 
 
 def _write_all(descriptor: int, content: bytes) -> None:
@@ -510,39 +703,148 @@ def _anchor_entry(control_fd: int, result_fd: int, request_fd: int) -> int:
 
 
 class _BoundedStream:
-    def __init__(self) -> None:
+    """Sanitize a whole stream while retaining bounded logs and optional raw bytes."""
+
+    def __init__(
+        self,
+        *,
+        roots: dict[str, str] | None = None,
+        secrets: list[str] | None = None,
+        capture_raw: bool = False,
+    ) -> None:
         self.original_bytes = 0
+        self._sanitized_bytes = 0
         self._head = bytearray()
         self._tail = bytearray()
+        self._sanitizer = StreamingSanitizer(
+            roots={} if roots is None else dict(roots),
+            secrets=[] if secrets is None else list(secrets),
+        )
+        self._capture_raw = capture_raw
+        self._raw = bytearray()
+        self._raw_failure: str | None = None
+        self._finished = False
+        self.error: BaseException | None = None
         self._lock = threading.Lock()
 
+    def _accept_sanitized(self, content: bytes) -> None:
+        self._sanitized_bytes += len(content)
+        remaining = _STREAM_HALF - len(self._head)
+        if remaining > 0:
+            self._head.extend(content[:remaining])
+            content = content[remaining:]
+        if content:
+            self._tail.extend(content)
+            if len(self._tail) > _STREAM_HALF:
+                del self._tail[: len(self._tail) - _STREAM_HALF]
+
     def accept(self, content: bytes) -> None:
+        if type(content) is not bytes:
+            raise TypeError("command stream chunks must be bytes")
         with self._lock:
+            if self._finished:
+                raise RuntimeError("command stream is already finished")
             self.original_bytes += len(content)
-            remaining = _STREAM_HALF - len(self._head)
-            if remaining > 0:
-                self._head.extend(content[:remaining])
-                content = content[remaining:]
-            if content:
-                self._tail.extend(content)
-                if len(self._tail) > _STREAM_HALF:
-                    del self._tail[: len(self._tail) - _STREAM_HALF]
+            if self._capture_raw and self._raw_failure is None:
+                if b"\x00" in content:
+                    self._raw.clear()
+                    self._raw_failure = "raw capture contains NUL"
+                elif len(self._raw) + len(content) > RAW_CAPTURE_LIMIT:
+                    self._raw.clear()
+                    self._raw_failure = "raw capture exceeds its limit"
+                else:
+                    self._raw.extend(content)
+            self._accept_sanitized(self._sanitizer.feed(content))
+
+    def discard(self, byte_count: int) -> None:
+        """Count bytes after a sanitizer failure while continuing to drain."""
+
+        with self._lock:
+            self.original_bytes += byte_count
+            self._raw.clear()
+            self._raw_failure = "raw capture processing failed"
+
+    def fail(self, error: BaseException) -> None:
+        with self._lock:
+            self.error = self.error or error
+            self._raw.clear()
+            self._raw_failure = "raw capture processing failed"
+            self._finished = True
+
+    def finish(self) -> None:
+        with self._lock:
+            if self._finished:
+                return
+            self._accept_sanitized(self._sanitizer.finish())
+            self._finished = True
+
+    def _stored_unlocked(self) -> bytes:
+        if not self._finished:
+            raise RuntimeError("command stream has not finished")
+        if self._sanitized_bytes <= _STREAM_LIMIT:
+            return bytes(self._head + self._tail)
+        head = bytes(self._head)
+        try:
+            head.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            head = head[: exc.start]
+        tail_start = 0
+        while (
+            tail_start < len(self._tail)
+            and self._tail[tail_start] & 0xC0 == 0x80
+        ):
+            tail_start += 1
+        tail = bytes(self._tail[tail_start:])
+        tail.decode("utf-8")
+        return head + tail
+
+    def stored(self) -> tuple[bytes, dict[str, Any]]:
+        with self._lock:
+            content = self._stored_unlocked()
+            return content, {
+                "originalBytes": self.original_bytes,
+                "sanitizedBytes": self._sanitized_bytes,
+                "storedBytes": len(content),
+                "truncated": self._sanitized_bytes > _STREAM_LIMIT,
+            }
 
     @property
     def content(self) -> bytes:
+        return self.stored()[0]
+
+    def raw_content(self) -> bytes:
         with self._lock:
-            if self.original_bytes <= _STREAM_LIMIT:
-                return bytes(self._head + self._tail)
-            return bytes(self._head + self._tail)
+            if not self._finished:
+                raise RuntimeError("command stream has not finished")
+            if not self._capture_raw:
+                raise CaptureFailure("raw capture was not requested")
+            if self.error is not None:
+                raise CaptureFailure("raw capture processing failed") from self.error
+            if self._raw_failure is not None:
+                raise CaptureFailure(self._raw_failure)
+            return bytes(self._raw)
 
 
 def _drain_stream(stream: Any, collector: _BoundedStream) -> None:
+    processing = True
     try:
         while True:
             chunk = stream.read(65536)
             if not chunk:
-                return
-            collector.accept(chunk)
+                break
+            if processing:
+                try:
+                    collector.accept(chunk)
+                except BaseException as exc:
+                    collector.fail(exc)
+                    processing = False
+            else:
+                collector.discard(len(chunk))
+        if processing:
+            try:
+                collector.finish()
+            except BaseException as exc:
+                collector.fail(exc)
     finally:
         stream.close()
 
@@ -580,6 +882,10 @@ class TrustedAnchor:
         group_lease_identity: str,
         argv: list[str],
         stdin_policy: str,
+        roots: dict[str, str] | None = None,
+        secrets: list[str] | None = None,
+        capture_stdout_raw: bool = False,
+        capture_stderr_raw: bool = False,
         timeout: float = 5.0,
     ) -> "TrustedAnchor":
         if stdin_policy not in ("devnull", "inherit"):
@@ -628,8 +934,16 @@ class TrustedAnchor:
             request_write = -1
             assert process.stdout is not None
             assert process.stderr is not None
-            stdout_collector = _BoundedStream()
-            stderr_collector = _BoundedStream()
+            stdout_collector = _BoundedStream(
+                roots=roots,
+                secrets=secrets,
+                capture_raw=capture_stdout_raw,
+            )
+            stderr_collector = _BoundedStream(
+                roots=roots,
+                secrets=secrets,
+                capture_raw=capture_stderr_raw,
+            )
             readers = (
                 threading.Thread(
                     target=_drain_stream,
@@ -717,6 +1031,20 @@ class TrustedAnchor:
     @property
     def stderr(self) -> bytes:
         return self._stderr_collector.content
+
+    @property
+    def stdout_record(self) -> dict[str, Any]:
+        return self._stdout_collector.stored()[1]
+
+    @property
+    def stderr_record(self) -> dict[str, Any]:
+        return self._stderr_collector.stored()[1]
+
+    def raw_stdout(self) -> bytes:
+        return self._stdout_collector.raw_content()
+
+    def raw_stderr(self) -> bytes:
+        return self._stderr_collector.raw_content()
 
     def poll(self) -> int | None:
         return self._process.poll()
@@ -837,23 +1165,6 @@ class TrustedAnchor:
             reader.join(timeout=1.0)
 
 
-def _stored_stream(content: bytes, original_bytes: int) -> tuple[bytes, dict[str, Any]]:
-    try:
-        sanitized = content.decode("utf-8", errors="replace").encode("utf-8")
-    except UnicodeError as exc:  # defensive for hostile codec state
-        raise ValueError("command stream could not be sanitized") from exc
-    if len(sanitized) <= _STREAM_LIMIT:
-        stored = sanitized
-    else:
-        stored = sanitized[:_STREAM_HALF] + sanitized[-_STREAM_HALF:]
-    return stored, {
-        "originalBytes": original_bytes,
-        "sanitizedBytes": len(sanitized),
-        "storedBytes": len(stored),
-        "truncated": original_bytes > len(content) or len(sanitized) > _STREAM_LIMIT,
-    }
-
-
 class DurableCommandSupervisor:
     """Advance one prepared command through its trusted anchor to exited."""
 
@@ -868,8 +1179,29 @@ class DurableCommandSupervisor:
         argv: list[str],
         checkpoint: Callable[[str, dict[str, Any]], None] | None = None,
         argv_projector: Callable[[list[str]], list[str]] | None = None,
+        capture_mode: str = "foreground",
+        capture_fd: int | None = None,
+        roots: dict[str, str] | None = None,
+        secrets: list[str] | None = None,
         grace_seconds: float = 2.0,
     ) -> None:
+        if capture_mode not in (
+            "foreground",
+            "background",
+            "capture-stdout",
+            "capture-both",
+        ):
+            raise ValueError("command capture mode is invalid")
+        raw_capture_requested = capture_mode in (
+            "capture-stdout",
+            "capture-both",
+        )
+        if raw_capture_requested:
+            if capture_fd is None:
+                raise CaptureFailure("raw capture requires its anonymous result pipe")
+            _validate_capture_transport(capture_fd)
+        elif capture_fd is not None:
+            raise CaptureFailure("non-capture command cannot receive a result pipe")
         self.root = Path(root).absolute()
         self.session_id = session_id
         self.generation = generation
@@ -878,11 +1210,61 @@ class DurableCommandSupervisor:
         self.argv = list(argv)
         self.checkpoint = checkpoint
         self.argv_projector = argv_projector
+        self.capture_mode = capture_mode
+        self._capture_fd = capture_fd
+        self.roots = {} if roots is None else dict(roots)
+        self.secrets = [] if secrets is None else list(secrets)
         self.grace_seconds = grace_seconds
         self._anchor: TrustedAnchor | None = None
         self._coordination = threading.Lock()
         self._outcome_observed = threading.Event()
         self._kill_authorized = False
+
+    def _close_capture_transport(self) -> None:
+        if self._capture_fd is None:
+            return
+        descriptor = self._capture_fd
+        self._capture_fd = None
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+
+    def _emit_raw_capture(
+        self,
+        shell_status: int,
+        *,
+        stdout: bytes,
+        stderr: bytes,
+    ) -> None:
+        if self.capture_mode not in ("capture-stdout", "capture-both"):
+            return
+        if self._capture_fd is None:
+            raise CaptureFailure("raw capture result pipe is closed")
+        content = encode_capture_envelope(
+            self.command_id,
+            shell_status,
+            stdout=stdout,
+            stderr=stderr if self.capture_mode == "capture-both" else None,
+            capture_complete=True,
+        )
+        write_capture_envelope(self._capture_fd, content)
+
+    @staticmethod
+    def _capture_failure_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+        failed = json.loads(json.dumps(candidate))
+        failed["outcome"] = {
+            "kind": "supervisor_failure",
+            "errorCode": "runner.capture_failed",
+            "exitStatus": None,
+            "signal": None,
+            "shellVisibleStatus": 125,
+            "failedAt": safe_io._utc_now(),
+        }
+        failed["capture"]["captureComplete"] = False
+        failed["capture"]["stdout"]["truncated"] = True
+        failed["capture"]["stderr"]["truncated"] = True
+        return failed
 
     def _checkpoint(self, stage: str, state: dict[str, Any]) -> None:
         if self.checkpoint is not None:
@@ -1030,6 +1412,11 @@ class DurableCommandSupervisor:
             ],
             argv=self.argv,
             stdin_policy=state["request"]["stdinPolicy"],
+            roots=self.roots,
+            secrets=self.secrets,
+            capture_stdout_raw=self.capture_mode
+            in ("capture-stdout", "capture-both"),
+            capture_stderr_raw=self.capture_mode == "capture-both",
         )
         with self._coordination:
             self._anchor = anchor
@@ -1048,19 +1435,16 @@ class DurableCommandSupervisor:
                     :_STREAM_LIMIT
                 ]
                 stdout_content = b""
-                stderr_content = diagnostic
-                stdout_record = {
-                    "originalBytes": 0,
-                    "sanitizedBytes": 0,
-                    "storedBytes": 0,
-                    "truncated": False,
-                }
-                stderr_record = {
-                    "originalBytes": len(diagnostic),
-                    "sanitizedBytes": len(diagnostic),
-                    "storedBytes": len(diagnostic),
-                    "truncated": False,
-                }
+                diagnostic_collector = _BoundedStream(
+                    roots=self.roots, secrets=self.secrets
+                )
+                diagnostic_collector.accept(diagnostic)
+                diagnostic_collector.finish()
+                stderr_content, stderr_record = diagnostic_collector.stored()
+                _unused_stdout, stdout_record = anchor._stdout_collector.stored()
+                raw_stdout = b""
+                raw_stderr = diagnostic
+                raw_from_anchor = False
                 current = command_state.write_command_recovery_spools(
                     self.root,
                     self.session_id,
@@ -1108,12 +1492,8 @@ class DurableCommandSupervisor:
                     self._persist_cleanup_kill_and_signal()
                     anchor.wait_anchor(timeout=5.0)
                     anchor.wait_streams(timeout=5.0)
-                stdout_content, stdout_record = _stored_stream(
-                    anchor.stdout, anchor._stdout_collector.original_bytes
-                )
-                stderr_content, stderr_record = _stored_stream(
-                    anchor.stderr, anchor._stderr_collector.original_bytes
-                )
+                stdout_content, stdout_record = anchor._stdout_collector.stored()
+                stderr_content, stderr_record = anchor._stderr_collector.stored()
                 current = command_state.write_command_recovery_spools(
                     self.root,
                     self.session_id,
@@ -1124,20 +1504,44 @@ class DurableCommandSupervisor:
                     supervisor_lease=self.supervisor_lease,
                 )
                 candidate = json.loads(json.dumps(current))
+                normal_outcome = self._normal_outcome(
+                    current,
+                    outcome_report["returnCode"],
+                    outcome_report["finishedAt"],
+                )
                 candidate.update(
                     stage="exited",
-                    outcome=self._normal_outcome(
-                        current,
-                        outcome_report["returnCode"],
-                        outcome_report["finishedAt"],
-                    ),
+                    outcome=normal_outcome,
                     capture={
                         "captureComplete": True,
                         "stdout": stdout_record,
                         "stderr": stderr_record,
                     },
                 )
+                raw_stdout = b""
+                raw_stderr = b""
+                raw_from_anchor = True
 
+            try:
+                if (
+                    anchor._stdout_collector.error is not None
+                    or anchor._stderr_collector.error is not None
+                ):
+                    raise CaptureFailure("sanitized command capture failed")
+                if raw_from_anchor and self.capture_mode in (
+                    "capture-stdout",
+                    "capture-both",
+                ):
+                    raw_stdout = anchor.raw_stdout()
+                if raw_from_anchor and self.capture_mode == "capture-both":
+                    raw_stderr = anchor.raw_stderr()
+                self._emit_raw_capture(
+                    candidate["outcome"]["shellVisibleStatus"],
+                    stdout=raw_stdout,
+                    stderr=raw_stderr,
+                )
+            except CaptureFailure:
+                candidate = self._capture_failure_candidate(candidate)
             state = self._transition(candidate)
             self._checkpoint("after_exited", state)
             if anchor.poll() is None:
@@ -1147,11 +1551,17 @@ class DurableCommandSupervisor:
             return state
         finally:
             self._outcome_observed.set()
-            anchor.abort()
+            try:
+                anchor.abort()
+            finally:
+                self._close_capture_transport()
 
     def run(self) -> dict[str, Any]:
         if threading.current_thread() is not threading.main_thread():
-            return self._run()
+            try:
+                return self._run()
+            finally:
+                self._close_capture_transport()
         previous = {
             number: signal.getsignal(number)
             for number in (signal.SIGINT, signal.SIGTERM)
@@ -1197,6 +1607,7 @@ class DurableCommandSupervisor:
         finally:
             for number, handler in previous.items():
                 signal.signal(number, handler)
+            self._close_capture_transport()
 
 
 def _acquire_free_group_lease(

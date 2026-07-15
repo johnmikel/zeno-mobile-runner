@@ -766,6 +766,293 @@ os.kill(os.getpid(),signal.SIGKILL)
         self.assertEqual(events[2], recovered["startedEvent"])
         self.assertEqual(events[3]["errorCode"], "runner.command_supervisor_lost")
 
+    def test_bounded_stream_sanitizes_all_bytes_but_raw_capture_is_exactly_capped(self):
+        marker = b"private-token:/private/project/result:\xff\n\n"
+        collector = command_supervisor._BoundedStream(
+            roots={"/private/project": "<repo-root>"},
+            secrets=["private-token"],
+            capture_raw=True,
+        )
+        collector.accept(marker)
+        collector.finish()
+        stored, record = collector.stored()
+
+        self.assertEqual(collector.raw_content(), marker)
+        self.assertEqual(record["originalBytes"], len(marker))
+        self.assertEqual(record["storedBytes"], len(stored))
+        self.assertNotIn(b"private-token", stored)
+        self.assertNotIn(b"/private/project", stored)
+        stored.decode("utf-8")
+
+        exact = command_supervisor._BoundedStream(capture_raw=True)
+        exact.accept(b"x" * command_supervisor.RAW_CAPTURE_LIMIT)
+        exact.finish()
+        self.assertEqual(
+            len(exact.raw_content()), command_supervisor.RAW_CAPTURE_LIMIT
+        )
+
+        for rejected in (
+            b"x" * command_supervisor.RAW_CAPTURE_LIMIT + b"y",
+            b"contains\x00nul",
+        ):
+            with self.subTest(rejected_size=len(rejected)):
+                invalid = command_supervisor._BoundedStream(capture_raw=True)
+                invalid.accept(rejected)
+                invalid.finish()
+                with self.assertRaises(command_supervisor.CaptureFailure):
+                    invalid.raw_content()
+
+    def test_capture_envelope_is_strict_ascii_and_digest_bound(self):
+        stdout = b"line\xff\n\n"
+        stderr = b"diagnostic\x80\n"
+        encoded = command_supervisor.encode_capture_envelope(
+            state_cases.COMMAND_ID,
+            17,
+            stdout=stdout,
+            stderr=stderr,
+            capture_complete=True,
+        )
+        self.assertLessEqual(
+            len(encoded), command_supervisor.CAPTURE_ENVELOPE_LIMIT
+        )
+        encoded.decode("ascii")
+        decoded = command_supervisor.decode_capture_envelope(
+            encoded, expected_command_id=state_cases.COMMAND_ID
+        )
+        self.assertEqual(decoded["shellStatus"], 17)
+        self.assertEqual(decoded["stdout"], stdout)
+        self.assertEqual(decoded["stderr"], stderr)
+        self.assertIs(decoded["captureComplete"], True)
+
+        corrupted = json.loads(encoded)
+        corrupted["stdout"]["sha256"] = "sha256:" + "0" * 64
+        with self.assertRaises(command_supervisor.CaptureFailure):
+            command_supervisor.decode_capture_envelope(
+                json.dumps(corrupted, separators=(",", ":")).encode("ascii"),
+                expected_command_id=state_cases.COMMAND_ID,
+            )
+        with self.assertRaises(command_supervisor.CaptureFailure):
+            command_supervisor.decode_capture_envelope(
+                encoded[:-1], expected_command_id=state_cases.COMMAND_ID
+            )
+        with self.assertRaises(command_supervisor.CaptureFailure):
+            command_supervisor.decode_capture_envelope(
+                encoded,
+                expected_command_id=state_cases.COMMAND_ID + "-different",
+            )
+
+    def test_capture_envelope_transport_requires_anonymous_pipe_or_socket(self):
+        encoded = command_supervisor.encode_capture_envelope(
+            state_cases.COMMAND_ID,
+            0,
+            stdout=b"captured",
+            stderr=None,
+            capture_complete=True,
+        )
+        read_fd, write_fd = os.pipe()
+        received = []
+
+        def drain():
+            chunks = []
+            while True:
+                chunk = os.read(read_fd, 65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            received.append(b"".join(chunks))
+
+        reader = threading.Thread(target=drain)
+        reader.start()
+        try:
+            command_supervisor.write_capture_envelope(write_fd, encoded)
+        finally:
+            os.close(write_fd)
+        reader.join(timeout=5.0)
+        os.close(read_fd)
+        self.assertFalse(reader.is_alive())
+        self.assertEqual(received, [encoded])
+
+        regular_path = self.attempt_root / "capture-envelope.regular"
+        regular_fd = os.open(
+            regular_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+        )
+        try:
+            with self.assertRaises(command_supervisor.CaptureFailure):
+                command_supervisor.write_capture_envelope(regular_fd, encoded)
+        finally:
+            os.close(regular_fd)
+
+    def test_capture_stdout_mode_emits_raw_only_over_pipe_and_sanitizes_spool(self):
+        raw_stdout = b"private-token:/private/project/result:\xff\n\n"
+        script = (
+            "import os;token='private-'+'token';root='/private/'+'project';"
+            "os.write(1,(token+':'+root+'/result:').encode()+b'\\xff\\n\\n');"
+            "os.write(2,b'diagnostic')"
+        )
+        argv = [sys.executable, "-c", script]
+        self.prepare(argv)
+        read_fd, write_fd = os.pipe()
+        envelope_chunks = []
+
+        def drain_envelope():
+            while True:
+                chunk = os.read(read_fd, 65536)
+                if not chunk:
+                    return
+                envelope_chunks.append(chunk)
+
+        reader = threading.Thread(target=drain_envelope)
+        reader.start()
+        runner = command_supervisor.DurableCommandSupervisor(
+            root=self.attempt_root,
+            session_id=state_cases.SESSION_ID,
+            generation=1,
+            command_id=state_cases.COMMAND_ID,
+            supervisor_lease=self.reservation,
+            argv=argv,
+            capture_mode="capture-stdout",
+            capture_fd=write_fd,
+            roots={"/private/project": "<repo-root>"},
+            secrets=["private-token"],
+        )
+        exited = runner.run()
+        reader.join(timeout=5.0)
+        os.close(read_fd)
+        self.assertFalse(reader.is_alive())
+        envelope = command_supervisor.decode_capture_envelope(
+            b"".join(envelope_chunks),
+            expected_command_id=state_cases.COMMAND_ID,
+        )
+        self.assertEqual(envelope["stdout"], raw_stdout)
+        self.assertIsNone(envelope["stderr"])
+        self.assertEqual(envelope["shellStatus"], 0)
+        self.assertEqual(exited["outcome"]["shellVisibleStatus"], 0)
+        command_root = (
+            self.attempt_root
+            / ".evidence-control"
+            / "commands"
+            / state_cases.COMMAND_ID
+        )
+        persisted = (command_root / "stdout.recovery").read_bytes()
+        self.assertNotIn(b"private-token", persisted)
+        self.assertNotIn(b"/private/project", persisted)
+
+    def test_raw_nul_capture_fails_closed_without_returning_an_envelope(self):
+        argv = [sys.executable, "-c", "import os;os.write(1,b'before\\x00after')"]
+        self.prepare(argv)
+        read_fd, write_fd = os.pipe()
+        runner = command_supervisor.DurableCommandSupervisor(
+            root=self.attempt_root,
+            session_id=state_cases.SESSION_ID,
+            generation=1,
+            command_id=state_cases.COMMAND_ID,
+            supervisor_lease=self.reservation,
+            argv=argv,
+            capture_mode="capture-stdout",
+            capture_fd=write_fd,
+        )
+        exited = runner.run()
+        returned = os.read(read_fd, command_supervisor.CAPTURE_ENVELOPE_LIMIT + 1)
+        os.close(read_fd)
+        self.assertEqual(returned, b"")
+        self.assertEqual(exited["outcome"]["kind"], "supervisor_failure")
+        self.assertEqual(
+            exited["outcome"]["errorCode"], "runner.capture_failed"
+        )
+        self.assertEqual(exited["outcome"]["shellVisibleStatus"], 125)
+        self.assertIs(exited["capture"]["captureComplete"], False)
+
+    def test_capture_both_preserves_bytes_newlines_and_nonzero_shell_status(self):
+        raw_stdout = b"stdout\xff\n\n"
+        raw_stderr = b"stderr\x80\n"
+        argv = [
+            sys.executable,
+            "-c",
+            (
+                "import os;os.write(1,b'stdout\\xff\\n\\n');"
+                "os.write(2,b'stderr\\x80\\n');raise SystemExit(23)"
+            ),
+        ]
+        self.prepare(argv)
+        read_fd, write_fd = os.pipe()
+        chunks = []
+
+        def drain():
+            while True:
+                chunk = os.read(read_fd, 65536)
+                if not chunk:
+                    return
+                chunks.append(chunk)
+
+        reader = threading.Thread(target=drain)
+        reader.start()
+        exited = command_supervisor.DurableCommandSupervisor(
+            root=self.attempt_root,
+            session_id=state_cases.SESSION_ID,
+            generation=1,
+            command_id=state_cases.COMMAND_ID,
+            supervisor_lease=self.reservation,
+            argv=argv,
+            capture_mode="capture-both",
+            capture_fd=write_fd,
+        ).run()
+        reader.join(timeout=5.0)
+        os.close(read_fd)
+        self.assertFalse(reader.is_alive())
+        envelope = command_supervisor.decode_capture_envelope(
+            b"".join(chunks), expected_command_id=state_cases.COMMAND_ID
+        )
+        self.assertEqual(envelope["stdout"], raw_stdout)
+        self.assertEqual(envelope["stderr"], raw_stderr)
+        self.assertEqual(envelope["shellStatus"], 23)
+        self.assertEqual(exited["outcome"]["exitStatus"], 23)
+        self.assertEqual(exited["outcome"]["shellVisibleStatus"], 23)
+
+    def test_dual_stream_256_mib_stress_is_bounded_and_does_not_deadlock(self):
+        chunks = 4096
+        chunk_size = 65536
+        script = (
+            "import os,threading\n"
+            f"count={chunks};chunk=b'x'*{chunk_size}\n"
+            "def emit(fd):\n"
+            " for _ in range(count): os.write(fd,chunk)\n"
+            "threads=[threading.Thread(target=emit,args=(fd,)) for fd in (1,2)]\n"
+            "[thread.start() for thread in threads]\n"
+            "[thread.join() for thread in threads]\n"
+        )
+        anchor = command_supervisor.TrustedAnchor.launch(
+            root=self.attempt_root,
+            command_id=state_cases.COMMAND_ID,
+            group_lease_identity=self.reservation.anchor_reservation[
+                "groupLeaseIdentity"
+            ],
+            argv=[sys.executable, "-c", script],
+            stdin_policy="devnull",
+            capture_stdout_raw=True,
+            capture_stderr_raw=True,
+        )
+        self.anchors.append(anchor)
+        anchor.start()
+        outcome = anchor.wait(timeout=90.0)
+        self.assertEqual(outcome["returnCode"], 0)
+        expected = chunks * chunk_size
+        self.assertEqual(anchor.stdout_record["originalBytes"], expected)
+        self.assertEqual(anchor.stderr_record["originalBytes"], expected)
+        self.assertLessEqual(
+            anchor.stdout_record["storedBytes"],
+            command_supervisor.SANITIZED_STREAM_LIMIT,
+        )
+        self.assertLessEqual(
+            anchor.stderr_record["storedBytes"],
+            command_supervisor.SANITIZED_STREAM_LIMIT,
+        )
+        with self.assertRaises(command_supervisor.CaptureFailure):
+            anchor.raw_stdout()
+        with self.assertRaises(command_supervisor.CaptureFailure):
+            anchor.raw_stderr()
+        anchor.acknowledge()
+        self.assertEqual(anchor.wait_anchor(timeout=5.0), 0)
+
     def test_group_absence_requires_two_consistent_settled_probes(self):
         anchor = {
             "pid": 4321,

@@ -41,6 +41,16 @@ from .bundle_consistency import _registrations_for_run
 
 
 _MAX_VALIDATION_DIAGNOSTICS = 4096
+_TERMINATION_KEYS = {
+    "kind",
+    "code",
+    "signal",
+    "stopRequested",
+    "requestKind",
+    "graceExpired",
+    "escalated",
+    "shellVisibleStatus",
+}
 
 
 class _BoundedErrorList(list[str]):
@@ -118,6 +128,135 @@ def _resolve_bundle_reference(
     ):
         errors.append(f"{label}: referenced path must be a directory")
     return candidate
+
+
+def _validate_subprocess_termination(
+    termination: Any,
+    *,
+    label: str,
+    exit_status: Any,
+    signal_number: Any,
+    supervisor_failure: Any,
+    errors: list[str],
+) -> None:
+    termination_label = f"{label}.termination"
+    if not isinstance(termination, dict):
+        errors.append(f"{termination_label}: must be an object")
+        return
+    keys = set(termination)
+    if keys != _TERMINATION_KEYS:
+        errors.append(
+            f"{termination_label}: must contain exactly the declared fields"
+        )
+
+    kind = termination.get("kind")
+    code = termination.get("code")
+    termination_signal = termination.get("signal")
+    if kind == "exit":
+        if not _is_integer(code) or not 0 <= code <= 255:
+            errors.append(
+                f"{termination_label}.code: exit termination requires an integer from 0 to 255"
+            )
+        if termination_signal is not None:
+            errors.append(
+                f"{termination_label}.signal: exit termination requires null"
+            )
+    elif kind == "signal":
+        if code is not None:
+            errors.append(
+                f"{termination_label}.code: signal termination requires null"
+            )
+        if (
+            not _is_integer(termination_signal)
+            or not 1 <= termination_signal <= 127
+        ):
+            errors.append(
+                f"{termination_label}.signal: signal termination requires an integer from 1 to 127"
+            )
+    else:
+        errors.append(f"{termination_label}.kind: must be exit or signal")
+
+    stop_requested = termination.get("stopRequested")
+    request_kind = termination.get("requestKind")
+    grace_expired = termination.get("graceExpired")
+    escalated = termination.get("escalated")
+    shell_status = termination.get("shellVisibleStatus")
+    if type(stop_requested) is not bool:
+        errors.append(f"{termination_label}.stopRequested: must be a boolean")
+    if type(grace_expired) is not bool:
+        errors.append(f"{termination_label}.graceExpired: must be a boolean")
+    if type(escalated) is not bool:
+        errors.append(f"{termination_label}.escalated: must be a boolean")
+    if not _is_integer(shell_status) or not 0 <= shell_status <= 255:
+        errors.append(
+            f"{termination_label}.shellVisibleStatus: must be an integer from 0 to 255"
+        )
+
+    expected_shell_status = None
+    if stop_requested is False:
+        if request_kind is not None:
+            errors.append(
+                f"{termination_label}.requestKind: must be null without a stop request"
+            )
+        if grace_expired is not False:
+            errors.append(
+                f"{termination_label}.graceExpired: must be false without a stop request"
+            )
+        if escalated is not False:
+            errors.append(
+                f"{termination_label}.escalated: must be false without a stop request"
+            )
+        if kind == "exit" and _is_integer(code):
+            expected_shell_status = code
+        elif kind == "signal" and _is_integer(termination_signal):
+            expected_shell_status = 128 + termination_signal
+    elif stop_requested is True:
+        if request_kind not in ("expected", "cancel"):
+            errors.append(
+                f"{termination_label}.requestKind: stop request requires expected or cancel"
+            )
+        if (
+            type(grace_expired) is bool
+            and type(escalated) is bool
+            and grace_expired is not escalated
+        ):
+            errors.append(
+                f"{termination_label}.graceExpired: must equal escalated"
+            )
+        if grace_expired is True and escalated is True:
+            expected_shell_status = 125
+        elif request_kind == "expected":
+            expected_shell_status = 0
+        elif request_kind == "cancel":
+            expected_shell_status = 130
+
+    supervisor_sentinel = (
+        supervisor_failure is True
+        and kind == "exit"
+        and code == 125
+        and termination_signal is None
+        and shell_status == 125
+    )
+    if (
+        expected_shell_status is not None
+        and shell_status != expected_shell_status
+        and not supervisor_sentinel
+    ):
+        errors.append(
+            f"{termination_label}.shellVisibleStatus: disagrees with termination semantics"
+        )
+
+    if not supervisor_sentinel:
+        if exit_status is not None and (kind != "exit" or code != exit_status):
+            errors.append(
+                f"{termination_label}.code: must agree with exitStatus"
+            )
+        if signal_number is not None and (
+            kind != "signal" or termination_signal != signal_number
+        ):
+            errors.append(
+                f"{termination_label}.signal: must agree with signal"
+            )
 
 
 def _validate_command_metadata(
@@ -217,10 +356,30 @@ def _validate_command_metadata(
     if exit_status is not None and signal_number is not None:
         errors.append(f"{label}: exitStatus and signal cannot both be set")
     if metadata.get("source") == "subprocess":
+        command_id = metadata.get("commandId")
+        if (
+            not isinstance(command_id, str)
+            or re.fullmatch(r"[0-9a-f]{32}", command_id) is None
+        ):
+            errors.append(
+                f"{label}.commandId: must be exactly 32 lowercase hexadecimal characters"
+            )
+        _validate_subprocess_termination(
+            metadata.get("termination"),
+            label=label,
+            exit_status=exit_status,
+            signal_number=signal_number,
+            supervisor_failure=supervisor_failure,
+            errors=errors,
+        )
         if (
             supervisor_failure is not True
             and exit_status is None
             and signal_number is None
+            and not (
+                isinstance(metadata.get("termination"), dict)
+                and metadata["termination"].get("stopRequested") is True
+            )
         ):
             errors.append(f"{label}: subprocess record needs exitStatus or signal")
     elif metadata.get("source") == "github-action":

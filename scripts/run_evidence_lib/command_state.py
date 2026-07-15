@@ -15,6 +15,7 @@ import os
 import re
 import stat
 import sys
+import threading
 import time
 import weakref
 from contextlib import contextmanager
@@ -53,6 +54,35 @@ COMMANDS_LOCK_NAME = ".commands.lock"
 SESSION_FILE_NAME = "session.json"
 TERMINAL_INTENT_FILE_NAME = "terminal-intent.json"
 COMMANDS_DIRECTORY_NAME = "commands"
+
+_COMPATIBILITY_ACTIVITY_LOCK = threading.Lock()
+_COMPATIBILITY_ACTIVITY: dict[str, int] = {}
+
+
+def _enter_compatibility_activity(root: Path) -> None:
+    """Register an in-process legacy command until durable launch owns it."""
+
+    key = str(Path(root).absolute())
+    with _COMPATIBILITY_ACTIVITY_LOCK:
+        _COMPATIBILITY_ACTIVITY[key] = _COMPATIBILITY_ACTIVITY.get(key, 0) + 1
+
+
+def _leave_compatibility_activity(root: Path) -> None:
+    key = str(Path(root).absolute())
+    with _COMPATIBILITY_ACTIVITY_LOCK:
+        count = _COMPATIBILITY_ACTIVITY.get(key, 0)
+        if count <= 0:
+            raise RuntimeError("compatibility command activity is unbalanced")
+        if count == 1:
+            del _COMPATIBILITY_ACTIVITY[key]
+        else:
+            _COMPATIBILITY_ACTIVITY[key] = count - 1
+
+
+def _compatibility_activity_count(root: Path) -> int:
+    key = str(Path(root).absolute())
+    with _COMPATIBILITY_ACTIVITY_LOCK:
+        return _COMPATIBILITY_ACTIVITY.get(key, 0)
 
 _SESSION_KEYS = {
     "schemaVersion",
@@ -2747,6 +2777,13 @@ def reserve_command_layout(
             "stderr.recovery",
         }
         if existing is None:
+            if len(states) >= MAX_SESSION_COMMANDS:
+                raise ValueError("session command count exceeds its limit")
+            if (
+                sum(item["stage"] != "committed" for item in states)
+                >= MAX_ACTIVE_COMMANDS
+            ):
+                raise ValueError("session active command count exceeds its limit")
             authority.ensure_directory(command_root, 0o700)
             names: set[str] = set()
             has_state = False

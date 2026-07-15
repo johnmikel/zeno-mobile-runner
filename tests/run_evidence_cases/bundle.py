@@ -105,6 +105,93 @@ class BundleValidationTests(CommandTestCase):
             },
         )
 
+    def test_subprocess_identity_and_termination_are_exact(self):
+        self.make_bundle()
+        metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
+        original = self.read_json(metadata_path)
+
+        def validate(candidate):
+            errors = []
+            with run_evidence.safe_io._rooted_io(
+                self.publication_root, mutation=False
+            ):
+                run_evidence.bundle._validate_command_metadata(
+                    self.root, metadata_path, candidate, errors
+                )
+            return errors
+
+        self.assertEqual(validate(copy.deepcopy(original)), [])
+
+        stopped_supervisor_failure = copy.deepcopy(original)
+        stopped_supervisor_failure.update(
+            failureCode="runner.command_supervisor_lost",
+            configuredFailureCode="app.assertion_failed",
+            captureComplete=False,
+            supervisorFailure=True,
+            exitStatus=None,
+            signal=None,
+        )
+        stopped_supervisor_failure["termination"] = {
+            "kind": "exit",
+            "code": 125,
+            "signal": None,
+            "stopRequested": True,
+            "requestKind": "cancel",
+            "graceExpired": False,
+            "escalated": False,
+            "shellVisibleStatus": 125,
+        }
+        self.assertEqual(validate(stopped_supervisor_failure), [])
+
+        cases = (
+            (lambda value: value.__setitem__("commandId", "A" * 32), "commandId"),
+            (lambda value: value.pop("termination"), "termination"),
+            (
+                lambda value: value["termination"].__setitem__("extra", True),
+                "termination",
+            ),
+            (
+                lambda value: value["termination"].__setitem__("kind", "unknown"),
+                "termination.kind",
+            ),
+            (
+                lambda value: value["termination"].__setitem__("code", 7),
+                "termination.code",
+            ),
+            (
+                lambda value: value["termination"].__setitem__(
+                    "stopRequested", "false"
+                ),
+                "termination.stopRequested",
+            ),
+            (
+                lambda value: value["termination"].__setitem__(
+                    "requestKind", "cancel"
+                ),
+                "termination.requestKind",
+            ),
+            (
+                lambda value: value["termination"].__setitem__(
+                    "graceExpired", True
+                ),
+                "termination.graceExpired",
+            ),
+            (
+                lambda value: value["termination"].__setitem__(
+                    "shellVisibleStatus", 7
+                ),
+                "termination.shellVisibleStatus",
+            ),
+        )
+        for mutate, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                candidate = copy.deepcopy(original)
+                mutate(candidate)
+                self.assertTrue(
+                    any(diagnostic in error for error in validate(candidate)),
+                    validate(candidate),
+                )
+
     def test_supervisor_failure_metadata_and_event_link_are_honest(self):
         self.make_bundle()
         metadata_path = sorted((self.root / "commands").glob("*.json"))[0]
@@ -117,6 +204,16 @@ class BundleValidationTests(CommandTestCase):
             exitStatus=None,
             signal=signal.SIGTERM,
         )
+        metadata["termination"] = {
+            "kind": "signal",
+            "code": None,
+            "signal": signal.SIGTERM,
+            "stopRequested": False,
+            "requestKind": None,
+            "graceExpired": False,
+            "escalated": False,
+            "shellVisibleStatus": 128 + signal.SIGTERM,
+        }
         metadata_errors = []
         with run_evidence.safe_io._rooted_io(
             self.publication_root, mutation=False
@@ -167,6 +264,16 @@ class BundleValidationTests(CommandTestCase):
         self.assertEqual(link_errors, [])
 
         metadata["signal"] = None
+        metadata["termination"] = {
+            "kind": "exit",
+            "code": 125,
+            "signal": None,
+            "stopRequested": False,
+            "requestKind": None,
+            "graceExpired": False,
+            "escalated": False,
+            "shellVisibleStatus": 125,
+        }
         metadata_errors = []
         with run_evidence.safe_io._rooted_io(
             self.publication_root, mutation=False

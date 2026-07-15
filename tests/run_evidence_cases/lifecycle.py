@@ -1,5 +1,8 @@
 """Attempt registration and lifecycle cases."""
 
+from scripts.run_evidence_lib import command_state as command_state_store
+
+from . import command_state as command_state_cases
 from .support import *  # noqa: F401,F403
 
 
@@ -786,6 +789,60 @@ class LifecycleTests(StorageTestCase):
         with self.assertRaises(ValueError):
             run_evidence._append_event(root, "cleanup", "passed")
         self.assertEqual((root / "bootstrap-events.jsonl").read_bytes(), before)
+
+    def test_live_or_recoverable_command_blocks_terminal_summary(self):
+        leases = []
+        try:
+            for attempt, lease_state in enumerate(("live", "recoverable"), 1):
+                with self.subTest(lease=lease_state):
+                    run_id = f"finalization-command-gate-{attempt}"
+                    root = self.attempt_root(run_id)
+                    context = valid_context(
+                        runId=run_id,
+                        attempt=attempt,
+                        executionId="finalization-command-gate-execution",
+                    )
+                    run_evidence._initialize_attempt(
+                        self.index_path, root, context
+                    )
+                    command_state_store.initialize_control_layout(
+                        root,
+                        command_state_cases.valid_session(
+                            runId=run_id,
+                            ownerPid=os.getpid(),
+                            ownerBirthIdentity="test:current-process",
+                        ),
+                    )
+                    lease = command_state_store.reserve_command_layout(
+                        root,
+                        command_state_cases.SESSION_ID,
+                        1,
+                        command_state_cases.COMMAND_ID,
+                    )
+                    leases.append(lease)
+                    prepared = command_state_cases.valid_command_state(
+                        "prepared",
+                        supervisor=command_state_cases.valid_supervisor(
+                            pid=os.getpid(),
+                            birthIdentity="test:current-process",
+                            leaseIdentity=lease.identity,
+                        ),
+                        anchorReservation=lease.anchor_reservation,
+                    )
+                    command_state_store.create_command_state(
+                        root, prepared, supervisor_lease=lease
+                    )
+                    if lease_state == "recoverable":
+                        lease.close()
+
+                    with self.assertRaises(ValueError):
+                        run_evidence._finalize_attempt(root, "passed")
+
+                    self.assertFalse((root / "run-summary.json").exists())
+                    self.assertFalse((root / "finalize-receipt.json").exists())
+        finally:
+            for lease in reversed(leases):
+                lease.close()
 
     def test_finalize_summary_size_cap_is_exact_and_precedes_writes(self):
         finished_at = "2026-07-11T10:00:01.000Z"

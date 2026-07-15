@@ -920,6 +920,49 @@ def _frozen_terminal_event(
     return event
 
 
+def _termination_record(
+    outcome: dict[str, Any], stop_intent: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Project durable command state into the public termination contract."""
+
+    kind = outcome["kind"]
+    stop_requested = stop_intent is not None
+    request_kind = None if stop_intent is None else stop_intent["kind"]
+    grace_expired = bool(
+        stop_intent is not None
+        and stop_intent["killAuthorizedAt"] is not None
+    )
+    if kind in ("exit", "signal"):
+        public_kind = kind
+        code = outcome["exitStatus"]
+        signal_number = outcome["signal"]
+    elif kind == "exec_failure":
+        public_kind = "exit"
+        code = 127
+        signal_number = None
+    elif kind == "stopped_before_ack":
+        public_kind = "signal"
+        code = None
+        signal_number = signal.SIGKILL if grace_expired else signal.SIGTERM
+        grace_expired = outcome["graceExpired"]
+    elif kind == "supervisor_failure":
+        public_kind = "exit"
+        code = 125
+        signal_number = None
+    else:  # command_state validation makes this unreachable for stored state.
+        raise ValueError("command outcome kind cannot be materialized")
+    return {
+        "kind": public_kind,
+        "code": code,
+        "signal": signal_number,
+        "stopRequested": stop_requested,
+        "requestKind": request_kind,
+        "graceExpired": grace_expired,
+        "escalated": grace_expired,
+        "shellVisibleStatus": outcome["shellVisibleStatus"],
+    }
+
+
 def _command_metadata_content(
     state: dict[str, Any], terminal_event: dict[str, Any]
 ) -> bytes:
@@ -945,6 +988,7 @@ def _command_metadata_content(
     metadata = {
         "schemaVersion": 1,
         "source": "subprocess",
+        "commandId": state["commandId"],
         "argv": copy.deepcopy(request["sanitizedArgv"]),
         "phase": request["phase"],
         "name": request["name"],
@@ -954,6 +998,7 @@ def _command_metadata_content(
         "supervisorFailure": supervisor_failure,
         "exitStatus": exit_status,
         "signal": outcome.get("signal"),
+        "termination": _termination_record(outcome, stop_intent),
         "stdout": {
             "path": state["paths"]["stdout"],
             **copy.deepcopy(capture["stdout"]),
@@ -1743,6 +1788,82 @@ def _runner_failure_summary(
     return bytes(stored).decode("utf-8", errors="ignore")
 
 
+class _ShortLifecycleMutation:
+    """A re-acquirable lifecycle lock for brief evidence mutations only."""
+
+    def __init__(self, root: Path) -> None:
+        self._path = Path(root) / ".lifecycle.lock"
+        self._context: Any = None
+
+    def acquire(self) -> None:
+        if self._context is not None:
+            raise RuntimeError("lifecycle mutation lock is already held")
+        context = _exclusive_lock(self._path)
+        context.__enter__()
+        self._context = context
+
+    def release(self) -> None:
+        context = self._context
+        if context is None:
+            return
+        self._context = None
+        context.__exit__(None, None, None)
+
+
+def _compatibility_command_id(
+    sequence: int,
+    phase: str,
+    name: str,
+    failure_code: str,
+    sanitized_argv: list[str],
+) -> str:
+    identity = {
+        "sequence": sequence,
+        "phase": phase,
+        "name": name,
+        "failureCode": failure_code,
+        "argv": sanitized_argv,
+    }
+    encoded = json.dumps(
+        identity,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:32]
+
+
+def _compatibility_termination(
+    return_code: int | None, *, supervisor_failure: bool
+) -> dict[str, Any]:
+    if supervisor_failure:
+        kind = "exit"
+        code = 125
+        signal_number = None
+        shell_status = 125
+    elif isinstance(return_code, int) and return_code < 0:
+        kind = "signal"
+        code = None
+        signal_number = -return_code
+        shell_status = 128 + signal_number
+    else:
+        kind = "exit"
+        code = return_code
+        signal_number = None
+        shell_status = return_code
+    return {
+        "kind": kind,
+        "code": code,
+        "signal": signal_number,
+        "stopRequested": False,
+        "requestKind": None,
+        "graceExpired": False,
+        "escalated": False,
+        "shellVisibleStatus": shell_status,
+    }
+
+
 def _execute_command_during_lifecycle(
     root: Path,
     phase: str,
@@ -1751,6 +1872,7 @@ def _execute_command_during_lifecycle(
     argv: list[str],
     *,
     signal_controller: _ChildSignalController,
+    lifecycle_mutation: _ShortLifecycleMutation,
     capture_stdout: bool = False,
     stdout_stream: Any = None,
     stderr_stream: Any = None,
@@ -1785,6 +1907,9 @@ def _execute_command_during_lifecycle(
     secrets = _collect_secret_values()
     sanitized_argv = _sanitize_argv(argv, roots=roots, secrets=secrets)
     next_sequence = len(_read_bootstrap_events(root)) + 1
+    command_id = _compatibility_command_id(
+        next_sequence, phase, name, failure_code, sanitized_argv
+    )
     stem = f"{next_sequence:06d}-{name}"
     stdout_relative = f"commands/{stem}.stdout.log"
     stderr_relative = f"commands/{stem}.stderr.log"
@@ -1808,6 +1933,7 @@ def _execute_command_during_lifecycle(
     preflight_metadata = {
         "schemaVersion": 1,
         "source": "subprocess",
+        "commandId": command_id,
         "argv": sanitized_argv,
         "phase": phase,
         "name": name,
@@ -1817,6 +1943,16 @@ def _execute_command_during_lifecycle(
         "supervisorFailure": False,
         "exitStatus": maximum_counter,
         "signal": maximum_counter,
+        "termination": {
+            "kind": "signal",
+            "code": maximum_counter,
+            "signal": maximum_counter,
+            "stopRequested": True,
+            "requestKind": "expected",
+            "graceExpired": True,
+            "escalated": True,
+            "shellVisibleStatus": maximum_counter,
+        },
         "stdout": preflight_stream(stdout_relative),
         "stderr": preflight_stream(stderr_relative),
     }
@@ -1840,6 +1976,7 @@ def _execute_command_during_lifecycle(
     )
     if started["seq"] != next_sequence:
         raise RuntimeError("command event sequence changed while locked")
+    lifecycle_mutation.release()
 
     if stdout_stream is None:
         stdout_stream = sys.stdout
@@ -2015,6 +2152,7 @@ def _execute_command_during_lifecycle(
     metadata = {
         "schemaVersion": 1,
         "source": "subprocess",
+        "commandId": command_id,
         "argv": sanitized_argv,
         "phase": phase,
         "name": name,
@@ -2024,6 +2162,9 @@ def _execute_command_during_lifecycle(
         "supervisorFailure": runner_error is not None,
         "exitStatus": exit_status,
         "signal": signal_number,
+        "termination": _compatibility_termination(
+            return_code, supervisor_failure=runner_error is not None
+        ),
         "stdout": _stream_record(
             stdout_relative,
             stdout_capture.original_bytes,
@@ -2043,6 +2184,7 @@ def _execute_command_during_lifecycle(
     metadata_content = bounded_io._json_bytes_bounded(
         metadata, label="command metadata"
     )
+    lifecycle_mutation.acquire()
     _atomic_write_bytes(root / stdout_relative, stored_stdout)
     _atomic_write_bytes(root / stderr_relative, stored_stderr)
     _atomic_write_bytes(root / metadata_relative, metadata_content)
@@ -2091,6 +2233,7 @@ def _execute_command_during_lifecycle(
         _secrets_snapshot=secrets,
         **event_metadata,
     )
+    lifecycle_mutation.release()
 
     try:
         if not capture_stdout:
@@ -2115,6 +2258,7 @@ def _run_command_during_lifecycle(
     failure_code: str,
     argv: list[str],
     *,
+    lifecycle_mutation: _ShortLifecycleMutation,
     capture_stdout: bool = False,
     stdout_stream: Any = None,
     stderr_stream: Any = None,
@@ -2128,6 +2272,7 @@ def _run_command_during_lifecycle(
             failure_code,
             argv,
             signal_controller=signal_controller,
+            lifecycle_mutation=lifecycle_mutation,
             capture_stdout=capture_stdout,
             stdout_stream=stdout_stream,
             stderr_stream=stderr_stream,
@@ -2148,17 +2293,26 @@ def _run_command(
 ) -> int:
     root = Path(root)
     _recover_pending_transactions(_publication_root_for_attempt(root))
-    with _exclusive_lock(root / ".lifecycle.lock"):
+    lifecycle_mutation = _ShortLifecycleMutation(root)
+    lifecycle_mutation.acquire()
+    command_state._enter_compatibility_activity(root)
+    try:
         return _run_command_during_lifecycle(
             root,
             phase,
             name,
             failure_code,
             argv,
+            lifecycle_mutation=lifecycle_mutation,
             capture_stdout=capture_stdout,
             stdout_stream=stdout_stream,
             stderr_stream=stderr_stream,
         )
+    finally:
+        try:
+            lifecycle_mutation.release()
+        finally:
+            command_state._leave_compatibility_activity(root)
 
 
 def _record_external_during_lifecycle(

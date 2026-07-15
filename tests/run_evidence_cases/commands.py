@@ -29,6 +29,168 @@ class CommandCaptureTests(CommandTestCase):
         def wait():
             return 0
 
+    def test_long_running_command_does_not_hold_mutation_locks(self):
+        errors = []
+        event_done = threading.Event()
+        command_done = threading.Event()
+
+        def record(action, done):
+            try:
+                action()
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+
+        long_command = threading.Thread(
+            target=record,
+            args=(
+                lambda: run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "long-lock-probe",
+                    "runner.unclassified",
+                    [
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(5.25)",
+                    ],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                ),
+                threading.Event(),
+            ),
+            name="long-command-lock-probe",
+        )
+        long_command.start()
+
+        started_deadline = time.monotonic() + 2.0
+        started = False
+        while time.monotonic() < started_deadline:
+            events = self.read_events(self.root)
+            if any(
+                event.get("status") == "started"
+                and event.get("phase") == "scenario.execute"
+                for event in events
+            ):
+                started = True
+                break
+            time.sleep(0.01)
+
+        ordinary_event = threading.Thread(
+            target=record,
+            args=(
+                lambda: run_evidence._append_event(
+                    self.root,
+                    "scenario.execute",
+                    "passed",
+                    summary="parallel event completed",
+                ),
+                event_done,
+            ),
+            name="parallel-evidence-event",
+        )
+        independent_command = threading.Thread(
+            target=record,
+            args=(
+                lambda: run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "parallel-short-command",
+                    "runner.unclassified",
+                    [sys.executable, "-c", "pass"],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                ),
+                command_done,
+            ),
+            name="parallel-short-command",
+        )
+        ordinary_event.start()
+        independent_command.start()
+
+        short_deadline = time.monotonic() + 2.0
+        event_was_short = event_done.wait(
+            max(0.0, short_deadline - time.monotonic())
+        )
+        command_was_short = command_done.wait(
+            max(0.0, short_deadline - time.monotonic())
+        )
+        for worker in (ordinary_event, independent_command, long_command):
+            worker.join(timeout=10)
+
+        self.assertTrue(started, "long command never published its started event")
+        self.assertTrue(
+            event_was_short,
+            "ordinary event waited behind a running command",
+        )
+        self.assertTrue(
+            command_was_short,
+            "independent command waited behind a running command",
+        )
+        self.assertTrue(
+            all(not worker.is_alive() for worker in (
+                ordinary_event,
+                independent_command,
+                long_command,
+            )),
+            "command concurrency probe left a worker alive",
+        )
+        self.assertEqual(errors, [])
+
+    def test_running_compatibility_command_blocks_finalization(self):
+        errors = []
+        finished = threading.Event()
+
+        def run_command():
+            try:
+                run_evidence._run_command(
+                    self.root,
+                    "scenario.execute",
+                    "finalization-gate-probe",
+                    "runner.unclassified",
+                    [
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(1.0)",
+                    ],
+                    stdout_stream=io.BytesIO(),
+                    stderr_stream=io.BytesIO(),
+                )
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(
+            target=run_command,
+            name="compatibility-finalization-gate-probe",
+        )
+        worker.start()
+        deadline = time.monotonic() + 2.0
+        started = False
+        while time.monotonic() < deadline:
+            if any(
+                event.get("status") == "started"
+                and event.get("phase") == "scenario.execute"
+                for event in self.read_events(self.root)
+            ):
+                started = True
+                break
+            time.sleep(0.01)
+
+        try:
+            with self.assertRaises(ValueError):
+                run_evidence._finalize_attempt(self.root, "passed")
+        finally:
+            worker.join(timeout=5)
+
+        self.assertTrue(started)
+        self.assertTrue(finished.is_set())
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertFalse((self.root / "run-summary.json").exists())
+
     def test_subprocess_metadata_is_bounded_before_event_or_spawn(self):
         events_path = self.root / "bootstrap-events.jsonl"
         events_before = events_path.read_bytes()
@@ -88,6 +250,20 @@ class CommandCaptureTests(CommandTestCase):
         self.assertEqual(captured["configuredFailureCode"], "config.invalid")
         self.assertIs(captured["captureComplete"], False)
         self.assertIs(captured["supervisorFailure"], False)
+        self.assertRegex(captured["commandId"], r"^[0-9a-f]{32}$")
+        self.assertEqual(
+            set(captured["termination"]),
+            {
+                "kind",
+                "code",
+                "signal",
+                "stopRequested",
+                "requestKind",
+                "graceExpired",
+                "escalated",
+                "shellVisibleStatus",
+            },
+        )
         self.assertEqual(popen.call_count, 0)
 
     def test_command_argv_uses_one_owned_native_list_snapshot(self):
@@ -2694,8 +2870,22 @@ class CommandCaptureTests(CommandTestCase):
         self.assertEqual(metadata["source"], "subprocess")
         self.assertEqual(metadata["phase"], "scenario.execute")
         self.assertEqual(metadata["name"], "python-run")
+        self.assertRegex(metadata["commandId"], r"^[0-9a-f]{32}$")
         self.assertEqual(metadata["exitStatus"], 0)
         self.assertIsNone(metadata["signal"])
+        self.assertEqual(
+            metadata["termination"],
+            {
+                "kind": "exit",
+                "code": 0,
+                "signal": None,
+                "stopRequested": False,
+                "requestKind": None,
+                "graceExpired": False,
+                "escalated": False,
+                "shellVisibleStatus": 0,
+            },
+        )
         self.assertFalse(metadata["stdout"]["truncated"])
         self.assertFalse(metadata["stderr"]["truncated"])
         self.assertEqual(
@@ -2730,6 +2920,19 @@ class CommandCaptureTests(CommandTestCase):
         failed_metadata = self.command_metadata()[-1]
         self.assertEqual(failed_metadata["exitStatus"], 7)
         self.assertIsNone(failed_metadata["signal"])
+        self.assertEqual(
+            failed_metadata["termination"],
+            {
+                "kind": "exit",
+                "code": 7,
+                "signal": None,
+                "stopRequested": False,
+                "requestKind": None,
+                "graceExpired": False,
+                "escalated": False,
+                "shellVisibleStatus": 7,
+            },
+        )
         self.assertEqual(self.read_events(self.root)[-1]["status"], "failed")
 
         signalled = self.cli(
@@ -2751,6 +2954,19 @@ class CommandCaptureTests(CommandTestCase):
         signal_metadata = self.command_metadata()[-1]
         self.assertIsNone(signal_metadata["exitStatus"])
         self.assertEqual(signal_metadata["signal"], signal.SIGTERM)
+        self.assertEqual(
+            signal_metadata["termination"],
+            {
+                "kind": "signal",
+                "code": None,
+                "signal": signal.SIGTERM,
+                "stopRequested": False,
+                "requestKind": None,
+                "graceExpired": False,
+                "escalated": False,
+                "shellVisibleStatus": 128 + signal.SIGTERM,
+            },
+        )
         self.assertEqual(self.read_events(self.root)[-1]["status"], "cancelled")
 
     def test_interleaved_output_does_not_deadlock_and_names_never_overwrite(self):

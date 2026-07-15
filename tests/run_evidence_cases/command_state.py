@@ -2234,6 +2234,121 @@ class RootedPersistenceTests(CommandStateTestCase):
                 self.attempt_root, SESSION_ID, 1, "active"
             )
 
+    def test_launch_and_close_have_exactly_one_serial_winner(self):
+        for iteration in range(16):
+            with self.subTest(iteration=iteration), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / "attempts" / "logical-1-attempt-1"
+                root.mkdir(parents=True)
+                command_state.initialize_control_layout(
+                    root,
+                    valid_session(
+                        ownerPid=os.getpid(),
+                        ownerBirthIdentity="test:current-process",
+                    ),
+                )
+                barrier = threading.Barrier(2)
+                launch_outcome = []
+                close_outcome = []
+                leases = []
+
+                def launch():
+                    barrier.wait()
+                    try:
+                        lease = command_state.reserve_command_layout(
+                            root, SESSION_ID, 1, COMMAND_ID
+                        )
+                        leases.append(lease)
+                        prepared = valid_command_state(
+                            "prepared",
+                            supervisor=valid_supervisor(
+                                pid=os.getpid(),
+                                birthIdentity="test:current-process",
+                                leaseIdentity=lease.identity,
+                            ),
+                            anchorReservation=lease.anchor_reservation,
+                        )
+                        command_state.create_command_state(
+                            root, prepared, supervisor_lease=lease
+                        )
+                    except ValueError:
+                        launch_outcome.append("refused")
+                    else:
+                        launch_outcome.append("prepared")
+
+                def close():
+                    barrier.wait()
+                    close_outcome.append(
+                        command_state.transition_session_state(
+                            root, SESSION_ID, 1, "finalizing"
+                        )["state"]
+                    )
+
+                workers = [
+                    threading.Thread(target=launch),
+                    threading.Thread(target=close),
+                ]
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=5)
+                for lease in leases:
+                    lease.close()
+
+                self.assertTrue(all(not worker.is_alive() for worker in workers))
+                self.assertEqual(close_outcome, ["finalizing"])
+                self.assertEqual(len(launch_outcome), 1)
+                state_path = (
+                    root
+                    / ".evidence-control"
+                    / "commands"
+                    / COMMAND_ID
+                    / "state.json"
+                )
+                self.assertEqual(
+                    (launch_outcome[0], state_path.exists()),
+                    (
+                        ("prepared", True)
+                        if launch_outcome[0] == "prepared"
+                        else ("refused", False)
+                    ),
+                )
+
+    def test_ninth_active_command_is_rejected_without_reservation_mutation(self):
+        self.initialize()
+        leases = []
+        for index in range(command_state.MAX_ACTIVE_COMMANDS):
+            command_id = f"{index + 1:032x}"
+            paths = {
+                "metadata": f"commands/{command_id}.json",
+                "stdout": f"commands/{command_id}.stdout.log",
+                "stderr": f"commands/{command_id}.stderr.log",
+            }
+            lease = command_state.reserve_command_layout(
+                self.attempt_root, SESSION_ID, 1, command_id
+            )
+            leases.append(lease)
+            self.addCleanup(lease.close)
+            prepared = valid_command_state(
+                "prepared",
+                commandId=command_id,
+                paths=paths,
+                supervisor=valid_supervisor(
+                    pid=os.getpid(), leaseIdentity=lease.identity
+                ),
+                anchorReservation=lease.anchor_reservation,
+            )
+            command_state.create_command_state(
+                self.attempt_root, prepared, supervisor_lease=lease
+            )
+
+        before = self.snapshot(self.attempt_root)
+        rejected_id = f"{command_state.MAX_ACTIVE_COMMANDS + 1:032x}"
+        with self.assertRaisesRegex(ValueError, "active command count"):
+            command_state.reserve_command_layout(
+                self.attempt_root, SESSION_ID, 1, rejected_id
+            )
+        self.assertEqual(self.snapshot(self.attempt_root), before)
+
     def test_corrupt_oversized_or_mismatched_state_blocks_mutation(self):
         self.initialize()
         lease, state = self.reserve_prepared_state()

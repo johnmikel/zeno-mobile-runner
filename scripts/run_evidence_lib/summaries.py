@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import bounded_io
+from . import command_state
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .contracts import _comparability_tuple
@@ -39,6 +40,21 @@ from .lifecycle import *  # noqa: F401,F403
 _MAX_INVALID_SUMMARY_DIAGNOSTICS = 256
 _MAX_INVALID_SUMMARY_DIAGNOSTIC_BYTES = 4096
 _DIAGNOSTIC_TRUNCATION_SUFFIX = "... <truncated>"
+
+
+@contextmanager
+def _finalization_command_gate(root: Path):
+    """Hold the command gate when private session state is present."""
+
+    control_root = command_state._control_path(root)
+    if _active_rooted_io().stat(control_root, missing_ok=True) is None:
+        yield False
+        return
+    with command_state._stable_lock(
+        command_state._control_path(root, command_state.COMMANDS_LOCK_NAME)
+    ):
+        command_state._validate_control_layout_unlocked(root)
+        yield True
 
 
 def _bound_validation_diagnostic(value: Any) -> str:
@@ -326,8 +342,32 @@ def _finalize_attempt(
         if not _evidence_is_file(index_path):
             raise ValueError("attempt index is missing")
         with _exclusive_lock(index_path.with_name(index_path.name + ".lock")):
-            with _exclusive_lock(root / ".lifecycle.lock"):
+            with _finalization_command_gate(root) as has_control, _exclusive_lock(
+                root / ".lifecycle.lock"
+            ):
                 with _exclusive_lock(root / ".events.lock"):
+                    if command_state._compatibility_activity_count(root):
+                        raise ValueError(
+                            "terminal summary is blocked by an active command"
+                        )
+                    if has_control:
+                        session = command_state._load_session_unlocked(root)
+                        command_state._load_terminal_intent_unlocked(
+                            root,
+                            session["sessionId"],
+                            session["generation"],
+                        )
+                        states = command_state._scan_commands_unlocked(
+                            root, session
+                        )
+                        if any(
+                            state["stage"] != "committed"
+                            for state in states
+                        ):
+                            raise ValueError(
+                                "terminal summary requires every command "
+                                "to be committed"
+                            )
                     summary_path = root / "run-summary.json"
                     context, _context_bytes = bounded_io._read_json_bounded(
                         root / "run-context.json"

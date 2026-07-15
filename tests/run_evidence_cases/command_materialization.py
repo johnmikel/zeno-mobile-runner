@@ -1076,7 +1076,20 @@ class CommandMaterializationTests(support.StorageTestCase):
         )
         self.assertEqual(metadata["failureCode"], "runner.cleanup_failed")
         self.assertIs(metadata["supervisorFailure"], False)
-        self.assertNotIn("commandId", metadata)
+        self.assertEqual(metadata["commandId"], state_cases.COMMAND_ID)
+        self.assertEqual(
+            metadata["termination"],
+            {
+                "kind": "exit",
+                "code": 0,
+                "signal": None,
+                "stopRequested": False,
+                "requestKind": None,
+                "graceExpired": False,
+                "escalated": False,
+                "shellVisibleStatus": 0,
+            },
+        )
 
     def test_post_exit_recovery_loss_is_primary_without_erasing_child_truth(self):
         materialize = self.require_api("materialize_command")
@@ -1110,6 +1123,22 @@ class CommandMaterializationTests(support.StorageTestCase):
         self.assertIs(metadata["captureComplete"], True)
         self.assertEqual(metadata["exitStatus"], historical_outcome["exitStatus"])
         self.assertEqual(metadata["signal"], historical_outcome["signal"])
+        self.assertEqual(metadata["commandId"], state_cases.COMMAND_ID)
+        self.assertEqual(
+            metadata["termination"],
+            {
+                "kind": "exit",
+                "code": historical_outcome["exitStatus"],
+                "signal": None,
+                "stopRequested": False,
+                "requestKind": None,
+                "graceExpired": False,
+                "escalated": False,
+                "shellVisibleStatus": historical_outcome[
+                    "shellVisibleStatus"
+                ],
+            },
+        )
         for stream_name, expected_content in (
             ("stdout", STDOUT),
             ("stderr", STDERR),

@@ -27,6 +27,19 @@ The beta is deliberately narrow. Manual setup is acceptable where it does not
 break the customer-facing workflow. The hosted product must nevertheless be
 secure, tenant-safe, durable, and usable without manual database intervention.
 
+### 1.1 Relationship to the parent design
+
+The parent design remains authoritative for product trust and security
+invariants. This document deliberately narrows its delivery scope for the beta:
+manual scope replaces GitHub import, while JUnit/CTRF, Slack, billing, and
+self-service team administration are deferred. These are beta deferrals, not
+changes to the eventual MVP direction.
+
+The status vocabulary, provenance rules, immutable-history rules, and
+scope-bound coverage identity remain aligned with the parent design. Section 19
+defines acceptance of this hosted beta slice; it does not claim that every item
+in the parent design's broader MVP acceptance criteria has shipped.
+
 ## 2. Product promise and success condition
 
 The beta promise is:
@@ -40,7 +53,8 @@ The beta succeeds when a small agency can:
 2. define three to five protected customer journeys;
 3. register exact web, iOS, and Android release targets;
 4. submit ZMR mobile and Playwright web evidence;
-5. understand every verified, failed, missing, stale, or mismatched cell;
+5. understand every Verified, Failed, Stale, or Unverified cell and its exact
+   gap reason, including missing or target-mismatched evidence;
 6. receive a scoped proposed test for a genuine gap;
 7. resolve the gap with evidence, exclusion, or explicit risk acceptance;
 8. publish an immutable private Passport;
@@ -77,7 +91,8 @@ can:
 - open one assigned Passport through an unguessable private link;
 - view only the snapshot and artifacts selected for disclosure;
 - verify the assigned email address with a one-time code; and
-- record Approve or Request changes exactly once per idempotent request.
+- record at most one Approve or Request changes decision for that reviewer
+  assignment and snapshot, with safe retry of the same idempotent request.
 
 The reviewer cannot browse projects, releases, evidence, other snapshots, or
 other reviewers.
@@ -101,10 +116,14 @@ authoritative and must be compared with the manifest claims.
 3. The user creates a release with a human-readable name, release identifier,
    source commit, and environment.
 4. The user enters concise release scope and acceptance criteria manually.
-5. The user configures three to five stable customer journeys, their required
-   surfaces, criticality, and current scenario or policy hash.
-6. The user registers one active target build per required surface.
-7. Zeno shows source-specific commands for generating and uploading evidence.
+5. The user links every included scope item to at least one protected journey
+   and selects the required surfaces for that route. An unmapped included item
+   remains an explicit blocking gap.
+6. The user configures three to five stable customer journeys, their required
+   surfaces, criticality, and current scenario hash.
+7. The release pins the system-controlled `beta-1` release policy version.
+8. The user registers one active target build per required surface.
+9. Zeno shows source-specific commands for generating and uploading evidence.
 
 GitHub scope import is deferred. Manual scope is sufficient for the beta, but
 the model retains source type and source reference fields so GitHub can be added
@@ -143,8 +162,15 @@ and browser-based archive upload are deferred.
 
 ### 4.3 Gap resolution and publication
 
-The release workspace presents a journey-by-surface coverage matrix. Selecting
-a cell shows:
+The release workspace presents a journey-by-surface coverage matrix. The atomic
+records remain scope-item × journey × surface evaluations. A visible matrix
+cell summarizes all included scope items linked to that journey and surface;
+it is Verified only when every underlying evaluation is Verified. Otherwise it
+shows the highest-severity unresolved condition, or Resolved with risk/exclusion
+when no unresolved condition remains but a human overlay exists. Aggregate
+ordering is severity Blocking → Warning → Informational, then base status Failed
+→ Stale → Unverified, then stable rule code and scope-item ID. Selecting a cell
+reveals each scope-item evaluation and shows:
 
 - the current deterministic status;
 - the rule and rule version that produced it;
@@ -164,14 +190,16 @@ Exclusion and risk acceptance are visible resolution overlays. They do not turn
 the underlying deterministic status into Verified.
 
 When every required cell is either Verified or has an authorized visible
-resolution, the Delivery Lead previews the exact client view and selects which
-artifacts may be disclosed. Publishing creates an immutable Passport snapshot.
+resolution, the Delivery Lead assigns the named reviewer, selects which
+artifacts may be disclosed, and previews the exact client view including that
+reviewer assignment. Publishing then creates an immutable Passport snapshot.
 
 ### 4.4 Client decision
 
-The Delivery Lead assigns a named reviewer and sends an expiring private link.
-The reviewer can read the Passport before verification. Approve and Request
-changes require a one-time code sent to the assigned email.
+After publication, the Delivery Lead sends an expiring private link to the
+reviewer already bound to the snapshot. The reviewer can read the Passport
+before verification. Approve and Request changes require a one-time code sent
+to the assigned email.
 
 A recorded decision is bound to one snapshot. A material release change creates
 a new draft and cannot move, rewrite, or invalidate the historical meaning of
@@ -309,8 +337,30 @@ policy or scenario hash.
 - `releases`
 - `release_scope_items`
 - `release_journeys`
+- `scope_item_journeys`
 - `target_builds`
 - `release_material_versions`
+- `release_policy_versions`
+- `release_policy_assignments`
+
+`scope_item_journeys` binds one included acceptance criterion to one protected
+journey and its required-surface subset. The mapping is versioned with release
+material state. Every included scope item needs at least one active mapping or
+produces an unmapped-scope gap; excluded scope keeps its mapping history.
+
+The beta ships one immutable, system-controlled release policy,
+`beta-1`. It pins:
+
+- the coverage rule-set version and official producer allowlist;
+- outcome and retry interpretation;
+- severity mapping from journey criticality and rule code;
+- required target, environment, artifact, and disclosure checks;
+- which resolutions Owner and Delivery Lead may apply; and
+- the publication gate.
+
+There is no tenant policy editor in the beta. A later operator policy change
+creates a new immutable policy version. Moving a release to it requires an
+Owner or Delivery Lead action and increments the release material version.
 
 The beta permits one active target per release and required surface. Replacing
 a target marks the old target superseded and increments the material version.
@@ -348,7 +398,8 @@ caller-controlled path segments.
 A coverage evaluation key is:
 
 ```text
-release × journey version × required surface × active target fingerprint
+release × scope item × journey version × required surface
+        × active target fingerprint × release policy version
 ```
 
 Each evaluation stores its rule-set version, status, explanation payload,
@@ -379,7 +430,14 @@ Published snapshot canonical JSON is stored as immutable text with its
 - coverage statuses, rule versions, and qualifying evidence digests;
 - visible gaps and resolutions;
 - disclosed artifact digests and disclosure states; and
-- intended reviewer identity appropriate to the approved product contract.
+- immutable reviewer-assignment ID and reviewer-identity digest.
+
+Reviewer display name and email are stored in the separately access-controlled,
+immutable reviewer assignment rather than canonical snapshot JSON. Before
+publication, the server computes a domain-separated keyed digest over the
+normalized assignment identity. The snapshot binds that digest and assignment
+ID, so changing the named reviewer requires a new snapshot while later privacy
+pseudonymization does not require storing clear-text PII in canonical content.
 
 Short-lived artifact URLs and review-link tokens are never part of canonical
 snapshot content.
@@ -396,38 +454,59 @@ Each required coverage cell has exactly one base status:
 
 | Status | Meaning |
 |---|---|
-| `processing` | A relevant ingestion exists but has not completed verification and normalization |
 | `verified` | The selected current evidence passed with exact target and journey identities |
 | `failed` | The selected current qualifying evidence completed with a non-passing outcome |
-| `mismatched` | Relevant evidence exists for the current journey but a different target fingerprint |
-| `stale` | Relevant evidence exists for an older journey or policy version |
-| `missing` | No relevant evidence exists |
+| `stale` | Relevant evidence exists but targets an older build, journey, scenario, or policy version |
+| `unverified` | No qualifying evidence exists |
 | `not_required` | The surface is outside this journey's release scope |
 
-`not_required` is displayed but does not produce a gap. Every other non-verified
-required status produces or updates an explainable gap.
+`not_required` is displayed but does not produce a gap. Every other
+non-verified required status produces or updates an explainable gap. Missing
+evidence, target mismatch, stale journey, processing ingestion, partial outcome,
+and unsupported producer remain distinct rule codes and explanations rather
+than becoming competing top-level statuses.
+
+Ingestion progress is stored as evaluation freshness (`pending` or `current`),
+not as a fifth coverage truth state. A pending relevant ingestion blocks
+publication but does not erase the previous deterministic evaluation.
 
 ### 8.2 Qualification and selection
 
 For beta rule set `beta-1`:
 
-1. The surface must be required by the release journey.
+1. The included scope item must have an active mapping to the protected journey
+   and required surface under the pinned release policy.
 2. The active target must have a complete registered fingerprint.
-3. Evidence must match the authenticated project and release context.
-4. Evidence must match surface, environment, target fingerprint, stable journey
-   ID, and current journey policy or scenario hash.
-5. The evidence package and all referenced qualifying artifacts must have
+3. The manifest must use Evidence Contract schema `1.0` and match one supported
+   official producer tuple:
+   - `zeno-mobile-runner` + `zeno_runner` + `unattested` for iOS or Android,
+     with adapter version `1.0.0`, `mobile-v1`, and recomputed fingerprint;
+   - `playwright` + `official_adapter` + `unattested` for web, with adapter
+     version `1.0.0`, `web-v1`, and recomputed fingerprint.
+4. Imported, unknown, unsupported-version, or contradictory producer tuples
+   cannot qualify. The beta quarantines them before artifact upload rather than
+   treating a conforming self-reported manifest as official evidence.
+5. Evidence must match the authenticated agency, project, and release context;
+   self-reported manifest claims cannot broaden that context.
+6. Evidence must match surface, environment, target fingerprint, stable journey
+   ID, and current journey scenario hash. The evaluation separately pins and
+   records the active release-policy version.
+7. The evidence package and all referenced qualifying artifacts must have
    completed digest verification.
-6. The evidence item's aggregate outcome is used; individual retries remain
+8. The evidence item's aggregate outcome is used; individual retries remain
    visible but do not get independently promoted.
-7. When several exact current items exist, choose the latest completed item by
+9. When several exact current items exist, choose the latest completed item by
    normalized completion time and break a tie with manifest digest ordering.
-8. The selected item's passing aggregate outcome yields `verified`; any other
-   completed aggregate outcome yields `failed`.
-9. Without exact current evidence, an in-progress relevant ingestion yields
-   `processing`; current-journey evidence against another target yields
-   `mismatched`; old-journey evidence yields `stale`; otherwise the result is
-   `missing`.
+10. The selected item's passing aggregate outcome yields `verified`. A failed,
+    timed-out, interrupted, skipped, or partial aggregate outcome yields
+    `failed` under `beta-1`, with the precise outcome retained in the gap.
+11. Without exact current evidence, relevant evidence for an older target,
+    journey, scenario, or policy yields `stale`; otherwise the result is
+    `unverified`. Target mismatch and missing evidence remain distinct gap
+    reasons.
+12. A relevant in-progress ingestion marks evaluation freshness `pending`,
+    preserves any previous base status, and blocks publication until completion
+    or terminal failure.
 
 Re-evaluating identical inputs under the same rule version must produce the
 same status, explanation, and input digest.
@@ -437,8 +516,9 @@ same status, explanation, and input digest.
 Each gap contains:
 
 - stable rule code and rule version;
-- affected release, journey, surface, and target;
-- severity derived from journey criticality and failure class;
+- affected release, scope item, journey, surface, and target;
+- severity derived by the pinned policy from journey criticality, rule code,
+  and failure class;
 - deterministic summary and explanation;
 - qualifying and rejected evidence references;
 - recommended deterministic action; and
@@ -446,14 +526,16 @@ Each gap contains:
 
 A release is ready to publish only when:
 
-- no relevant ingestion is still `processing`;
+- no relevant evaluation freshness is `pending`;
 - no required target is incomplete;
 - every required cell is `verified`, or its gap has an active authorized
   `excluded_scope` or `accepted_risk` resolution; and
 - every artifact selected for disclosure has a confirmed safe disclosure state.
 
 Risk acceptance remains visible to the client and cannot be applied by an
-automation identity or Contributor.
+automation identity or Contributor. Under `beta-1`, Owner and Delivery Lead may
+accept even a blocking risk only with a non-empty client-visible reason; this
+does not alter its severity or base status.
 
 ## 9. AI test proposals
 
@@ -506,7 +588,7 @@ created → awaiting_artifacts → uploaded → verifying → normalizing
         → evaluating → completed
 
 Any processing state → retrying → previous processing state
-Any permanent validation failure → quarantined
+Any authenticated, well-formed but permanently disallowed package → quarantined
 An abandoned incomplete session → expired
 ```
 
@@ -514,13 +596,20 @@ Finalization is idempotent. A completed package retry returns the existing
 evidence run. An incomplete retry resumes only missing artifacts. Quarantined
 content cannot affect coverage.
 
+A rejected request sits outside this state machine and does not create an
+ingestion session. A quarantined session records only bounded safe metadata and
+the fixed reason code unless artifact bytes had already been accepted before a
+digest or content failure.
+
 ### 10.3 Failure behaviour
 
 | Failure | Behaviour |
 |---|---|
-| Malformed or unsupported manifest | Reject before artifact upload with fixed field-level errors |
+| Malformed JSON or invalid manifest shape | Reject before creating a session; retain only a bounded security event |
+| Well-formed unsupported schema or producer tuple | Create a metadata-only quarantined session; request no artifacts |
 | Unauthorized project/release claim | Reject without revealing whether the claimed resource exists |
-| Missing or mismatched fingerprint | Preserve as non-qualifying context only when safe; never verify coverage |
+| Missing, malformed, or contradictory fingerprint | Create a metadata-only quarantined session; never verify coverage |
+| Valid fingerprint for a different active target | Complete as non-qualifying context and produce a Stale target-mismatch gap |
 | Artifact digest or size mismatch | Quarantine the ingestion and object; no normalization |
 | Worker retry exhaustion | Preserve previous valid coverage and show a recoverable ingestion error |
 | Duplicate upload | Return the existing session or evidence result |
@@ -548,13 +637,15 @@ Publishing must execute as one transactional domain operation:
 1. authorize Owner or Delivery Lead;
 2. lock the release material version;
 3. reject stale client state through expected-version comparison;
-4. rerun or verify current coverage evaluations;
-5. enforce publication gates and disclosure safety;
-6. construct canonical snapshot content;
-7. compute the content digest;
-8. insert immutable snapshot and disclosure records;
-9. transition the release review pointer; and
-10. append the publication audit event.
+4. require the pre-publication reviewer assignment and compute its
+   domain-separated identity digest;
+5. rerun or verify current coverage evaluations;
+6. enforce publication gates and disclosure safety;
+7. construct canonical snapshot content;
+8. compute the content digest;
+9. insert immutable snapshot, reviewer binding, and disclosure records;
+10. transition the release review pointer; and
+11. append the publication audit event.
 
 A partial publication is not visible.
 
@@ -571,15 +662,22 @@ from being treated as current:
 - exclusion or risk-acceptance change; or
 - changed disclosed substance.
 
-The old snapshot, link history, verification, and decision remain historical.
+The material mutation transaction immediately closes the current snapshot to
+new decisions, records `decision_closed_at` with reason `material_change`,
+revokes its active review links, increments the release material version, and
+opens the new draft. It does not wait for the replacement snapshot to be
+published. If the old snapshot already has a decision, that decision remains
+historical and immutable. If it has no decision, it can no longer receive one.
+The old snapshot, link history, verification, and any existing decision remain
+available to authorized internal users as history.
 
 ## 12. Review access and decisions
 
 ### 12.1 Private link
 
 Review tokens contain at least 256 bits of cryptographically secure randomness.
-Only a keyed or cryptographic hash is stored. Tokens are scoped to one reviewer
-assignment and snapshot, expire, can be revoked, and are rate limited.
+Only SHA-256 of the high-entropy token is stored. Tokens are scoped to one
+reviewer assignment and snapshot, expire, can be revoked, and are rate limited.
 
 Passport responses send `noindex` directives, a restrictive Referrer Policy,
 Content Security Policy, and safe content-disposition headers for artifacts.
@@ -588,7 +686,9 @@ Client pages never contain tenant navigation or stable internal object IDs.
 ### 12.2 Verification
 
 Approve and Request changes require a short-lived, single-use code sent to the
-assigned email. Codes are stored as hashes, have attempt limits, expire, and
+assigned email. Because the code has low entropy, it is stored as a
+domain-separated HMAC using a server secret plus assignment, nonce, and code;
+a plain unsalted digest is prohibited. Codes have attempt limits, expire, and
 cannot be reused for another snapshot or reviewer.
 
 Successful verification creates a short-lived, HttpOnly, Secure, appropriately
@@ -600,13 +700,17 @@ The decision endpoint requires:
 
 - active link and review session;
 - verified intended reviewer;
-- current, non-revoked, non-expired, non-superseded snapshot;
+- current, decision-open, non-revoked, non-expired snapshot;
 - explicit decision value;
 - optional bounded comment; and
 - unique idempotency key.
 
-The transaction inserts one immutable decision and audit event. Replaying the
-same idempotency key returns the original decision; conflicting reuse fails.
+The database enforces at most one decision for each reviewer assignment and
+Passport snapshot. The transaction inserts that immutable decision and its
+audit event. Replaying the same idempotency key returns the original decision;
+reusing the key with different input fails, and a different key submitted after
+a decision receives a stable already-decided conflict without creating another
+row.
 
 ## 13. Security and privacy model
 
@@ -721,8 +825,8 @@ The public site contains no fake customer logos, invented usage counts,
 unverified performance comparisons, or claims that Zeno proves a release is
 bug-free or independently attested.
 
-Cold outreach begins only after the production-like end-to-end beta journey and
-sample Passport are working, as requested by the user.
+Cold outreach begins only after the full automated journey, deployed hosted
+smoke gate, and sample Passport are working, as requested by the user.
 
 ## 16. Observability and product analytics
 
@@ -757,7 +861,13 @@ screenshots, comments, tokens, email addresses, or evidence payloads.
 ### 17.1 Unit and rule tests
 
 - Table-driven tests for every `beta-1` coverage rule and precedence case.
+- Scope-item-to-journey mapping cardinality, unmapped-scope gaps, and
+  journey-matrix aggregation over multiple scope items.
+- The immutable `beta-1` policy hash, severity mapping, producer allowlist,
+  resolution permissions, and publication gate.
 - Target fingerprint and manifest identity matching.
+- Exact ZMR and Playwright producer tuples qualify while every unknown,
+  imported, contradictory, or unsupported adapter tuple does not.
 - Deterministic input digest and identical-input re-evaluation.
 - Gap lifecycle and authorization.
 - Snapshot canonicalization and content hashing.
@@ -798,27 +908,38 @@ The beta is not complete until one reliable Playwright test demonstrates:
 3. create a release with scope and three to five journeys;
 4. register exact web, iOS, and Android targets;
 5. submit ZMR and Playwright Evidence Contract packages;
-6. observe a deliberately missing Android journey;
+6. observe a deliberately Unverified Android evaluation with a missing-evidence
+   gap reason;
 7. request and display a scoped test proposal without status mutation;
 8. accept the visible risk or add qualifying evidence;
-9. preview and publish an immutable Passport;
+9. assign the reviewer, preview, and publish an immutable Passport;
 10. open the external private link;
 11. verify the reviewer and request changes;
-12. replace a target build and add new evidence;
-13. publish a second snapshot;
+12. replace a target build and prove that the first snapshot closes to new
+    decisions immediately;
+13. add new evidence and publish a second snapshot;
 14. verify and approve it; and
-15. make a material change and prove that a new pending draft appears while the
+15. make another material change and prove that a new pending draft appears while the
     approved snapshot and decision remain unchanged.
 
-The test uses production-like managed-service interfaces or faithful isolated
-test instances. It requires no manual database editing.
+CI runs this journey against isolated service instances and controlled provider
+adapters. That test is necessary but not sufficient for outreach.
+
+A separate pre-outreach hosted smoke gate must run through a deployed Vercel
+staging application, a real Supabase staging project for Auth/PostgreSQL/private
+Storage, Inngest's managed durable execution, and Resend delivery to a
+controlled test inbox. It starts with `zmr-evidence upload` across the network
+and finishes with a real reviewer-code decision. No in-memory or local substitute
+may satisfy this hosted gate. The configured AI provider must also return one
+schema-valid fixture proposal, although its failure never changes deterministic
+coverage.
 
 ## 18. Delivery sequence
 
 ### Weeks 1–2: Foundation
 
 - create private `zeno-cloud` repository;
-- configure preview and production-like environments;
+- configure preview, hosted staging, and production environments;
 - establish TypeScript, formatting, tests, and CI;
 - implement managed authentication and tenant model;
 - build the design tokens, application shell, and public shell; and
@@ -875,13 +996,16 @@ immutable history are not cut.
 
 The working beta is accepted only when:
 
-- the production-like application supports the entire release-to-decision flow;
+- the deployed hosted staging application passes the managed-service smoke gate
+  across Vercel, Supabase Auth/PostgreSQL/Storage, Inngest, Resend, the configured
+  AI provider, and the networked evidence upload command;
 - one release spans web and at least one mobile surface, with the demo covering
   web, iOS, and Android;
 - current ZMR and Playwright packages ingest through a documented CI-safe
   command;
 - exact target fingerprints are required for Verified;
-- three to five protected journeys map to release scope;
+- every included scope item maps to at least one of three to five protected
+  journeys and its required surfaces;
 - every required cell has an explainable deterministic status;
 - AI proposes a scoped test without changing truth state;
 - authorized users can add evidence, exclude scope, or accept visible risk;
@@ -891,6 +1015,7 @@ The working beta is accepted only when:
 - material changes create a new draft and preserve historical decisions;
 - tenant isolation, artifact privacy, upload abuse, and review replay tests pass;
 - the full automated acceptance journey passes;
+- the hosted smoke gate passes without a local provider substitute;
 - no normal customer flow requires manual database intervention; and
 - the public sample and pilot application are ready before cold outreach.
 

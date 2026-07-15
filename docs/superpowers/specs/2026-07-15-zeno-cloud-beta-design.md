@@ -1,0 +1,915 @@
+# Zeno Cloud Beta: Sellable Vertical Slice Design
+
+**Date:** 2026-07-15  
+**Status:** Approved in conversation on 2026-07-15  
+**Delivery constraint:** 8–12 weeks, part-time  
+**Commercial constraint:** Working beta before cold outreach  
+**Initial market:** UK digital product agencies shipping web and mobile products
+
+## 1. Purpose
+
+This document narrows the approved
+[Zeno Release Passport design](./2026-07-13-zeno-release-passport-design.md)
+into the smallest hosted beta that can support a real paid pilot.
+
+The open-source runner now provides the local Evidence Contract, Zeno Mobile
+Runner adapter, Playwright reporter, package validation, target fingerprints,
+and conformance fixtures. The next product risk is not another runner feature.
+It is whether an agency will use combined release evidence to obtain an explicit
+client decision.
+
+The beta therefore implements one complete value path:
+
+> Create release → connect mobile and web proof → expose gaps → publish a
+> private Release Passport → receive a verified client decision
+
+The beta is deliberately narrow. Manual setup is acceptable where it does not
+break the customer-facing workflow. The hosted product must nevertheless be
+secure, tenant-safe, durable, and usable without manual database intervention.
+
+## 2. Product promise and success condition
+
+The beta promise is:
+
+> Turn one web-and-mobile release into a private, client-approvable record,
+> with untested gaps made explicit.
+
+The beta succeeds when a small agency can:
+
+1. create a client project and release;
+2. define three to five protected customer journeys;
+3. register exact web, iOS, and Android release targets;
+4. submit ZMR mobile and Playwright web evidence;
+5. understand every verified, failed, missing, stale, or mismatched cell;
+6. receive a scoped proposed test for a genuine gap;
+7. resolve the gap with evidence, exclusion, or explicit risk acceptance;
+8. publish an immutable private Passport;
+9. obtain an email-verified Approve or Request changes decision; and
+10. repeat the process for a changed build without corrupting the first
+    snapshot or its decision.
+
+The first commercial target remains a paid Release Proof Pilot. Pricing is a
+hypothesis, not a product invariant: £750–£1,250 for the first pilot and roughly
+£249 per month for a later founding-agency subscription.
+
+## 3. Users and authority
+
+### 3.1 Internal users
+
+The beta supports these internal roles:
+
+- **Owner:** tenant administration plus every Delivery Lead action.
+- **Delivery Lead:** manages releases, scope, targets, journey policy, gap
+  resolutions, Passport publishing, review links, and revocation.
+- **Contributor:** uploads and links evidence and may draft scope or test
+  proposals. A Contributor cannot exclude scope, accept risk, publish, or
+  decide.
+
+Self-service invitations and advanced team management are deferred. Beta users
+may be provisioned through a controlled operator flow, but normal sign-in and
+role enforcement must work in the application.
+
+### 3.2 External reviewer
+
+An external reviewer has no Zeno account and no tenant-wide session. A reviewer
+can:
+
+- open one assigned Passport through an unguessable private link;
+- view only the snapshot and artifacts selected for disclosure;
+- verify the assigned email address with a one-time code; and
+- record Approve or Request changes exactly once per idempotent request.
+
+The reviewer cannot browse projects, releases, evidence, other snapshots, or
+other reviewers.
+
+### 3.3 Automation identity
+
+An automation credential is scoped to one agency, project, and release. It may
+create or resume evidence ingestions only. It cannot mutate release scope,
+change targets, resolve gaps, publish a Passport, issue review links, or decide.
+
+The self-reported project and submitter fields inside `evidence.json` are never
+used as authorization credentials. The authenticated upload context is
+authoritative and must be compared with the manifest claims.
+
+## 4. Included product journey
+
+### 4.1 Release preparation
+
+1. The user signs in and selects an agency.
+2. The user creates a client and project.
+3. The user creates a release with a human-readable name, release identifier,
+   source commit, and environment.
+4. The user enters concise release scope and acceptance criteria manually.
+5. The user configures three to five stable customer journeys, their required
+   surfaces, criticality, and current scenario or policy hash.
+6. The user registers one active target build per required surface.
+7. Zeno shows source-specific commands for generating and uploading evidence.
+
+GitHub scope import is deferred. Manual scope is sufficient for the beta, but
+the model retains source type and source reference fields so GitHub can be added
+without redefining scope identity.
+
+### 4.2 Evidence connection
+
+The open-source package currently exposes `zmr-evidence from-zmr` and
+`zmr-evidence validate`; it does not expose an upload command. The beta adds:
+
+```text
+zmr-evidence upload <package-directory> \
+  --endpoint <zeno-cloud-origin> \
+  --release <release-id>
+```
+
+The credential is read from `ZENO_INGEST_TOKEN`. It must not be accepted as a
+normal command-line value because process lists, shell history, and CI logs can
+expose arguments.
+
+The command:
+
+1. validates the local package before network access;
+2. submits the canonical manifest digest and metadata;
+3. receives an idempotent ingestion session and the list of missing artifacts;
+4. uploads only requested artifact bytes to short-lived signed locations;
+5. finalizes the session;
+6. prints one compact JSON result containing stable status and safe next steps;
+7. never prints the token, signed upload URLs, raw evidence, or local absolute
+   paths; and
+8. resumes an incomplete session when the same package is retried.
+
+ZMR and Playwright both use the same upload command after producing an Evidence
+Contract package. Direct reporter-to-cloud upload, generic JUnit/CTRF import,
+and browser-based archive upload are deferred.
+
+### 4.3 Gap resolution and publication
+
+The release workspace presents a journey-by-surface coverage matrix. Selecting
+a cell shows:
+
+- the current deterministic status;
+- the rule and rule version that produced it;
+- qualifying and rejected evidence;
+- exact target identity;
+- scenario or policy identity;
+- safe artifacts and timestamps; and
+- allowed resolutions for the current role.
+
+For a gap, a Delivery Lead may:
+
+- attach or upload qualifying evidence;
+- exclude the affected scope with a required reason; or
+- accept the risk with a required reason.
+
+Exclusion and risk acceptance are visible resolution overlays. They do not turn
+the underlying deterministic status into Verified.
+
+When every required cell is either Verified or has an authorized visible
+resolution, the Delivery Lead previews the exact client view and selects which
+artifacts may be disclosed. Publishing creates an immutable Passport snapshot.
+
+### 4.4 Client decision
+
+The Delivery Lead assigns a named reviewer and sends an expiring private link.
+The reviewer can read the Passport before verification. Approve and Request
+changes require a one-time code sent to the assigned email.
+
+A recorded decision is bound to one snapshot. A material release change creates
+a new draft and cannot move, rewrite, or invalidate the historical meaning of
+the old decision.
+
+## 5. Explicit non-goals
+
+The beta does not include:
+
+- billing or subscription enforcement;
+- GitHub App installation, webhook scope import, or check publication;
+- Slack notifications;
+- JUnit or CTRF imports;
+- hosted mobile devices or browsers;
+- a proprietary web runner;
+- self-service team invitations;
+- advanced custom branding;
+- public Passport pages;
+- portfolio analytics;
+- Jira, Linear, Teams, device-cloud, or test-management integrations;
+- autonomous test execution;
+- automatic risk acceptance or release approval;
+- broad AI test generation unrelated to a release gap; or
+- compliance, non-repudiation, or bug-free claims.
+
+## 6. Repository and deployment boundaries
+
+### 6.1 Repositories
+
+Two release boundaries remain:
+
+```text
+zeno-mobile-runner    Public/open-source
+├── ZMR mobile runner
+├── Playwright reporter
+├── Evidence Contract and schemas
+├── local package writer and validator
+├── conformance fixtures
+└── zmr-evidence upload command
+
+zeno-cloud            Private/hosted product
+├── agency workspace
+├── ingestion API and processing
+├── deterministic coverage engine
+├── test-gap proposals
+├── Release Passports
+├── external review
+└── public marketing surface
+```
+
+`zeno-cloud` consumes only published public exports and schemas from an exact
+version of `zeno-mobile-runner`. It must not import unpublished repository
+internals.
+
+### 6.2 Managed stack
+
+The hosted beta is a TypeScript modular monolith:
+
+- **Next.js on Vercel:** public site, internal workspace, Passport pages, API
+  routes, and server-side mutations.
+- **Supabase PostgreSQL:** domain data, transactional state, and row-level
+  tenant policies.
+- **Supabase Auth:** internal user authentication.
+- **Supabase Storage:** private evidence artifacts and disclosed previews.
+- **Inngest:** durable ingestion, normalization, evaluation, notification, and
+  retention workflows.
+- **Resend:** reviewer invitations and one-time verification emails.
+- **AI provider adapter:** on-demand scoped test proposals behind a server-only
+  interface. The exact model provider is an implementation-plan choice.
+
+The application and data services should use compatible EU regions where the
+providers make them available. Before processing pilot customer data, the
+operator must verify provider agreements, retention configuration, and the
+actual deployment regions. The beta makes no compliance claim merely because a
+region is selected.
+
+Relevant provider capabilities:
+
+- [Next.js on Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs)
+- [Supabase Auth](https://supabase.com/docs/guides/auth)
+- [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+- [Supabase private storage buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals)
+- [Supabase signed upload URLs](https://supabase.com/docs/reference/javascript/file-buckets-createsigneduploadurl)
+- [Inngest durable functions](https://www.inngest.com/docs/learn/inngest-functions)
+- [Inngest retries and idempotency](https://www.inngest.com/docs/guides/error-handling)
+- [Resend with Next.js](https://resend.com/docs/send-with-nextjs)
+
+### 6.3 Modular monolith
+
+The application contains these domain modules:
+
+- **Accounts:** agencies, members, roles, clients, and automation identities.
+- **Projects:** projects, surfaces, journeys, and journey versions.
+- **Releases:** releases, scope, targets, and material-change tracking.
+- **Evidence:** ingestion sessions, manifests, runs, items, artifacts, and
+  quarantine.
+- **Coverage:** deterministic rules, evaluations, gaps, and resolutions.
+- **Passports:** previews, canonical snapshots, disclosures, and supersession.
+- **Reviews:** reviewer assignments, links, verification, and decisions.
+- **Audit:** append-only material event records.
+- **Suggestions:** provider-neutral AI proposal requests and outputs.
+
+Route handlers, server actions, and Inngest functions call the same domain
+services. Domain services do not import UI components or transport-specific
+request objects. There is no separate API service, event broker, or fleet of
+microservices in the beta.
+
+## 7. Core data model
+
+Every tenant-owned mutable table includes `agency_id`, stable identifier,
+creation timestamp, and an explicit version where optimistic concurrency or
+historical meaning requires it. IDs exposed in URLs are opaque and not
+sequential.
+
+### 7.1 Account and project records
+
+- `agencies`
+- `agency_memberships`
+- `clients`
+- `projects`
+- `project_surfaces`
+- `automation_credentials`
+- `journeys`
+- `journey_versions`
+
+Automation credentials store a one-way token hash, fixed scope, creation actor,
+last-used timestamp, expiry, and revocation state. Raw tokens are shown once.
+
+Journey display names may change without changing stable journey IDs. A
+material journey definition change creates a new `journey_version` with a new
+policy or scenario hash.
+
+### 7.2 Release records
+
+- `releases`
+- `release_scope_items`
+- `release_journeys`
+- `target_builds`
+- `release_material_versions`
+
+The beta permits one active target per release and required surface. Replacing
+a target marks the old target superseded and increments the material version.
+
+Each target stores the complete registered fingerprint recipe inputs and the
+recomputed fingerprint. A mutable URL, commit alone, or human build name cannot
+qualify as an exact target.
+
+### 7.3 Evidence records
+
+- `ingestion_sessions`
+- `ingestion_artifacts`
+- `evidence_runs`
+- `evidence_items`
+- `evidence_artifacts`
+- `quarantined_ingestions`
+
+The manifest digest plus authenticated agency, project, and release context is
+the duplicate key. Evidence runs, evidence items, and received manifest facts
+are append-only. A normalization correction creates a replacement record linked
+to its predecessor.
+
+Artifact database records store semantic type, content digest, byte size,
+storage key, redaction state, disclosure eligibility, verification state, and
+retention metadata. Storage object keys are server-generated and do not contain
+caller-controlled path segments.
+
+### 7.4 Coverage and resolution records
+
+- `coverage_evaluations`
+- `coverage_evidence_links`
+- `gaps`
+- `gap_resolutions`
+
+A coverage evaluation key is:
+
+```text
+release × journey version × required surface × active target fingerprint
+```
+
+Each evaluation stores its rule-set version, status, explanation payload,
+qualifying evidence, rejected evidence and reasons, evaluation input digest,
+and evaluated timestamp.
+
+A gap resolution stores the original gap, resolution type, reason, authorized
+actor, evidence or scope reference where relevant, and timestamp. It never
+overwrites the evaluation status.
+
+### 7.5 Passport and review records
+
+- `passport_snapshots`
+- `passport_disclosures`
+- `reviewer_assignments`
+- `review_links`
+- `review_verifications`
+- `review_decisions`
+- `audit_events`
+
+Published snapshot canonical JSON is stored as immutable text with its
+`sha256:` content digest. The canonical payload includes:
+
+- release identity and material version;
+- included and excluded scope;
+- journey versions and required surfaces;
+- exact target fingerprints;
+- coverage statuses, rule versions, and qualifying evidence digests;
+- visible gaps and resolutions;
+- disclosed artifact digests and disclosure states; and
+- intended reviewer identity appropriate to the approved product contract.
+
+Short-lived artifact URLs and review-link tokens are never part of canonical
+snapshot content.
+
+Published snapshots, decisions, and audit events cannot be updated or deleted
+through application roles. Revocation and supersession create new append-only
+records.
+
+## 8. Deterministic coverage engine
+
+### 8.1 Statuses
+
+Each required coverage cell has exactly one base status:
+
+| Status | Meaning |
+|---|---|
+| `processing` | A relevant ingestion exists but has not completed verification and normalization |
+| `verified` | The selected current evidence passed with exact target and journey identities |
+| `failed` | The selected current qualifying evidence completed with a non-passing outcome |
+| `mismatched` | Relevant evidence exists for the current journey but a different target fingerprint |
+| `stale` | Relevant evidence exists for an older journey or policy version |
+| `missing` | No relevant evidence exists |
+| `not_required` | The surface is outside this journey's release scope |
+
+`not_required` is displayed but does not produce a gap. Every other non-verified
+required status produces or updates an explainable gap.
+
+### 8.2 Qualification and selection
+
+For beta rule set `beta-1`:
+
+1. The surface must be required by the release journey.
+2. The active target must have a complete registered fingerprint.
+3. Evidence must match the authenticated project and release context.
+4. Evidence must match surface, environment, target fingerprint, stable journey
+   ID, and current journey policy or scenario hash.
+5. The evidence package and all referenced qualifying artifacts must have
+   completed digest verification.
+6. The evidence item's aggregate outcome is used; individual retries remain
+   visible but do not get independently promoted.
+7. When several exact current items exist, choose the latest completed item by
+   normalized completion time and break a tie with manifest digest ordering.
+8. The selected item's passing aggregate outcome yields `verified`; any other
+   completed aggregate outcome yields `failed`.
+9. Without exact current evidence, an in-progress relevant ingestion yields
+   `processing`; current-journey evidence against another target yields
+   `mismatched`; old-journey evidence yields `stale`; otherwise the result is
+   `missing`.
+
+Re-evaluating identical inputs under the same rule version must produce the
+same status, explanation, and input digest.
+
+### 8.3 Gaps and resolutions
+
+Each gap contains:
+
+- stable rule code and rule version;
+- affected release, journey, surface, and target;
+- severity derived from journey criticality and failure class;
+- deterministic summary and explanation;
+- qualifying and rejected evidence references;
+- recommended deterministic action; and
+- current lifecycle and resolution overlay.
+
+A release is ready to publish only when:
+
+- no relevant ingestion is still `processing`;
+- no required target is incomplete;
+- every required cell is `verified`, or its gap has an active authorized
+  `excluded_scope` or `accepted_risk` resolution; and
+- every artifact selected for disclosure has a confirmed safe disclosure state.
+
+Risk acceptance remains visible to the client and cannot be applied by an
+automation identity or Contributor.
+
+## 9. AI test proposals
+
+AI is an optional explanatory assistant, not a truth source.
+
+Proposals are generated on demand for one gap. The provider receives only:
+
+- client-safe scope description;
+- acceptance criteria;
+- journey name and safe description;
+- required surface;
+- deterministic gap code and explanation;
+- supported ZMR or Playwright action vocabulary; and
+- explicit output schema.
+
+Raw screenshots, trace archives, secrets, reviewer data, and full application
+logs are excluded by default.
+
+The structured response contains suggested setup, actions, assertions,
+assumptions, and limitations. It is validated before display and stored with the
+provider-independent prompt version, safe input digest, creation actor, and
+model metadata required for debugging.
+
+An AI failure does not change the gap, block deterministic evaluation, or
+prevent a user from writing a test manually. A proposal cannot execute itself,
+change release policy, accept risk, exclude scope, publish, or approve.
+
+## 10. Ingestion protocol and state machine
+
+### 10.1 API sequence
+
+1. `create ingestion`: authenticate the scoped credential, validate request
+   shape, compare release/project claims, and upsert by idempotency key.
+2. `plan artifacts`: return only missing content digests with short-lived signed
+   upload instructions and enforced size/type limits.
+3. `upload artifacts`: upload directly to private storage.
+4. `finalize ingestion`: atomically record the request to verify and enqueue
+   durable processing.
+5. `verify`: check every expected object, size, digest, path mapping, and
+   completeness rule.
+6. `normalize`: create append-only evidence runs and items.
+7. `evaluate`: recompute only affected release cells under the pinned rule
+   version.
+8. `complete`: expose a safe stable result and audit event.
+
+### 10.2 States
+
+```text
+created → awaiting_artifacts → uploaded → verifying → normalizing
+        → evaluating → completed
+
+Any processing state → retrying → previous processing state
+Any permanent validation failure → quarantined
+An abandoned incomplete session → expired
+```
+
+Finalization is idempotent. A completed package retry returns the existing
+evidence run. An incomplete retry resumes only missing artifacts. Quarantined
+content cannot affect coverage.
+
+### 10.3 Failure behaviour
+
+| Failure | Behaviour |
+|---|---|
+| Malformed or unsupported manifest | Reject before artifact upload with fixed field-level errors |
+| Unauthorized project/release claim | Reject without revealing whether the claimed resource exists |
+| Missing or mismatched fingerprint | Preserve as non-qualifying context only when safe; never verify coverage |
+| Artifact digest or size mismatch | Quarantine the ingestion and object; no normalization |
+| Worker retry exhaustion | Preserve previous valid coverage and show a recoverable ingestion error |
+| Duplicate upload | Return the existing session or evidence result |
+| AI provider failure | Keep the deterministic gap and show proposal unavailable |
+| Email provider failure | Preserve the snapshot and retry notification; do not fabricate delivery |
+| Redaction uncertainty | Keep the artifact private and block its disclosure |
+
+## 11. Passport lifecycle
+
+### 11.1 Release states
+
+```text
+draft → collecting_evidence → resolving_gaps → ready_for_review
+      → in_client_review → approved | changes_requested
+      → superseded
+```
+
+These lifecycle labels summarize state. They do not replace the underlying
+coverage and review records.
+
+### 11.2 Publishing transaction
+
+Publishing must execute as one transactional domain operation:
+
+1. authorize Owner or Delivery Lead;
+2. lock the release material version;
+3. reject stale client state through expected-version comparison;
+4. rerun or verify current coverage evaluations;
+5. enforce publication gates and disclosure safety;
+6. construct canonical snapshot content;
+7. compute the content digest;
+8. insert immutable snapshot and disclosure records;
+9. transition the release review pointer; and
+10. append the publication audit event.
+
+A partial publication is not visible.
+
+### 11.3 Material invalidation
+
+The following create a new draft material version and prevent the old decision
+from being treated as current:
+
+- target fingerprint replacement;
+- included scope or required-surface change;
+- protected journey or scenario hash change;
+- release policy change;
+- change to qualifying evidence selected for publication;
+- exclusion or risk-acceptance change; or
+- changed disclosed substance.
+
+The old snapshot, link history, verification, and decision remain historical.
+
+## 12. Review access and decisions
+
+### 12.1 Private link
+
+Review tokens contain at least 256 bits of cryptographically secure randomness.
+Only a keyed or cryptographic hash is stored. Tokens are scoped to one reviewer
+assignment and snapshot, expire, can be revoked, and are rate limited.
+
+Passport responses send `noindex` directives, a restrictive Referrer Policy,
+Content Security Policy, and safe content-disposition headers for artifacts.
+Client pages never contain tenant navigation or stable internal object IDs.
+
+### 12.2 Verification
+
+Approve and Request changes require a short-lived, single-use code sent to the
+assigned email. Codes are stored as hashes, have attempt limits, expire, and
+cannot be reused for another snapshot or reviewer.
+
+Successful verification creates a short-lived, HttpOnly, Secure, appropriately
+scoped review session. Viewing the Passport does not silently verify identity.
+
+### 12.3 Decision
+
+The decision endpoint requires:
+
+- active link and review session;
+- verified intended reviewer;
+- current, non-revoked, non-expired, non-superseded snapshot;
+- explicit decision value;
+- optional bounded comment; and
+- unique idempotency key.
+
+The transaction inserts one immutable decision and audit event. Replaying the
+same idempotency key returns the original decision; conflicting reuse fails.
+
+## 13. Security and privacy model
+
+### 13.1 Tenant isolation
+
+- Every tenant-owned row carries `agency_id` directly or through a constrained
+  immutable parent relationship.
+- Every application mutation performs server-side membership and role checks.
+- PostgreSQL Row Level Security is enabled on every exposed tenant table.
+- The browser never receives a service-role key.
+- Background jobs use privileged credentials only through domain services that
+  require explicit agency, project, and release context.
+- Cross-agency access tests are mandatory for every new domain table and
+  storage path.
+
+### 13.2 Artifact privacy
+
+- Storage buckets are private.
+- Upload and download URLs are short-lived and server-issued.
+- Client artifact access is checked against the snapshot disclosure record
+  before a URL is created.
+- Originals and redacted derivatives use separate object and permission
+  records.
+- Operational logs exclude raw artifacts, tokens, OTP codes, signed URLs,
+  secrets, and unbounded caller text.
+- Retention deletion preserves a digest tombstone without mutating historical
+  snapshot hashes.
+
+### 13.3 Append-only facts
+
+Evidence facts, published snapshots, decisions, and audit events are
+append-only. Application roles cannot update or delete them. Corrections,
+revocations, pseudonymization, retention deletion, and supersession are modeled
+as new records with explicit links and reasons.
+
+### 13.4 Abuse controls
+
+Apply rate and size limits to authentication, ingestion creation, artifact
+upload, review link access, OTP issuance, verification attempts, decisions, and
+AI proposals. Reject path traversal, symlinks, unexpected object types,
+decompression abuse, unsupported MIME types, oversize files, and ambiguous
+Unicode/control characters at trust boundaries.
+
+## 14. User experience
+
+### 14.1 Visual direction
+
+The approved direction is a calm release workbench rather than a generic SaaS
+dashboard.
+
+The visual language uses:
+
+- evidence-paper ivory and graphite foundations;
+- verification green, warning amber, failure coral, and blueprint blue;
+- strong editorial hierarchy and restrained rounded geometry;
+- visible product artifacts rather than decorative terminal theatre;
+- concise, candid microcopy with light functional humour; and
+- a Proofline showing Scope → Builds → Surfaces → Approval.
+
+It must not copy PostHog's desktop metaphor, character, orange palette, or page
+composition.
+
+The approved brainstorming mockup is stored in the ignored local companion
+directory and is not a production artifact.
+
+### 14.2 Internal routes and views
+
+- Release list ordered by attention required.
+- Project/release setup for identity, scope, targets, journeys, and upload
+  instructions.
+- Release workspace centered on the journey-by-surface matrix.
+- Gap detail with deterministic rule, evidence, proposal, and authorized
+  actions.
+- Exact client preview with disclosure selection.
+
+The internal workspace is desktop-first and remains usable on tablet.
+
+### 14.3 Client Passport
+
+The client-facing order is:
+
+1. exact release being reviewed;
+2. what changed;
+3. what was verified by customer journey and surface;
+4. known limitations, exclusions, and accepted risks;
+5. selected proof artifacts; and
+6. Approve or Request changes.
+
+The Passport is fully responsive, keyboard accessible, and suitable for a
+reviewer opening it on a phone. Testing terminology is secondary to business
+journey language.
+
+### 14.4 Required view states
+
+Every relevant view defines loading, empty, processing, partial, success,
+recoverable error, permanent error, permission denied, expired, revoked, and
+superseded states. Meaning cannot rely on color alone. Motion respects reduced
+motion preferences. The target is WCAG 2.2 AA.
+
+## 15. Public launch surface
+
+The same Next.js application provides:
+
+- a concise public homepage;
+- an interactive sample Passport using non-customer fixture data;
+- a plain-language Scope → Verify → Find gaps → Accept explanation;
+- accurate mobile, Playwright, and Evidence Contract integration details;
+- a transparent Release Proof Pilot offer; and
+- an Apply for a Release Proof Pilot form.
+
+The public site contains no fake customer logos, invented usage counts,
+unverified performance comparisons, or claims that Zeno proves a release is
+bug-free or independently attested.
+
+Cold outreach begins only after the production-like end-to-end beta journey and
+sample Passport are working, as requested by the user.
+
+## 16. Observability and product analytics
+
+Operational signals include:
+
+- ingestion duration and failure reason by schema/source;
+- artifact verification and quarantine counts;
+- durable-job retries and terminal failures;
+- coverage evaluation duration and rule errors;
+- OTP issuance, verification failure, and rate-limit events;
+- review-link access failures;
+- decision idempotency conflicts;
+- publication failures and material invalidations; and
+- storage and retention work.
+
+Product events include:
+
+- project and release created;
+- first journey and target configured;
+- first mobile and web evidence completed;
+- first gap viewed, proposed, and resolved;
+- Passport previewed and published;
+- reviewer opened and verified;
+- decision recorded; and
+- second Passport published.
+
+Analytics payloads use stable internal IDs and coarse metadata, not raw scope,
+screenshots, comments, tokens, email addresses, or evidence payloads.
+
+## 17. Verification strategy
+
+### 17.1 Unit and rule tests
+
+- Table-driven tests for every `beta-1` coverage rule and precedence case.
+- Target fingerprint and manifest identity matching.
+- Deterministic input digest and identical-input re-evaluation.
+- Gap lifecycle and authorization.
+- Snapshot canonicalization and content hashing.
+- Material-change classification and invalidation.
+- Token and OTP hashing, expiry, attempt, and idempotency rules.
+- Safe error serialization and sensitive-value redaction.
+
+### 17.2 Contract tests
+
+Every public ZMR and Playwright Evidence Contract fixture is submitted to the
+cloud normalizer and asserted against expected stored runs, items, artifacts,
+provenance, target identity, and outcomes.
+
+The cloud must include valid passed, failed, partial, retry-pass, missing target,
+unknown schema, malformed manifest, malicious path, digest mismatch, redacted,
+and omitted-artifact cases.
+
+### 17.3 Integration and security tests
+
+- Database migrations apply from empty and upgrade the previous schema.
+- RLS denies cross-agency reads and writes for every table.
+- Storage policies deny cross-agency listing, upload, and download.
+- Service operations remain explicitly tenant-scoped.
+- Ingestion creation, upload, finalize, retry, duplicate, quarantine, and expiry
+  behave idempotently.
+- Worker failure never replaces previous valid coverage.
+- Hidden artifacts never appear in Passport payloads.
+- Review tokens and codes enforce scope, expiry, revocation, rate limits, and
+  replay protection.
+- Decisions are immutable and cannot move between snapshots.
+
+### 17.4 End-to-end acceptance test
+
+The beta is not complete until one reliable Playwright test demonstrates:
+
+1. sign in as a Delivery Lead;
+2. create an agency client and cross-surface project;
+3. create a release with scope and three to five journeys;
+4. register exact web, iOS, and Android targets;
+5. submit ZMR and Playwright Evidence Contract packages;
+6. observe a deliberately missing Android journey;
+7. request and display a scoped test proposal without status mutation;
+8. accept the visible risk or add qualifying evidence;
+9. preview and publish an immutable Passport;
+10. open the external private link;
+11. verify the reviewer and request changes;
+12. replace a target build and add new evidence;
+13. publish a second snapshot;
+14. verify and approve it; and
+15. make a material change and prove that a new pending draft appears while the
+    approved snapshot and decision remain unchanged.
+
+The test uses production-like managed-service interfaces or faithful isolated
+test instances. It requires no manual database editing.
+
+## 18. Delivery sequence
+
+### Weeks 1–2: Foundation
+
+- create private `zeno-cloud` repository;
+- configure preview and production-like environments;
+- establish TypeScript, formatting, tests, and CI;
+- implement managed authentication and tenant model;
+- build the design tokens, application shell, and public shell; and
+- prove RLS with cross-tenant tests before adding domain breadth.
+
+### Weeks 3–4: Release definition
+
+- clients, projects, surfaces, and roles;
+- releases, manual scope, journeys, and versions;
+- exact target registration and fingerprint verification;
+- setup and empty/error states; and
+- audit foundation.
+
+### Weeks 5–6: Evidence pipeline
+
+- cloud ingestion API and private storage;
+- durable verification and normalization;
+- append-only evidence records and quarantine;
+- `zmr-evidence upload` in the public repository;
+- ZMR and Playwright conformance integration; and
+- safe operator diagnostics.
+
+### Weeks 7–8: Coverage and gaps
+
+- `beta-1` deterministic rule engine;
+- matrix and evidence drill-down;
+- gap lifecycle, exclusion, and risk acceptance;
+- role enforcement and audit; and
+- on-demand structured test proposals.
+
+### Weeks 9–10: Passport and review
+
+- exact client preview and disclosure controls;
+- canonical snapshot publication;
+- private review links and email verification;
+- Approve and Request changes decisions;
+- revocation, expiry, and supersession; and
+- responsive client Passport.
+
+### Weeks 11–12: Hardening and launch
+
+- complete acceptance journey;
+- security and accessibility pass;
+- realistic web/iOS/Android demo release;
+- public homepage, interactive sample, and pilot application;
+- operational runbook, backups, retention, and failure drills; and
+- production readiness review before outreach.
+
+If the schedule slips, deferred integrations and polish variants remain out.
+The end-to-end decision workflow, tenant safety, deterministic rules, and
+immutable history are not cut.
+
+## 19. Beta acceptance criteria
+
+The working beta is accepted only when:
+
+- the production-like application supports the entire release-to-decision flow;
+- one release spans web and at least one mobile surface, with the demo covering
+  web, iOS, and Android;
+- current ZMR and Playwright packages ingest through a documented CI-safe
+  command;
+- exact target fingerprints are required for Verified;
+- three to five protected journeys map to release scope;
+- every required cell has an explainable deterministic status;
+- AI proposes a scoped test without changing truth state;
+- authorized users can add evidence, exclude scope, or accept visible risk;
+- disclosure is previewed before publishing;
+- published snapshots are immutable and content-addressed;
+- a named external reviewer can verify and decide without an account;
+- material changes create a new draft and preserve historical decisions;
+- tenant isolation, artifact privacy, upload abuse, and review replay tests pass;
+- the full automated acceptance journey passes;
+- no normal customer flow requires manual database intervention; and
+- the public sample and pilot application are ready before cold outreach.
+
+## 20. Approved decision summary
+
+The approved beta direction is:
+
+- optimize for a working beta before outreach;
+- deliver in 8–12 weeks part-time;
+- use managed infrastructure;
+- build a separate private `zeno-cloud` modular monolith;
+- keep ZMR and Playwright as evidence producers;
+- add only the upload capability required to connect the open package to cloud;
+- make the journey-by-surface gap matrix the internal focal point;
+- make deterministic rules authoritative;
+- keep AI proposals scoped, optional, and non-authoritative;
+- publish immutable client-facing Release Passports;
+- verify reviewer email before decisions;
+- preserve old snapshots and decisions after material changes;
+- use the approved calm, minimal, evidence-first visual direction;
+- defer integrations, billing, generic imports, and broad analytics; and
+- begin cold outreach only after the complete beta and sample Passport work.

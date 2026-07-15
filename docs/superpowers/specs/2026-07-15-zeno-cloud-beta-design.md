@@ -344,9 +344,12 @@ policy or scenario hash.
 - `release_policy_assignments`
 
 `scope_item_journeys` binds one included acceptance criterion to one protected
-journey and its required-surface subset. The mapping is versioned with release
-material state. Every included scope item needs at least one active mapping or
-produces an unmapped-scope gap; excluded scope keeps its mapping history.
+journey and its required-surface subset. Mapping surfaces must be a non-empty
+subset of the selected journey version's allowed surfaces; a mapping may narrow
+that set but cannot introduce another surface. The mapping is versioned with
+release material state. Every included scope item needs at least one active
+mapping or produces an unmapped-scope gap; excluded scope keeps its mapping
+history.
 
 The beta ships one immutable, system-controlled release policy,
 `beta-1`. It pins:
@@ -393,6 +396,9 @@ caller-controlled path segments.
 - `coverage_evaluations`
 - `coverage_evidence_links`
 - `gaps`
+- `coverage_gaps`
+- `scope_mapping_gaps`
+- `target_configuration_gaps`
 - `gap_resolutions`
 
 A coverage evaluation key is:
@@ -406,6 +412,28 @@ Each evaluation stores its rule-set version, status, explanation payload,
 qualifying evidence, rejected evidence and reasons, evaluation input digest,
 and evaluated timestamp.
 
+`gaps` stores common lifecycle, rule, severity, and resolution facts. Exactly
+one kind-specific record must exist:
+
+- `coverage_gaps` requires one `coverage_evaluation_id` and therefore inherits
+  its scope item, journey, surface, target, and policy identity.
+- `scope_mapping_gaps` requires release, included scope item, and policy version
+  only. It has no journey, surface, target, or coverage evaluation and uses the
+  blocking `ZB001_SCOPE_UNMAPPED` rule.
+- `target_configuration_gaps` requires release, required surface, and policy
+  version only. It has no target or coverage evaluation and uses the blocking
+  `ZB002_TARGET_MISSING_OR_INVALID` rule.
+
+The database schema and domain constructors enforce the exclusive gap kind.
+Scope-mapping gaps appear in release setup, the Proofline Scope stage, and the
+gap queue. Target-configuration gaps appear in the Proofline Builds stage and
+gap queue. Neither appears as a fabricated journey-matrix cell.
+
+No coverage evaluation is persisted for a surface outside a mapping. The UI
+synthesizes `not_required` for a journey/surface with zero active required
+mappings. A matrix cell with at least one required mapping aggregates only its
+persisted required evaluations.
+
 A gap resolution stores the original gap, resolution type, reason, authorized
 actor, evidence or scope reference where relevant, and timestamp. It never
 overwrites the evaluation status.
@@ -415,6 +443,7 @@ overwrites the evaluation status.
 - `passport_snapshots`
 - `passport_disclosures`
 - `reviewer_assignments`
+- `reviewer_identity_vault`
 - `review_links`
 - `review_verifications`
 - `review_decisions`
@@ -432,12 +461,23 @@ Published snapshot canonical JSON is stored as immutable text with its
 - disclosed artifact digests and disclosure states; and
 - immutable reviewer-assignment ID and reviewer-identity digest.
 
-Reviewer display name and email are stored in the separately access-controlled,
-immutable reviewer assignment rather than canonical snapshot JSON. Before
-publication, the server computes a domain-separated keyed digest over the
-normalized assignment identity. The snapshot binds that digest and assignment
-ID, so changing the named reviewer requires a new snapshot while later privacy
-pseudonymization does not require storing clear-text PII in canonical content.
+`reviewer_assignments` is immutable and contains no clear-text PII. Reviewer
+display name and email live in the separately access-controlled
+`reviewer_identity_vault`; the assignment stores only its opaque vault ID and a
+domain-separated keyed digest over the assignment ID, a random 256-bit identity
+nonce kept only in the vault, and the normalized identity. The snapshot binds
+that digest and assignment ID, so changing the named reviewer requires a new
+snapshot.
+
+The vault is the explicit privacy exception to append-only domain facts. An
+authorized pseudonymization operation irreversibly removes the name/email
+ciphertext or wrapped data key and the identity nonce, leaves a non-identifying
+tombstone, closes links and verification, and appends an audit event containing
+only opaque IDs. Removing the nonce prevents later identity-digest dictionary
+matching even if the server digest key remains available. Pseudonymization does
+not change the assignment, snapshot content hash, decision type, verified role
+fact, or timestamp. Clear-text reviewer PII must never be copied into snapshots,
+decisions, audit events, analytics, or job payloads.
 
 Short-lived artifact URLs and review-link tokens are never part of canonical
 snapshot content.
@@ -516,7 +556,11 @@ same status, explanation, and input digest.
 Each gap contains:
 
 - stable rule code and rule version;
-- affected release, scope item, journey, surface, and target;
+- affected release, policy version, and gap kind;
+- the scope item for scope-mapping gaps;
+- the required surface for target-configuration gaps;
+- the complete scope item, journey, surface, and target identity inherited from
+  the evaluation for coverage gaps;
 - severity derived by the pinned policy from journey criticality, rule code,
   and failure class;
 - deterministic summary and explanation;
@@ -536,6 +580,78 @@ Risk acceptance remains visible to the client and cannot be applied by an
 automation identity or Contributor. Under `beta-1`, Owner and Delivery Lead may
 accept even a blocking risk only with a non-empty client-visible reason; this
 does not alter its severity or base status.
+
+### 8.4 Exact `beta-1` policy
+
+`beta-1` accepts journey criticality values `critical`, `high`, and `normal`.
+The following table pins its initial gap severity:
+
+| Rule | Critical | High | Normal |
+|---|---|---|---|
+| `ZB001_SCOPE_UNMAPPED` | Blocking | Blocking | Blocking |
+| `ZB002_TARGET_MISSING_OR_INVALID` | Blocking | Blocking | Blocking |
+| `ZB003_EVIDENCE_MISSING` | Blocking | Blocking | Warning |
+| `ZB004_EVIDENCE_FAILED_OR_INCOMPLETE` | Blocking | Blocking | Warning |
+| `ZB005_EVIDENCE_STALE_TARGET` | Blocking | Blocking | Warning |
+| `ZB006_EVIDENCE_STALE_SCENARIO_OR_POLICY` | Blocking | Blocking | Warning |
+| `ZB007_RETRY_ONLY_OR_FLAKY` | Blocking | Warning | Warning |
+
+Configuration rules that do not belong to one journey use the severity shown
+in every column. `not_required` and historical evidence that is not selected
+are Informational and do not create resolvable gaps.
+
+Outcome treatment is fixed:
+
+- A ZMR item qualifies as passing only when the run is `complete`, the selected
+  item outcome is `passed`, and every other identity rule succeeds. `partial`,
+  `failed`, `timed_out`, `interrupted`, `skipped`, or unknown/non-passing
+  outcomes use `ZB004`.
+- Playwright items are grouped by stable `externalId` and the highest retry is
+  selected. The item qualifies as passing only when the trusted adapter's
+  `aggregateOutcome` is `expected`, the selected attempt outcome is `passed`,
+  and its `expectedStatus` is `passed`.
+- Playwright `flaky` always uses `ZB007` and does not verify coverage even when
+  the final retry passed. `unexpected`, `skipped`, expected non-passing tests,
+  partial runs, and unknown outcomes use `ZB004`.
+- A newer exact qualifying result supersedes an older result for current status;
+  an older pass cannot hide a newer failure.
+
+Environment and execution treatment is fixed:
+
+- evidence environment must exactly match the release target environment;
+- mobile evidence must carry concrete device, OS name, and OS version, but the
+  beta does not enforce a device matrix; and
+- web evidence must carry concrete browser name and version, but the beta does
+  not enforce a browser matrix.
+
+Artifact and disclosure treatment is fixed:
+
+- Verified coverage requires a valid manifest and digest verification for every
+  artifact the package declares, but no optional screenshot, video, trace, or
+  report type is mandatory; an evidence item with zero optional artifacts may
+  verify coverage.
+- A Passport may publish with no disclosed artifact. Any selected artifact must
+  have verified bytes, redaction state `reviewed` or `redacted`, and an explicit
+  Cloud disclosure record. `unreviewed` artifacts cannot be selected.
+- Evidence Contract artifacts arrive `private` unless their producer says
+  otherwise. The Cloud review action creates a separate `review_eligible` or
+  `disclosed` record; it never rewrites the append-only source descriptor.
+- Unsafe selected disclosure uses publication error
+  `ZB008_DISCLOSURE_UNSAFE` and blocks publishing on every criticality. It is a
+  preview/publication validation error, not a fabricated coverage evaluation.
+
+Resolution treatment is fixed:
+
+- Owner and Delivery Lead may apply `accepted_risk` to `ZB001`–`ZB007` with a
+  bounded non-empty client-visible reason; Contributor and automation may not.
+- Owner and Delivery Lead may exclude an affected scope item with a bounded
+  non-empty client-visible reason. Exclusion removes its active coverage routes
+  but preserves their history.
+- A target-configuration gap disappears only after a valid target is registered
+  or no included mapping requires that surface. Risk acceptance may permit
+  publication but never creates Verified coverage.
+- No role can resolve `ZB008` with risk acceptance; the selected artifact must
+  be made safe or removed from disclosure.
 
 ## 9. AI test proposals
 
@@ -743,8 +859,11 @@ row.
 
 Evidence facts, published snapshots, decisions, and audit events are
 append-only. Application roles cannot update or delete them. Corrections,
-revocations, pseudonymization, retention deletion, and supersession are modeled
-as new records with explicit links and reasons.
+revocations, retention deletion, and supersession are modeled as new records
+with explicit links and reasons. The separately isolated
+`reviewer_identity_vault` is the only beta exception: its PII may be
+irreversibly erased as defined in section 7.5 while immutable domain records
+retain only opaque identity and verification facts.
 
 ### 13.4 Abuse controls
 
@@ -863,8 +982,13 @@ screenshots, comments, tokens, email addresses, or evidence payloads.
 - Table-driven tests for every `beta-1` coverage rule and precedence case.
 - Scope-item-to-journey mapping cardinality, unmapped-scope gaps, and
   journey-matrix aggregation over multiple scope items.
+- Mapping surfaces remain subsets of journey surfaces; `not_required` is
+  synthesized without a persisted coverage row.
+- Gap subtype constraints represent scope-mapping, target-configuration, and
+  coverage gaps without impossible foreign keys.
 - The immutable `beta-1` policy hash, severity mapping, producer allowlist,
-  resolution permissions, and publication gate.
+  exact retry/outcome rules, artifact/disclosure rules, resolution permissions,
+  and publication gate.
 - Target fingerprint and manifest identity matching.
 - Exact ZMR and Playwright producer tuples qualify while every unknown,
   imported, contradictory, or unsupported adapter tuple does not.
@@ -873,6 +997,8 @@ screenshots, comments, tokens, email addresses, or evidence payloads.
 - Snapshot canonicalization and content hashing.
 - Material-change classification and invalidation.
 - Token and OTP hashing, expiry, attempt, and idempotency rules.
+- Reviewer-vault pseudonymization removes recoverable PII while preserving the
+  opaque assignment, snapshot digest, verification fact, and decision history.
 - Safe error serialization and sensitive-value redaction.
 
 ### 17.2 Contract tests
@@ -895,6 +1021,8 @@ and omitted-artifact cases.
   behave idempotently.
 - Worker failure never replaces previous valid coverage.
 - Hidden artifacts never appear in Passport payloads.
+- Clear-text reviewer PII never appears in canonical snapshots, decisions,
+  audit events, analytics, or durable-job payloads.
 - Review tokens and codes enforce scope, expiry, revocation, rate limits, and
   replay protection.
 - Decisions are immutable and cannot move between snapshots.

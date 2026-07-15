@@ -5,6 +5,8 @@ import unittest
 from tests.run_evidence_cases import (
     bundle,
     cli,
+    command_materialization,
+    command_state,
     commands,
     contracts,
     journal,
@@ -20,6 +22,8 @@ CASE_MODULES = (
     journal,
     rooted_io,
     sanitization,
+    command_state,
+    command_materialization,
     commands,
     bundle,
     cli,

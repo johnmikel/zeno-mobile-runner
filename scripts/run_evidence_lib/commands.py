@@ -6,6 +6,7 @@ import argparse
 import base64
 import binascii
 import codecs
+import copy
 import errno
 import hashlib
 import json
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from . import bounded_io
+from . import command_state
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
 from .sanitization import *  # noqa: F401,F403
@@ -32,6 +34,9 @@ from .sanitization import _owned_plain_text, _utf8_byte_length
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
+
+
+_stable_lock = command_state._stable_lock
 
 def _validate_command_name(name: str) -> None:
     if (
@@ -669,6 +674,992 @@ def _replay_bytes(stream: Any, content: bytes) -> None:
     except TypeError:
         target.write(content.decode("utf-8", errors="replace"))
     target.flush()
+
+
+def _command_materialization_checkpoint(
+    stage: str, path: Path | None = None
+) -> None:
+    """No-op crash seam for deterministic command materialization tests."""
+
+
+def _materialization_digest(content: bytes) -> str:
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _materialization_file_binding(
+    path: str, content: bytes
+) -> dict[str, Any]:
+    return {
+        "path": path,
+        "bytes": len(content),
+        "sha256": _materialization_digest(content),
+    }
+
+
+def _regular_file_binding(metadata: os.stat_result) -> tuple[Any, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_exact_materialization_descriptor(
+    descriptor: int,
+    expected_bytes: int,
+    *,
+    label: str,
+) -> tuple[bytes, os.stat_result]:
+    """Read and revalidate one already-open private regular file."""
+
+    before = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or stat.S_IMODE(before.st_mode) != 0o600
+        or before.st_nlink != 1
+        or before.st_size != expected_bytes
+        or (
+            hasattr(os, "geteuid")
+            and before.st_uid != os.geteuid()
+        )
+    ):
+        raise ValueError(f"{label} is not an exact private regular file")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    remaining = expected_bytes
+    chunks = []
+    while remaining:
+        chunk = os.read(descriptor, min(64 * 1024, remaining))
+        if not chunk:
+            raise ValueError(f"{label} was truncated during read")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    if os.read(descriptor, 1):
+        raise ValueError(f"{label} grew during read")
+    after = os.fstat(descriptor)
+    if _regular_file_binding(after) != _regular_file_binding(before):
+        raise ValueError(f"{label} binding changed during read")
+    return b"".join(chunks), after
+
+
+def _read_exact_materialization_file(
+    path: Path,
+    expected_bytes: int,
+    *,
+    label: str,
+) -> bytes:
+    """Read one exact-size regular file through the active rooted descriptor."""
+
+    if type(expected_bytes) is not int or expected_bytes < 0:
+        raise ValueError(f"{label} expected byte count is invalid")
+    authority = _active_rooted_io()
+    parent, name, parent_relative, _relative = authority._parent(path)
+    descriptor = -1
+    try:
+        authority._validate_directory(parent_relative, parent)
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent,
+        )
+        os.set_inheritable(descriptor, False)
+        content, after = _read_exact_materialization_descriptor(
+            descriptor, expected_bytes, label=label
+        )
+        authority._validate_directory(parent_relative, parent)
+        visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if _regular_file_binding(visible) != _regular_file_binding(after):
+            raise ValueError(f"{label} pathname binding changed during read")
+        authority._validate_directory(parent_relative, parent)
+        return content
+    except OSError as exc:
+        raise ValueError(f"{label} could not be read safely") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def _canonical_bootstrap_event_stream(
+    root: Path,
+) -> tuple[list[dict[str, Any]], list[bytes], bytes]:
+    """Return validated events only when every raw JSONL line is canonical."""
+
+    events = _read_bootstrap_events(root)
+    lines = [
+        bounded_io._jsonl_line_bytes_bounded(
+            event,
+            maximum=MAX_JSONL_LINE_BYTES,
+            label="bootstrap event JSONL line",
+        )
+        for event in events
+    ]
+    canonical = b"".join(lines)
+    observed = _read_exact_materialization_file(
+        root / "bootstrap-events.jsonl",
+        len(canonical),
+        label="bootstrap event stream",
+    )
+    if observed != canonical:
+        raise ValueError("bootstrap event stream is not canonical JSONL")
+    return events, lines, canonical
+
+
+def _started_event_positions(
+    events: list[dict[str, Any]], metadata_path: str
+) -> list[int]:
+    return [
+        event["seq"]
+        for event in events
+        if event.get("status") == "started"
+        and event.get("command") == metadata_path
+    ]
+
+
+def _terminal_event_positions(
+    events: list[dict[str, Any]], metadata_path: str
+) -> list[int]:
+    return [
+        event["seq"]
+        for event in events
+        if event.get("status") in ("passed", "failed", "cancelled")
+        and event.get("command") == metadata_path
+    ]
+
+
+def _write_exact_bootstrap_event_stream(root: Path, content: bytes) -> None:
+    if len(content) > MAX_LIFECYCLE_EVENT_STREAM_BYTES:
+        raise ValueError(
+            "bootstrap event stream exceeds "
+            f"{MAX_LIFECYCLE_EVENT_STREAM_BYTES} bytes"
+        )
+    _active_rooted_io().atomic_write(
+        root / "bootstrap-events.jsonl", content, 0o600
+    )
+
+
+def _repair_started_event_unlocked(
+    root: Path, state: dict[str, Any]
+) -> bool:
+    events, lines, content = _canonical_bootstrap_event_stream(root)
+    expected_event = state["startedEvent"]
+    expected_line = bounded_io._jsonl_line_bytes_bounded(
+        expected_event,
+        maximum=MAX_JSONL_LINE_BYTES,
+        label="command started event",
+    )
+    sequence = expected_event["seq"]
+    positions = _started_event_positions(events, state["paths"]["metadata"])
+    if sequence <= len(lines):
+        if lines[sequence - 1] != expected_line or positions != [sequence]:
+            raise ValueError("command started event sequence is already occupied")
+        return False
+    if sequence != len(lines) + 1 or positions:
+        raise ValueError("command started event sequence has a gap")
+    _write_exact_bootstrap_event_stream(root, content + expected_line)
+    _command_materialization_checkpoint(
+        "after_started_event", root / "bootstrap-events.jsonl"
+    )
+    return True
+
+
+def _verify_started_event_unlocked(
+    state: dict[str, Any],
+    events: list[dict[str, Any]],
+    lines: list[bytes],
+) -> None:
+    expected = state["startedEvent"]
+    sequence = expected["seq"]
+    encoded = bounded_io._jsonl_line_bytes_bounded(
+        expected,
+        maximum=MAX_JSONL_LINE_BYTES,
+        label="command started event",
+    )
+    positions = _started_event_positions(events, state["paths"]["metadata"])
+    if (
+        sequence > len(lines)
+        or lines[sequence - 1] != encoded
+        or positions != [sequence]
+    ):
+        raise ValueError("command started event is not exactly occupied")
+
+
+def _frozen_terminal_event(
+    state: dict[str, Any], sequence: int
+) -> dict[str, Any]:
+    if state["supervisor"]["role"] == "recovery":
+        signature = command_state._recovery_loss_terminal_signature(
+            state["outcome"]
+        )
+    else:
+        signature = command_state._historical_terminal_signature(
+            state["request"], state["outcome"], state["stopIntent"]
+        )
+    status, error_code, has_status, command_status, summary = signature
+    event = {
+        "schemaVersion": 1,
+        "seq": sequence,
+        "timestamp": command_state._terminal_outcome_timestamp(
+            state["outcome"]
+        ),
+        "phase": state["request"]["phase"],
+        "status": status,
+        "command": state["paths"]["metadata"],
+        "artifact": state["paths"]["metadata"],
+    }
+    if error_code is not None:
+        event["errorCode"] = error_code
+    if summary is not None:
+        event["summary"] = summary
+    if has_status:
+        event["commandStatus"] = command_status
+    return event
+
+
+def _command_metadata_content(
+    state: dict[str, Any], terminal_event: dict[str, Any]
+) -> bytes:
+    request = state["request"]
+    outcome = state["outcome"]
+    capture = state["capture"]
+    failure_code = terminal_event.get("errorCode", request["failureCode"])
+    stop_intent = state["stopIntent"]
+    recovery_loss = (
+        state["supervisor"]["role"] == "recovery"
+        and command_state._terminal_event_signature(terminal_event)
+        == command_state._recovery_loss_terminal_signature(outcome)
+    )
+    supervisor_failure = (
+        recovery_loss
+        or outcome["kind"] == "supervisor_failure"
+        or (
+            stop_intent is not None
+            and stop_intent["killAuthorizedAt"] is not None
+        )
+    )
+    exit_status = outcome.get("exitStatus")
+    metadata = {
+        "schemaVersion": 1,
+        "source": "subprocess",
+        "argv": copy.deepcopy(request["sanitizedArgv"]),
+        "phase": request["phase"],
+        "name": request["name"],
+        "failureCode": failure_code,
+        "configuredFailureCode": request["failureCode"],
+        "captureComplete": capture["captureComplete"],
+        "supervisorFailure": supervisor_failure,
+        "exitStatus": exit_status,
+        "signal": outcome.get("signal"),
+        "stdout": {
+            "path": state["paths"]["stdout"],
+            **copy.deepcopy(capture["stdout"]),
+        },
+        "stderr": {
+            "path": state["paths"]["stderr"],
+            **copy.deepcopy(capture["stderr"]),
+        },
+    }
+    return bounded_io._json_bytes_bounded(
+        metadata, label="command metadata"
+    )
+
+
+def _verify_materialization_binding(
+    binding: dict[str, Any], content: bytes, *, label: str
+) -> None:
+    if (
+        binding["bytes"] != len(content)
+        or binding["sha256"] != _materialization_digest(content)
+    ):
+        raise ValueError(f"{label} disagrees with its frozen binding")
+
+
+def _read_recovery_spool(
+    root: Path, state: dict[str, Any], stream_name: str
+) -> bytes:
+    expected_bytes = state["capture"][stream_name]["storedBytes"]
+    return _read_exact_materialization_file(
+        command_state._command_path(
+            root, state["commandId"], f"{stream_name}.recovery"
+        ),
+        expected_bytes,
+        label=f"command {stream_name} recovery spool",
+    )
+
+
+def _materialization_payloads(
+    root: Path, state: dict[str, Any]
+) -> dict[str, bytes]:
+    materialized = state["materialized"]
+    if materialized is None:
+        raise ValueError("command has no frozen materialization")
+    payloads = {
+        "stdout": _read_recovery_spool(root, state, "stdout"),
+        "stderr": _read_recovery_spool(root, state, "stderr"),
+        "metadata": _command_metadata_content(
+            state, materialized["terminalEvent"]["event"]
+        ),
+    }
+    for name, content in payloads.items():
+        _verify_materialization_binding(
+            materialized[name], content, label=f"command {name}"
+        )
+    return payloads
+
+
+def _accept_recovery_state(
+    supervisor_lease: Any, state: dict[str, Any]
+) -> None:
+    if isinstance(supervisor_lease, command_state.CommandRecoveryClaim):
+        supervisor_lease._accept_state(state)
+
+
+def _write_command_state_unlocked(
+    root: Path,
+    session: dict[str, Any],
+    previous: dict[str, Any],
+    candidate: dict[str, Any],
+    supervisor_lease: Any,
+) -> dict[str, Any]:
+    if session["state"] == "committed":
+        raise ValueError("committed session command state is immutable")
+    validated = command_state.validate_command_transition(
+        previous,
+        candidate,
+        session_id=session["sessionId"],
+        generation=session["generation"],
+    )
+    command_state._validate_command_file_bindings_unlocked(root, validated)
+    command_state._authorize_persisted_supervisor_unlocked(
+        root, previous, supervisor_lease
+    )
+    _active_rooted_io().atomic_write(
+        command_state._command_path(root, validated["commandId"], "state.json"),
+        command_state.encode_command_state(validated),
+        0o600,
+    )
+    _accept_recovery_state(supervisor_lease, validated)
+    return copy.deepcopy(validated)
+
+
+def _freeze_materialization_unlocked(
+    root: Path,
+    session: dict[str, Any],
+    state: dict[str, Any],
+    supervisor_lease: Any,
+) -> dict[str, Any]:
+    events, lines, event_content = _canonical_bootstrap_event_stream(root)
+    _verify_started_event_unlocked(state, events, lines)
+    if _terminal_event_positions(events, state["paths"]["metadata"]):
+        raise ValueError("command already has an unfrozen terminal event")
+
+    stdout_content = _read_recovery_spool(root, state, "stdout")
+    stderr_content = _read_recovery_spool(root, state, "stderr")
+    terminal_event = _frozen_terminal_event(state, len(events) + 1)
+    terminal_line = command_state._validate_frozen_terminal_event(
+        terminal_event,
+        request=state["request"],
+        paths=state["paths"],
+        started_event=state["startedEvent"],
+        supervisor=state["supervisor"],
+        outcome=state["outcome"],
+        stop_intent=state["stopIntent"],
+    )
+    if len(event_content) + len(terminal_line) > MAX_LIFECYCLE_EVENT_STREAM_BYTES:
+        raise ValueError(
+            "bootstrap event stream exceeds "
+            f"{MAX_LIFECYCLE_EVENT_STREAM_BYTES} bytes"
+        )
+    metadata_content = _command_metadata_content(state, terminal_event)
+    candidate = copy.deepcopy(state)
+    candidate["stage"] = "materialized"
+    candidate["materialized"] = {
+        "metadata": _materialization_file_binding(
+            state["paths"]["metadata"], metadata_content
+        ),
+        "stdout": _materialization_file_binding(
+            state["paths"]["stdout"], stdout_content
+        ),
+        "stderr": _materialization_file_binding(
+            state["paths"]["stderr"], stderr_content
+        ),
+        "terminalEvent": {
+            "seq": terminal_event["seq"],
+            "bytes": len(terminal_line),
+            "sha256": _materialization_digest(terminal_line),
+            "event": terminal_event,
+        },
+    }
+    candidate_payloads = {
+        "stdout": stdout_content,
+        "stderr": stderr_content,
+        "metadata": metadata_content,
+    }
+    _preflight_public_materialization_occupants(
+        root, candidate, candidate_payloads
+    )
+    stored = _write_command_state_unlocked(
+        root, session, state, candidate, supervisor_lease
+    )
+    _command_materialization_checkpoint(
+        "after_materialized_intent",
+        command_state._command_path(root, state["commandId"], "state.json"),
+    )
+    return stored
+
+
+def _ensure_frozen_terminal_event_unlocked(
+    root: Path, state: dict[str, Any], *, allow_append: bool
+) -> None:
+    binding = state["materialized"]["terminalEvent"]
+    expected_line = command_state._validate_frozen_terminal_event(
+        binding["event"],
+        request=state["request"],
+        paths=state["paths"],
+        started_event=state["startedEvent"],
+        supervisor=state["supervisor"],
+        outcome=state["outcome"],
+        stop_intent=state["stopIntent"],
+    )
+    _verify_materialization_binding(
+        binding, expected_line, label="command terminal event"
+    )
+    events, lines, content = _canonical_bootstrap_event_stream(root)
+    _verify_started_event_unlocked(state, events, lines)
+    sequence = binding["seq"]
+    positions = _terminal_event_positions(events, state["paths"]["metadata"])
+    if sequence <= len(lines):
+        if lines[sequence - 1] != expected_line or positions != [sequence]:
+            raise ValueError("command terminal event sequence is already occupied")
+        return
+    if not allow_append:
+        raise ValueError("committed command terminal event is missing")
+    if sequence != len(lines) + 1 or positions:
+        raise ValueError("command terminal event sequence has a gap")
+    _write_exact_bootstrap_event_stream(root, content + expected_line)
+    _command_materialization_checkpoint(
+        "after_terminal_event", root / "bootstrap-events.jsonl"
+    )
+
+
+def _verify_public_materialization_file(
+    target: Path,
+    binding: dict[str, Any],
+    content: bytes,
+    *,
+    label: str,
+) -> None:
+    observed = _read_exact_materialization_file(
+        target, binding["bytes"], label=label
+    )
+    if observed != content:
+        raise ValueError(f"{label} has a mismatched occupant")
+    _verify_materialization_binding(binding, observed, label=label)
+
+
+def _materialization_temporary_path(target: Path, content: bytes) -> Path:
+    digest = hashlib.sha256(content).hexdigest()
+    return target.with_name(
+        f".{target.name}.materialize-{digest}.tmp"
+    )
+
+
+def _unlink_open_materialization_temporary(
+    parent: int,
+    parent_relative: str,
+    temporary_name: str,
+    descriptor: int,
+    expected_binding: tuple[Any, ...],
+    *,
+    label: str,
+) -> bool:
+    """Remove only the still-visible name bound to an open staging inode."""
+
+    authority = _active_rooted_io()
+    authority._validate_directory(parent_relative, parent)
+    descriptor_metadata = os.fstat(descriptor)
+    if _regular_file_binding(descriptor_metadata) != expected_binding:
+        raise ValueError(f"{label} descriptor binding changed")
+    try:
+        visible = os.stat(
+            temporary_name, dir_fd=parent, follow_symlinks=False
+        )
+    except FileNotFoundError:
+        authority._validate_directory(parent_relative, parent)
+        return False
+    if _regular_file_binding(visible) != expected_binding:
+        raise ValueError(f"{label} pathname binding changed")
+    os.unlink(temporary_name, dir_fd=parent)
+    os.fsync(parent)
+    authority._validate_directory(parent_relative, parent)
+    return True
+
+
+def _open_exact_materialization_temporary(
+    parent: int,
+    parent_relative: str,
+    temporary_name: str,
+    content: bytes,
+    *,
+    label: str,
+    create_if_missing: bool,
+) -> tuple[int, tuple[Any, ...]] | None:
+    """Open, create, or recover one deterministic digest-bound staging file."""
+
+    authority = _active_rooted_io()
+    flags = (
+        os.O_RDWR | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
+    )
+    for _attempt in range(128):
+        descriptor = -1
+        created = False
+        descriptor_binding: tuple[Any, ...] | None = None
+        try:
+            authority._validate_directory(parent_relative, parent)
+            try:
+                descriptor = os.open(
+                    temporary_name, flags, dir_fd=parent
+                )
+            except FileNotFoundError:
+                if not create_if_missing:
+                    authority._validate_directory(parent_relative, parent)
+                    return None
+                try:
+                    descriptor = os.open(
+                        temporary_name,
+                        flags | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=parent,
+                    )
+                except FileExistsError:
+                    continue
+                created = True
+            os.set_inheritable(descriptor, False)
+            if created:
+                os.fchmod(descriptor, 0o600)
+                view = memoryview(content)
+                while view:
+                    written = os.write(descriptor, view)
+                    if written <= 0:
+                        raise OSError(
+                            errno.EIO,
+                            "command materialization temporary write stalled",
+                        )
+                    view = view[written:]
+                os.fsync(descriptor)
+
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or metadata.st_nlink != 1
+                or (
+                    hasattr(os, "geteuid")
+                    and metadata.st_uid != os.geteuid()
+                )
+            ):
+                raise ValueError(f"{label} is not a safe staging file")
+            descriptor_binding = _regular_file_binding(metadata)
+            authority._validate_directory(parent_relative, parent)
+            visible = os.stat(
+                temporary_name, dir_fd=parent, follow_symlinks=False
+            )
+            if _regular_file_binding(visible) != descriptor_binding:
+                raise ValueError(f"{label} pathname binding changed")
+
+            try:
+                observed, verified = _read_exact_materialization_descriptor(
+                    descriptor, len(content), label=label
+                )
+                if observed != content:
+                    raise ValueError(
+                        f"{label} content disagrees with its digest"
+                    )
+            except ValueError:
+                _unlink_open_materialization_temporary(
+                    parent,
+                    parent_relative,
+                    temporary_name,
+                    descriptor,
+                    descriptor_binding,
+                    label=label,
+                )
+                os.close(descriptor)
+                descriptor = -1
+                if create_if_missing:
+                    continue
+                return None
+
+            descriptor_binding = _regular_file_binding(verified)
+            authority._validate_directory(parent_relative, parent)
+            visible = os.stat(
+                temporary_name, dir_fd=parent, follow_symlinks=False
+            )
+            if _regular_file_binding(visible) != descriptor_binding:
+                raise ValueError(f"{label} pathname binding changed")
+            if created:
+                os.fsync(parent)
+            authority._validate_directory(parent_relative, parent)
+            result = descriptor, descriptor_binding
+            descriptor = -1
+            return result
+        except Exception as exc:
+            if created and descriptor >= 0:
+                try:
+                    cleanup_metadata = os.fstat(descriptor)
+                    if (
+                        not stat.S_ISREG(cleanup_metadata.st_mode)
+                        or stat.S_IMODE(cleanup_metadata.st_mode) != 0o600
+                        or cleanup_metadata.st_nlink != 1
+                        or (
+                            hasattr(os, "geteuid")
+                            and cleanup_metadata.st_uid != os.geteuid()
+                        )
+                    ):
+                        raise ValueError(
+                            f"{label} cleanup binding is unsafe"
+                        )
+                    cleanup_binding = _regular_file_binding(
+                        cleanup_metadata
+                    )
+                    _unlink_open_materialization_temporary(
+                        parent,
+                        parent_relative,
+                        temporary_name,
+                        descriptor,
+                        cleanup_binding,
+                        label=label,
+                    )
+                except Exception as cleanup_error:
+                    if hasattr(exc, "add_note"):
+                        exc.add_note(
+                            "staging cleanup also failed: "
+                            f"{cleanup_error}"
+                        )
+            raise
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+    raise FileExistsError(
+        "could not acquire command materialization temporary"
+    )
+
+
+def _reconcile_materialization_temporary(
+    target: Path,
+    content: bytes,
+    *,
+    label: str,
+    remove: bool,
+) -> None:
+    """Verify, and optionally remove, a recoverable staging occupant."""
+
+    authority = _active_rooted_io()
+    temporary = _materialization_temporary_path(target, content)
+    parent, _target_name, parent_relative, _relative = authority._parent(
+        target
+    )
+    descriptor = -1
+    try:
+        opened = _open_exact_materialization_temporary(
+            parent,
+            parent_relative,
+            temporary.name,
+            content,
+            label=f"{label} temporary",
+            create_if_missing=False,
+        )
+        if opened is None:
+            return
+        descriptor, descriptor_binding = opened
+        if remove:
+            _unlink_open_materialization_temporary(
+                parent,
+                parent_relative,
+                temporary.name,
+                descriptor,
+                descriptor_binding,
+                label=f"{label} temporary",
+            )
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def _preflight_public_materialization_occupants(
+    root: Path,
+    state: dict[str, Any],
+    payloads: dict[str, bytes],
+) -> None:
+    authority = _active_rooted_io()
+    for name in ("stdout", "stderr", "metadata"):
+        binding = state["materialized"][name]
+        target = root / binding["path"]
+        _reconcile_materialization_temporary(
+            target,
+            payloads[name],
+            label=f"public command {name}",
+            remove=False,
+        )
+        if authority.stat(target, missing_ok=True) is None:
+            continue
+        _verify_public_materialization_file(
+            target,
+            binding,
+            payloads[name],
+            label=f"public command {name}",
+        )
+
+
+def _install_public_materialization_file(
+    target: Path,
+    binding: dict[str, Any],
+    content: bytes,
+    *,
+    label: str,
+) -> None:
+    authority = _active_rooted_io()
+    _verify_materialization_binding(binding, content, label=label)
+    existing = authority.stat(target, missing_ok=True)
+    if existing is not None:
+        _verify_public_materialization_file(
+            target, binding, content, label=label
+        )
+        _reconcile_materialization_temporary(
+            target, content, label=label, remove=True
+        )
+        return
+
+    temporary = _materialization_temporary_path(target, content)
+    parent, target_name, parent_relative, _relative = authority._parent(target)
+    descriptor = -1
+    temporary_binding: tuple[Any, ...] | None = None
+    installed = False
+    temporary_removed = False
+    try:
+        opened = _open_exact_materialization_temporary(
+            parent,
+            parent_relative,
+            temporary.name,
+            content,
+            label=f"{label} temporary",
+            create_if_missing=True,
+        )
+        assert opened is not None
+        descriptor, temporary_binding = opened
+        _command_materialization_checkpoint("before_file_install", target)
+        authority._validate_directory(parent_relative, parent)
+        descriptor_metadata = os.fstat(descriptor)
+        visible_temporary = os.stat(
+            temporary.name, dir_fd=parent, follow_symlinks=False
+        )
+        if (
+            _regular_file_binding(descriptor_metadata)
+            != temporary_binding
+            or _regular_file_binding(visible_temporary)
+            != temporary_binding
+        ):
+            raise ValueError(f"{label} temporary binding changed")
+        try:
+            command_state._atomic_rename_no_replace(
+                temporary.name,
+                target_name,
+                src_dir_fd=parent,
+                dst_dir_fd=parent,
+            )
+        except FileExistsError:
+            pass
+        else:
+            installed = True
+            visible_target = os.stat(
+                target_name, dir_fd=parent, follow_symlinks=False
+            )
+            descriptor_target = os.fstat(descriptor)
+            if (
+                _regular_file_binding(descriptor_target)
+                != _regular_file_binding(visible_target)
+                or _regular_file_binding(descriptor_target)[:-1]
+                != temporary_binding[:-1]
+            ):
+                raise ValueError(f"{label} installed binding changed")
+            os.fsync(parent)
+        authority._validate_directory(parent_relative, parent)
+        if not installed:
+            temporary_removed = _unlink_open_materialization_temporary(
+                parent,
+                parent_relative,
+                temporary.name,
+                descriptor,
+                temporary_binding,
+                label=f"{label} temporary",
+            )
+    finally:
+        if (
+            descriptor >= 0
+            and not installed
+            and not temporary_removed
+            and temporary_binding is not None
+        ):
+            _unlink_open_materialization_temporary(
+                parent,
+                parent_relative,
+                temporary.name,
+                descriptor,
+                temporary_binding,
+                label=f"{label} temporary",
+            )
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+    _verify_public_materialization_file(
+        target, binding, content, label=label
+    )
+    _command_materialization_checkpoint("after_file_install", target)
+
+
+@contextmanager
+def _locked_command_materialization(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    supervisor_lease: Any,
+):
+    publication_root = _publication_root_for_attempt(root)
+    with _exclusive_lock(publication_root / ".transactions.lock"):
+        with _stable_lock(
+            command_state._control_path(
+                root, command_state.COMMANDS_LOCK_NAME
+            )
+        ):
+            command_state._validate_control_layout_unlocked(root)
+            session = command_state._load_session_unlocked(root)
+            command_state._authorize_session(session, session_id, generation)
+            _recover_pending_transactions_unlocked(publication_root)
+            command_state._validate_control_layout_unlocked(root)
+            session = command_state._load_session_unlocked(root)
+            command_state._authorize_session(session, session_id, generation)
+            command_state._load_terminal_intent_unlocked(
+                root, session["sessionId"], session["generation"]
+            )
+            command_state._validate_command_layout_unlocked(root, command_id)
+            with _exclusive_lock(root / ".lifecycle.lock"):
+                with _exclusive_lock(root / ".events.lock"):
+                    with _stable_lock(
+                        command_state._command_path(
+                            root, command_id, "state.lock"
+                        )
+                    ):
+                        state = command_state._load_command_state_unlocked(
+                            root, command_id, session["sessionId"]
+                        )
+                        if state["creationGeneration"] > session["generation"]:
+                            raise ValueError(
+                                "command creationGeneration exceeds session generation"
+                            )
+                        command_state._authorize_persisted_supervisor_unlocked(
+                            root, state, supervisor_lease
+                        )
+                        yield session, state
+
+
+@_rooted_attempt_mutation
+def repair_command_started_event(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    *,
+    supervisor_lease: Any,
+) -> dict[str, Any]:
+    """Append or verify the exact write-ahead started event for a command."""
+
+    root = Path(root).absolute()
+    with _locked_command_materialization(
+        root, session_id, generation, command_id, supervisor_lease
+    ) as (session, state):
+        if state["stage"] != "prepared":
+            raise ValueError("started-event repair requires a prepared command")
+        if session["state"] == "committed":
+            raise ValueError("committed session command events are immutable")
+        command_state._authorize_persisted_supervisor_unlocked(
+            root, state, supervisor_lease
+        )
+        _repair_started_event_unlocked(root, state)
+        return copy.deepcopy(state)
+
+
+@_rooted_attempt_mutation
+def materialize_command(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    *,
+    supervisor_lease: Any,
+) -> dict[str, Any]:
+    """Freeze and replay one command's exact public evidence projection."""
+
+    root = Path(root).absolute()
+    with _locked_command_materialization(
+        root, session_id, generation, command_id, supervisor_lease
+    ) as (session, state):
+        if state["stage"] not in ("exited", "materialized", "committed"):
+            raise ValueError("command is not ready for materialization")
+        if state["stage"] != "committed" and session["state"] == "committed":
+            raise ValueError("committed session command evidence is immutable")
+        if state["stage"] == "exited":
+            state = _freeze_materialization_unlocked(
+                root, session, state, supervisor_lease
+            )
+
+        payloads = _materialization_payloads(root, state)
+        if state["stage"] == "committed":
+            _ensure_frozen_terminal_event_unlocked(
+                root, state, allow_append=False
+            )
+            for name in ("stdout", "stderr", "metadata"):
+                binding = state["materialized"][name]
+                _verify_public_materialization_file(
+                    root / binding["path"],
+                    binding,
+                    payloads[name],
+                    label=f"public command {name}",
+                )
+            return copy.deepcopy(state)
+
+        _preflight_public_materialization_occupants(root, state, payloads)
+        _ensure_frozen_terminal_event_unlocked(
+            root, state, allow_append=True
+        )
+        for name in ("stdout", "stderr", "metadata"):
+            binding = state["materialized"][name]
+            _install_public_materialization_file(
+                root / binding["path"],
+                binding,
+                payloads[name],
+                label=f"public command {name}",
+            )
+
+        _command_materialization_checkpoint(
+            "before_committed_state",
+            command_state._command_path(root, command_id, "state.json"),
+        )
+        candidate = copy.deepcopy(state)
+        candidate["stage"] = "committed"
+        state = _write_command_state_unlocked(
+            root, session, state, candidate, supervisor_lease
+        )
+        _command_materialization_checkpoint(
+            "after_committed_state",
+            command_state._command_path(root, command_id, "state.json"),
+        )
+        return state
 
 
 def _preflight_started_and_terminal_events(
@@ -1327,6 +2318,8 @@ __all__ = (
     "BoundedHeadTail",
     "_stream_record",
     "_replay_bytes",
+    "repair_command_started_event",
+    "materialize_command",
     "_run_command_during_lifecycle",
     "_run_command",
     "_record_external_during_lifecycle",

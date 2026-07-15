@@ -1707,6 +1707,51 @@ def materialize_command(
         return state
 
 
+@_rooted_attempt_mutation
+def verify_committed_command_materialization(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+) -> dict[str, Any]:
+    """Verify a committed projection without manufacturing mutation authority."""
+
+    root = Path(root).absolute()
+    with command_state._stable_lock(
+        command_state._control_path(root, command_state.COMMANDS_LOCK_NAME)
+    ):
+        command_state._validate_control_layout_unlocked(root)
+        session = command_state._load_session_unlocked(root)
+        command_state._authorize_session(session, session_id, generation)
+        command_state._load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        command_state._validate_command_layout_unlocked(root, command_id)
+        with _exclusive_lock(root / ".lifecycle.lock"):
+            with _exclusive_lock(root / ".events.lock"):
+                with command_state._stable_lock(
+                    command_state._command_path(root, command_id, "state.lock")
+                ):
+                    state = command_state._load_command_state_unlocked(
+                        root, command_id, session["sessionId"]
+                    )
+                    if state["stage"] != "committed":
+                        raise ValueError("command is not committed")
+                    payloads = _materialization_payloads(root, state)
+                    _ensure_frozen_terminal_event_unlocked(
+                        root, state, allow_append=False
+                    )
+                    for name in ("stdout", "stderr", "metadata"):
+                        binding = state["materialized"][name]
+                        _verify_public_materialization_file(
+                            root / binding["path"],
+                            binding,
+                            payloads[name],
+                            label=f"public command {name}",
+                        )
+                    return copy.deepcopy(state)
+
+
 def _preflight_started_and_terminal_events(
     root: Path,
     phase: str,

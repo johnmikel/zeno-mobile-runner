@@ -3660,6 +3660,139 @@ def transition_command_state(
             return copy.deepcopy(candidate)
 
 
+def _write_stable_private_content(
+    path: Path,
+    content: bytes,
+    expected_identity: tuple[int, int],
+) -> None:
+    """Rewrite one reserved inode without replacing its lease-visible binding."""
+
+    authority = safe_io._active_rooted_io()
+    parent, name, parent_relative, _relative = authority._parent(path)
+    descriptor = -1
+    try:
+        authority._validate_directory(parent_relative, parent)
+        descriptor = os.open(
+            name,
+            os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent,
+        )
+        os.set_inheritable(descriptor, False)
+        opened = os.fstat(descriptor)
+        visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(visible.st_mode)
+            or (opened.st_dev, opened.st_ino) != expected_identity
+            or (visible.st_dev, visible.st_ino) != expected_identity
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or stat.S_IMODE(visible.st_mode) != 0o600
+            or (
+                hasattr(os, "geteuid")
+                and (
+                    opened.st_uid != os.geteuid()
+                    or visible.st_uid != os.geteuid()
+                )
+            )
+        ):
+            raise ValueError("command recovery spool binding changed")
+        os.ftruncate(descriptor, 0)
+        view = memoryview(content)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("command recovery spool write made no progress")
+            view = view[written:]
+        os.fsync(descriptor)
+        observed = os.fstat(descriptor)
+        visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (
+            (observed.st_dev, observed.st_ino) != expected_identity
+            or (visible.st_dev, visible.st_ino) != expected_identity
+            or observed.st_size != len(content)
+            or visible.st_size != len(content)
+        ):
+            raise ValueError("command recovery spool changed while writing")
+        os.fsync(parent)
+        authority._validate_directory(parent_relative, parent)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+
+
+@safe_io._rooted_attempt_mutation
+def write_command_recovery_spools(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    stdout: bytes,
+    stderr: bytes,
+    *,
+    supervisor_lease: CommandLayoutReservation,
+) -> dict[str, Any]:
+    """Persist bounded capture bytes while retaining every stable inode."""
+
+    root = Path(root).absolute()
+    command_id = _identifier(command_id, "commandId")
+    if type(stdout) is not bytes or type(stderr) is not bytes:
+        raise ValueError("command recovery spools must be bytes")
+    if len(stdout) > _LOG_LIMIT or len(stderr) > _LOG_LIMIT:
+        raise ValueError("command recovery spool exceeds its limit")
+    paths = {
+        "stdout": _command_path(root, command_id, "stdout.recovery"),
+        "stderr": _command_path(root, command_id, "stderr.recovery"),
+    }
+    identities: dict[str, tuple[int, int]] = {}
+
+    def authorize() -> dict[str, Any]:
+        _validate_control_layout_unlocked(root)
+        session = _load_session_unlocked(root)
+        _authorize_session(session, session_id, generation)
+        _load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        _validate_command_layout_unlocked(root, command_id)
+        persisted = _load_command_state_unlocked(
+            root, command_id, session["sessionId"]
+        )
+        if persisted["stage"] not in (
+            "anchored",
+            "anchor_stop_requested",
+            "running",
+            "stop_requested",
+        ):
+            raise ValueError("command recovery spools require a live command")
+        _authorize_persisted_supervisor_unlocked(
+            root, persisted, supervisor_lease
+        )
+        return persisted
+
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        with _stable_lock(_command_path(root, command_id, "state.lock")):
+            persisted = authorize()
+            for name, path in paths.items():
+                metadata = _assert_private_file(
+                    path, f"command {name} recovery spool"
+                )
+                identities[name] = (metadata.st_dev, metadata.st_ino)
+
+    _write_stable_private_content(paths["stdout"], stdout, identities["stdout"])
+    _write_stable_private_content(paths["stderr"], stderr, identities["stderr"])
+
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        with _stable_lock(_command_path(root, command_id, "state.lock")):
+            persisted = authorize()
+            for name, path in paths.items():
+                metadata = _assert_private_file(
+                    path, f"command {name} recovery spool"
+                )
+                if (metadata.st_dev, metadata.st_ino) != identities[name]:
+                    raise ValueError("command recovery spool binding changed")
+            return copy.deepcopy(persisted)
+
+
 def _utc_now() -> str:
     return safe_io._utc_now()
 

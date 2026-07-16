@@ -24,15 +24,19 @@ if [[ -z "${TMPDIR:-}" || ! -w "${TMPDIR:-/nonexistent}" ]]; then
 fi
 
 EVIDENCE_FILES=()
+RUN_SUMMARIES=()
+ATTEMPT_INDEX=""
+CERTIFICATION_MIN_EXECUTIONS=""
 TARGET="dev-preview"
 JSON=0
 
 usage() {
   printf '%s\n' 'Usage:'
-  printf '%s\n' '  scripts/release-readiness.sh --evidence <evidence.jsonl> [--evidence <more.jsonl> ...] [--target dev-preview|production|market-claim] [--json]'
+  printf '%s\n' '  scripts/release-readiness.sh --evidence <evidence.jsonl> [--evidence <more.jsonl> ...] [--run-summary <file-or-publication-dir> ...] [--attempt-index <file>] [--certification-min-executions <n>] [--target dev-preview|production|market-claim] [--json]'
   printf '%s\n' ''
   printf '%s\n' 'Reads one or more release/pilot evidence JSONL files and reports whether the'
   printf '%s\n' 'requested release claim is supported by concrete passed evidence.'
+  printf '%s\n' 'Run summaries add retry-aware certification evidence; their default minimum is 300 logical executions.'
   printf '%s\n' ''
   printf '%s\n' 'Targets:'
   printf '%s\n' '  dev-preview   Requires local release gate plus public Android and iOS demos.'
@@ -60,6 +64,18 @@ while [[ $# -gt 0 ]]; do
       EVIDENCE_FILES+=("$(require_value "$1" "${2-}")")
       shift 2
       ;;
+    --run-summary)
+      RUN_SUMMARIES+=("$(require_value "$1" "${2-}")")
+      shift 2
+      ;;
+    --attempt-index)
+      ATTEMPT_INDEX="$(require_value "$1" "${2-}")"
+      shift 2
+      ;;
+    --certification-min-executions)
+      CERTIFICATION_MIN_EXECUTIONS="$(require_value "$1" "${2-}")"
+      shift 2
+      ;;
     --target)
       TARGET="$(require_value "$1" "${2-}")"
       shift 2
@@ -85,7 +101,28 @@ for evidence_file in "${EVIDENCE_FILES[@]}"; do
     die "evidence file not found: $evidence_file"
   fi
 done
+if [[ -n "$ATTEMPT_INDEX" && "${#RUN_SUMMARIES[@]}" -eq 0 ]]; then
+  die "--attempt-index requires --run-summary"
+fi
+if [[ -n "$CERTIFICATION_MIN_EXECUTIONS" ]]; then
+  [[ "$CERTIFICATION_MIN_EXECUTIONS" =~ ^[1-9][0-9]*$ ]] || die "--certification-min-executions must be a positive integer"
+  [[ "${#RUN_SUMMARIES[@]}" -gt 0 ]] || die "--certification-min-executions requires --run-summary"
+elif [[ "${#RUN_SUMMARIES[@]}" -gt 0 ]]; then
+  CERTIFICATION_MIN_EXECUTIONS=300
+fi
 [[ "$TARGET" == "dev-preview" || "$TARGET" == "production" || "$TARGET" == "market-claim" ]] || die "--target must be dev-preview, production, or market-claim"
 
 SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-python3 "$SCRIPT_DIR/release-readiness.py" "$TARGET" "$JSON" "${EVIDENCE_FILES[@]}"
+PYTHON_ARGS=(--target "$TARGET")
+[[ "$JSON" -eq 0 ]] || PYTHON_ARGS+=(--json)
+for evidence_file in "${EVIDENCE_FILES[@]}"; do
+  PYTHON_ARGS+=(--evidence "$evidence_file")
+done
+if [[ "${#RUN_SUMMARIES[@]}" -gt 0 ]]; then
+  for run_summary in "${RUN_SUMMARIES[@]}"; do
+    PYTHON_ARGS+=(--run-summary "$run_summary")
+  done
+fi
+[[ -z "$ATTEMPT_INDEX" ]] || PYTHON_ARGS+=(--attempt-index "$ATTEMPT_INDEX")
+[[ -z "$CERTIFICATION_MIN_EXECUTIONS" ]] || PYTHON_ARGS+=(--certification-min-executions "$CERTIFICATION_MIN_EXECUTIONS")
+python3 "$SCRIPT_DIR/release-readiness.py" "${PYTHON_ARGS[@]}"

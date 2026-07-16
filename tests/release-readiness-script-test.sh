@@ -9,7 +9,7 @@ LOCAL_EVIDENCE="$TMPDIR/local-evidence.jsonl"
 PROD_EVIDENCE="$TMPDIR/production-evidence.jsonl"
 PILOT_EVIDENCE="$TMPDIR/pilot-evidence.jsonl"
 
-for args in "--evidence" "--target"; do
+for args in "--evidence" "--target" "--run-summary" "--attempt-index" "--certification-min-executions"; do
   set +e
   missing_value_output="$("$ROOT/scripts/release-readiness.sh" $args 2>&1)"
   missing_value_status=$?
@@ -20,6 +20,61 @@ for args in "--evidence" "--target"; do
   fi
   grep -q -- "$args requires a value" <<< "$missing_value_output"
 done
+
+RUN_EVIDENCE_GENERATOR="$ROOT/tests/fixtures/generate-release-run-evidence.py"
+
+assert_blocked_run_evidence() {
+  local publication="$1"
+  local minimum="${2:-1}"
+  local output status
+  set +e
+  output="$("$ROOT/scripts/release-readiness.sh" \
+    --evidence "$LOCAL_EVIDENCE" \
+    --run-summary "$publication" \
+    --attempt-index "$publication/attempt-index.json" \
+    --certification-min-executions "$minimum" \
+    --target dev-preview --json 2>&1)"
+  status=$?
+  set -e
+  [[ "$status" -ne 0 ]] || {
+    echo "release-readiness should block invalid run evidence: $publication" >&2
+    exit 1
+  }
+  python3 - "$output" <<'PY'
+import json
+import sys
+
+value = json.loads(sys.argv[1])
+assert value["ok"] is False
+assert value["runEvidence"]["certificationReady"] is False
+assert value["runEvidence"]["blockingReasons"]
+PY
+}
+
+for minimum in 0 -1 invalid; do
+  set +e
+  invalid_minimum_output="$("$ROOT/scripts/release-readiness.sh" \
+    --evidence placeholder.jsonl --run-summary placeholder.json \
+    --certification-min-executions "$minimum" --json 2>&1)"
+  invalid_minimum_status=$?
+  set -e
+  [[ "$invalid_minimum_status" -eq 2 ]] || {
+    echo "release-readiness should reject certification minimum: $minimum" >&2
+    exit 1
+  }
+  grep -q -- '--certification-min-executions must be a positive integer' <<< "$invalid_minimum_output"
+done
+
+set +e
+orphan_index_output="$("$ROOT/scripts/release-readiness.sh" \
+  --evidence placeholder.jsonl --attempt-index placeholder-index.json --json 2>&1)"
+orphan_index_status=$?
+set -e
+[[ "$orphan_index_status" -eq 2 ]] || {
+  echo "release-readiness should reject --attempt-index without --run-summary" >&2
+  exit 1
+}
+grep -q -- '--attempt-index requires --run-summary' <<< "$orphan_index_output"
 
 MISSING_EVIDENCE="$TMPDIR/missing-evidence.jsonl"
 set +e
@@ -344,6 +399,21 @@ assert any(
 next_step_item = schema["properties"]["nextSteps"]["items"]
 assert next_step_item["required"] == ["requirement", "command", "commands", "covers"]
 assert next_step_item["properties"]["covers"]["minItems"] == 1
+run_evidence = schema["properties"]["runEvidence"]
+assert run_evidence["additionalProperties"] is False
+assert set(run_evidence["required"]) == {
+    "attempts",
+    "logicalExecutions",
+    "eligibleLogicalExecutions",
+    "firstAttemptPassRate",
+    "eventualPassRate",
+    "classificationCounts",
+    "certificationMinimum",
+    "certificationReady",
+    "cohorts",
+    "blockingReasons",
+    "diagnostics",
+}
 PY
 
 ROW_BLOCKED_EVIDENCE="$TMPDIR/row-blocked-evidence.jsonl"
@@ -1131,3 +1201,130 @@ grep -q -- '- local release gate' <<< "$text_output"
 grep -q -- '- public Android demo' <<< "$text_output"
 grep -q -- '- public iOS simulator demo' <<< "$text_output"
 grep -q 'Missing evidence' <<< "$text_output"
+
+RUN_READY="$TMPDIR/run-evidence-ready"
+python3 "$RUN_EVIDENCE_GENERATOR" "$RUN_READY" ready
+run_ready_output="$("$ROOT/scripts/release-readiness.sh" \
+  --evidence "$LOCAL_EVIDENCE" \
+  --run-summary "$RUN_READY" \
+  --attempt-index "$RUN_READY/attempt-index.json" \
+  --certification-min-executions 2 \
+  --target dev-preview --json)"
+python3 - "$run_ready_output" <<'PY'
+import json
+import sys
+
+value = json.loads(sys.argv[1])
+assert value["ok"] is True
+run = value["runEvidence"]
+assert run["attempts"] == 3
+assert run["logicalExecutions"] == 2
+assert run["eligibleLogicalExecutions"] == 2
+assert run["firstAttemptPassRate"] == 50.0
+assert run["eventualPassRate"] == 100.0
+assert run["classificationCounts"] == {
+    "passed": 2,
+    "runner_failure": 0,
+    "app_failure": 1,
+    "infrastructure_failure": 0,
+    "configuration_failure": 0,
+    "cancelled": 0,
+}
+assert run["certificationMinimum"] == 2
+assert run["certificationReady"] is True
+assert run["blockingReasons"] == []
+assert run["diagnostics"] == []
+assert len(run["cohorts"]) == 1
+assert run["cohorts"][0]["candidateRevision"] == "a" * 40
+assert run["cohorts"][0]["comparabilityKey"].startswith("sha256:")
+PY
+node --input-type=module - "$ROOT/schemas/release-readiness-output.schema.json" "$run_ready_output" <<'NODE'
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import Ajv2020 from "ajv/dist/2020.js";
+
+const schema = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const value = JSON.parse(process.argv[3]);
+const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+assert.equal(validate(value), true, JSON.stringify(validate.errors, null, 2));
+NODE
+
+RUN_RUNNER="$TMPDIR/run-evidence-runner"
+python3 "$RUN_EVIDENCE_GENERATOR" "$RUN_RUNNER" runner
+assert_blocked_run_evidence "$RUN_RUNNER" 2
+runner_output="$("$ROOT/scripts/release-readiness.sh" \
+  --evidence "$LOCAL_EVIDENCE" --run-summary "$RUN_RUNNER" \
+  --attempt-index "$RUN_RUNNER/attempt-index.json" \
+  --certification-min-executions 2 --target dev-preview --json 2>/dev/null || true)"
+python3 - "$runner_output" <<'PY'
+import json
+import sys
+
+run = json.loads(sys.argv[1])["runEvidence"]
+assert run["eventualPassRate"] == 100.0
+assert run["classificationCounts"]["runner_failure"] == 1
+assert "runner failure occurred in certification cohort" in run["blockingReasons"]
+PY
+
+RUN_MINIMUM_299="$TMPDIR/run-evidence-minimum-299"
+RUN_MINIMUM_300="$TMPDIR/run-evidence-minimum-300"
+python3 "$RUN_EVIDENCE_GENERATOR" "$RUN_MINIMUM_299" minimum 299
+python3 "$RUN_EVIDENCE_GENERATOR" "$RUN_MINIMUM_300" minimum 300
+assert_blocked_run_evidence "$RUN_MINIMUM_299" 300
+minimum_300_output="$("$ROOT/scripts/release-readiness.sh" \
+  --evidence "$LOCAL_EVIDENCE" --run-summary "$RUN_MINIMUM_300" \
+  --attempt-index "$RUN_MINIMUM_300/attempt-index.json" \
+  --target dev-preview --json)"
+python3 - "$minimum_300_output" <<'PY'
+import json
+import sys
+
+run = json.loads(sys.argv[1])["runEvidence"]
+assert run["logicalExecutions"] == 300
+assert run["eligibleLogicalExecutions"] == 300
+assert run["certificationMinimum"] == 300
+assert run["certificationReady"] is True
+PY
+
+for mode in mismatched-key incomplete mixed; do
+  publication="$TMPDIR/run-evidence-$mode"
+  python3 "$RUN_EVIDENCE_GENERATOR" "$publication" "$mode"
+  assert_blocked_run_evidence "$publication" 1
+done
+
+mixed_output="$("$ROOT/scripts/release-readiness.sh" \
+  --evidence "$LOCAL_EVIDENCE" --run-summary "$TMPDIR/run-evidence-mixed" \
+  --attempt-index "$TMPDIR/run-evidence-mixed/attempt-index.json" \
+  --certification-min-executions 1 --target dev-preview --json 2>/dev/null || true)"
+python3 - "$mixed_output" <<'PY'
+import json
+import sys
+
+run = json.loads(sys.argv[1])["runEvidence"]
+assert len(run["cohorts"]) == 2
+assert "certification evidence spans multiple candidate revisions or comparability keys" in run["blockingReasons"]
+PY
+
+for mode in duplicate-run-id missing-attempt-one nonmonotonic-attempts changed-retry-identity path-escape indexed-missing-summary unindexed-summary; do
+  publication="$TMPDIR/run-evidence-$mode"
+  python3 "$RUN_EVIDENCE_GENERATOR" "$publication" "$mode"
+  assert_blocked_run_evidence "$publication" 1
+done
+
+RUN_DIRECT="$TMPDIR/run-evidence-direct"
+python3 "$RUN_EVIDENCE_GENERATOR" "$RUN_DIRECT" ready
+direct_output="$("$ROOT/scripts/release-readiness.sh" \
+  --evidence "$LOCAL_EVIDENCE" \
+  --run-summary "$RUN_DIRECT/attempts/logical-1-attempt-1/run-summary.json" \
+  --run-summary "$RUN_DIRECT/attempts/logical-1-attempt-2/run-summary.json" \
+  --run-summary "$RUN_DIRECT/attempts/logical-2-attempt-1/run-summary.json" \
+  --certification-min-executions 2 --target dev-preview --json)"
+python3 - "$direct_output" <<'PY'
+import json
+import sys
+
+run = json.loads(sys.argv[1])["runEvidence"]
+assert run["attempts"] == 3
+assert run["logicalExecutions"] == 2
+assert run["certificationReady"] is True
+PY

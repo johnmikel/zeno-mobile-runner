@@ -1,11 +1,416 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import shlex
+import stat
 import sys
+from pathlib import Path
 
-target, json_mode = sys.argv[1], sys.argv[2] == "1"
-evidence_paths = sys.argv[3:]
+from run_evidence_lib import bounded_io, constants, safe_io
+from run_evidence_lib.contracts import (
+    _comparability_tuple,
+    _validate_index,
+    recompute_comparability,
+    validate_summary,
+)
+
+
+CLASSIFICATIONS = (
+    "passed",
+    "runner_failure",
+    "app_failure",
+    "infrastructure_failure",
+    "configuration_failure",
+    "cancelled",
+)
+MAX_RUN_DIAGNOSTICS = 256
+MAX_RUN_DIAGNOSTIC_BYTES = 2048
+
+
+def positive_integer(value):
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Evaluate release-readiness evidence.")
+    parser.add_argument(
+        "--target",
+        required=True,
+        choices=("dev-preview", "production", "market-claim"),
+    )
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--evidence", action="append", required=True)
+    parser.add_argument("--run-summary", action="append", default=[])
+    parser.add_argument("--attempt-index")
+    parser.add_argument(
+        "--certification-min-executions", type=positive_integer, default=300
+    )
+    parsed = parser.parse_args()
+    if parsed.attempt_index and not parsed.run_summary:
+        parser.error("--attempt-index requires --run-summary")
+    return parsed
+
+
+def _bounded_diagnostic(value):
+    encoded = value.encode("utf-8")
+    if len(encoded) <= MAX_RUN_DIAGNOSTIC_BYTES:
+        return value
+    suffix = b"... [truncated]"
+    prefix = encoded[: MAX_RUN_DIAGNOSTIC_BYTES - len(suffix)]
+    while True:
+        try:
+            return prefix.decode("utf-8") + suffix.decode("ascii")
+        except UnicodeDecodeError:
+            prefix = prefix[:-1]
+
+
+def _read_json(root, path, label):
+    with safe_io._rooted_io(root, mutation=False):
+        if safe_io._evidence_is_symlink(path) or not safe_io._evidence_is_file(path):
+            raise ValueError(f"{label} is missing or unsafe")
+        metadata = safe_io._evidence_stat(path)
+        value, byte_count = bounded_io._read_json_bounded(
+            path,
+            maximum=constants.MAX_STRUCTURED_JSON_BYTES,
+            expected_metadata=metadata,
+        )
+    return value, byte_count
+
+
+def _index_inventory(index_path, diagnostics, fatal_diagnostics):
+    index_path = Path(index_path).absolute()
+    publication_root = index_path.parent
+    try:
+        index, _byte_count = _read_json(
+            publication_root, index_path, "attempt index"
+        )
+        _validate_index(index)
+    except (OSError, RuntimeError, ValueError) as exc:
+        message = f"attempt index is invalid: {exc}"
+        diagnostics.append(message)
+        fatal_diagnostics.append(message)
+        return publication_root, None, {}
+
+    entries = {}
+    for execution in index["executions"]:
+        for attempt in execution["attempts"]:
+            entries[attempt["summary"]] = (execution, attempt)
+    return publication_root, index, entries
+
+
+def _discover_indexed_paths(publication_root, supplied, diagnostics, fatal_diagnostics):
+    discovered = set()
+    try:
+        with safe_io._rooted_io(publication_root, mutation=False):
+            for raw in supplied:
+                path = Path(raw).absolute()
+                try:
+                    relative = path.relative_to(publication_root).as_posix()
+                except ValueError:
+                    message = "run-summary input is outside the attempt-index root"
+                    diagnostics.append(message)
+                    fatal_diagnostics.append(message)
+                    continue
+                if safe_io._evidence_is_symlink(path):
+                    message = f"run-summary input is unsafe: {relative}"
+                    diagnostics.append(message)
+                    fatal_diagnostics.append(message)
+                    continue
+                if safe_io._evidence_is_file(path):
+                    candidates = [path]
+                elif safe_io._evidence_is_dir(path):
+                    candidates = []
+                    entry_count = 0
+                    for candidate, metadata in bounded_io._iter_rooted_tree(
+                        path,
+                        maximum_directories=constants.MAX_BUNDLE_DIRECTORY_COUNT,
+                    ):
+                        if not stat.S_ISDIR(metadata.st_mode):
+                            entry_count += 1
+                            if entry_count > constants.MAX_BUNDLE_FILE_COUNT:
+                                raise ValueError(
+                                    "run-summary publication exceeds the maximum file count"
+                                )
+                        if candidate.name != "run-summary.json":
+                            continue
+                        if stat.S_ISLNK(metadata.st_mode):
+                            candidate_relative = candidate.relative_to(
+                                publication_root
+                            ).as_posix()
+                            message = f"run summary is unsafe: {candidate_relative}"
+                            diagnostics.append(message)
+                            fatal_diagnostics.append(message)
+                        elif stat.S_ISREG(metadata.st_mode):
+                            candidates.append(candidate)
+                else:
+                    message = f"run-summary input is missing: {relative}"
+                    diagnostics.append(message)
+                    fatal_diagnostics.append(message)
+                    continue
+                if len(discovered) + len(candidates) > constants.MAX_AGGREGATE_SUMMARY_COUNT:
+                    raise ValueError("run-summary input count exceeds the aggregate maximum")
+                for candidate in candidates:
+                    candidate_relative = candidate.relative_to(publication_root).as_posix()
+                    if safe_io._evidence_is_symlink(candidate):
+                        message = f"run summary is unsafe: {candidate_relative}"
+                        diagnostics.append(message)
+                        fatal_diagnostics.append(message)
+                    elif safe_io._evidence_is_file(candidate):
+                        discovered.add(candidate_relative)
+    except (OSError, RuntimeError, ValueError) as exc:
+        message = f"run-summary discovery failed: {exc}"
+        diagnostics.append(message)
+        fatal_diagnostics.append(message)
+    return discovered
+
+
+def _load_indexed_summaries(supplied, index_path, diagnostics, fatal_diagnostics):
+    publication_root, index, entries = _index_inventory(
+        index_path, diagnostics, fatal_diagnostics
+    )
+    discovered = _discover_indexed_paths(
+        publication_root, supplied, diagnostics, fatal_diagnostics
+    )
+    if index is not None:
+        expected = set(entries)
+        missing = sorted(expected - discovered)
+        unindexed = sorted(discovered - expected)
+        if missing:
+            message = "attempt index references missing summaries: " + ", ".join(missing)
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+        if unindexed:
+            message = "run-summary inputs contain unindexed summaries: " + ", ".join(unindexed)
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+
+    loaded = []
+    inspected_bytes = 0
+    for relative in sorted(discovered):
+        path = publication_root.joinpath(*relative.split("/"))
+        try:
+            value, byte_count = _read_json(publication_root, path, relative)
+        except (OSError, RuntimeError, ValueError) as exc:
+            message = f"{relative}: {exc}"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            continue
+        inspected_bytes += byte_count
+        if inspected_bytes > constants.MAX_AGGREGATE_INSPECTED_BYTES:
+            message = "run-summary inputs exceed the aggregate byte maximum"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            break
+        loaded.append((relative, value, entries.get(relative)))
+    return loaded
+
+
+def _load_direct_summaries(supplied, diagnostics, fatal_diagnostics):
+    if len(supplied) > constants.MAX_AGGREGATE_SUMMARY_COUNT:
+        message = "run-summary input count exceeds the aggregate maximum"
+        diagnostics.append(message)
+        fatal_diagnostics.append(message)
+        return []
+    loaded = []
+    inspected_bytes = 0
+    for raw in supplied:
+        path = Path(raw).absolute()
+        root = path.parent
+        if path.is_dir():
+            message = "directory run-summary inputs require --attempt-index"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            continue
+        try:
+            value, byte_count = _read_json(root, path, path.name)
+        except (OSError, RuntimeError, ValueError) as exc:
+            message = f"run-summary input {path.name}: {exc}"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            continue
+        inspected_bytes += byte_count
+        if inspected_bytes > constants.MAX_AGGREGATE_INSPECTED_BYTES:
+            message = "run-summary inputs exceed the aggregate byte maximum"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            break
+        loaded.append((path.name, value, None))
+    return loaded
+
+
+def aggregate_run_evidence(supplied, index_path, certification_minimum):
+    diagnostics = []
+    fatal_diagnostics = []
+    loaded = (
+        _load_indexed_summaries(
+            supplied, index_path, diagnostics, fatal_diagnostics
+        )
+        if index_path
+        else _load_direct_summaries(supplied, diagnostics, fatal_diagnostics)
+    )
+
+    executions = {}
+    seen_run_ids = set()
+    for label, summary, registration in loaded:
+        errors = validate_summary(summary)
+        if errors:
+            message = f"{label}: invalid run summary: " + "; ".join(errors)
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            continue
+        run_id = summary["runId"]
+        if run_id in seen_run_ids:
+            message = "run summaries contain a duplicate runId"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+            continue
+        seen_run_ids.add(run_id)
+        raw_tuple = _comparability_tuple(summary)
+        computed = recompute_comparability(summary)
+        if registration is not None:
+            registered_execution, registered_attempt = registration
+            mismatches = []
+            if registered_execution["executionId"] != summary["executionId"]:
+                mismatches.append("executionId")
+            if registered_attempt["runId"] != run_id:
+                mismatches.append("runId")
+            if registered_attempt["attempt"] != summary["attempt"]:
+                mismatches.append("attempt")
+            if registered_execution["comparabilityTuple"] != raw_tuple:
+                mismatches.append("comparability tuple")
+            if mismatches:
+                message = f"{label}: attempt index disagrees on " + ", ".join(mismatches)
+                diagnostics.append(message)
+                fatal_diagnostics.append(message)
+
+        execution = executions.setdefault(
+            summary["executionId"],
+            {
+                "rawTuple": raw_tuple,
+                "comparabilityKey": computed["comparabilityKey"],
+                "certificationEligible": computed["certificationEligible"],
+                "ineligibilityReasons": computed["ineligibilityReasons"],
+                "attempts": [],
+            },
+        )
+        if execution["rawTuple"] != raw_tuple:
+            message = f"execution {summary['executionId']} changes retry comparability identity"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+        execution["attempts"].append(summary)
+
+    for execution_id, execution in executions.items():
+        execution["attempts"].sort(key=lambda item: (item["attempt"], item["runId"]))
+        numbers = [item["attempt"] for item in execution["attempts"]]
+        if numbers != list(range(1, len(numbers) + 1)):
+            message = f"execution {execution_id} attempts must start at 1 and be contiguous"
+            diagnostics.append(message)
+            fatal_diagnostics.append(message)
+        if not execution["certificationEligible"]:
+            diagnostics.append(
+                f"execution {execution_id} is certification-ineligible: "
+                + ", ".join(execution["ineligibilityReasons"])
+            )
+
+    classification_counts = {name: 0 for name in CLASSIFICATIONS}
+    first_passes = 0
+    eventual_passes = 0
+    eligible_executions = 0
+    cohort_map = {}
+    for execution in executions.values():
+        attempts = execution["attempts"]
+        for attempt in attempts:
+            classification_counts[attempt["classification"]] += 1
+        if attempts and attempts[0]["status"] == "passed":
+            first_passes += 1
+        if attempts and attempts[-1]["status"] == "passed":
+            eventual_passes += 1
+        if execution["certificationEligible"]:
+            eligible_executions += 1
+        cohort_key = (
+            execution["rawTuple"].get("candidateRevision"),
+            execution["comparabilityKey"],
+        )
+        cohort = cohort_map.setdefault(
+            cohort_key,
+            {
+                "candidateRevision": cohort_key[0],
+                "comparabilityKey": cohort_key[1],
+                "logicalExecutions": 0,
+                "eligibleLogicalExecutions": 0,
+            },
+        )
+        cohort["logicalExecutions"] += 1
+        if execution["certificationEligible"]:
+            cohort["eligibleLogicalExecutions"] += 1
+
+    logical_executions = len(executions)
+    percent = lambda count: (
+        round(count * 100.0 / logical_executions, 10)
+        if logical_executions
+        else 0.0
+    )
+    cohorts = sorted(
+        cohort_map.values(),
+        key=lambda item: (item["candidateRevision"] or "", item["comparabilityKey"] or ""),
+    )
+    eligible_cohorts = [item for item in cohorts if item["eligibleLogicalExecutions"]]
+    blocking_reasons = []
+    if fatal_diagnostics:
+        blocking_reasons.append("run evidence contains invalid or inconsistent inputs")
+    if eligible_executions < certification_minimum:
+        blocking_reasons.append(
+            f"eligible logical executions {eligible_executions} is below certification minimum {certification_minimum}"
+        )
+    if len(eligible_cohorts) > 1:
+        blocking_reasons.append(
+            "certification evidence spans multiple candidate revisions or comparability keys"
+        )
+    if classification_counts["runner_failure"]:
+        blocking_reasons.append("runner failure occurred in certification cohort")
+    if logical_executions and eventual_passes != logical_executions:
+        blocking_reasons.append("not every logical execution eventually passed")
+    if not logical_executions:
+        blocking_reasons.append("run evidence contains no logical executions")
+
+    unique_diagnostics = sorted({_bounded_diagnostic(item) for item in diagnostics})
+    if len(unique_diagnostics) > MAX_RUN_DIAGNOSTICS:
+        omitted = len(unique_diagnostics) - MAX_RUN_DIAGNOSTICS
+        unique_diagnostics = unique_diagnostics[:MAX_RUN_DIAGNOSTICS] + [
+            f"{omitted} additional run-evidence diagnostics omitted"
+        ]
+
+    return {
+        "attempts": sum(classification_counts.values()),
+        "logicalExecutions": logical_executions,
+        "eligibleLogicalExecutions": eligible_executions,
+        "firstAttemptPassRate": percent(first_passes),
+        "eventualPassRate": percent(eventual_passes),
+        "classificationCounts": classification_counts,
+        "certificationMinimum": certification_minimum,
+        "certificationReady": not blocking_reasons,
+        "cohorts": cohorts,
+        "blockingReasons": blocking_reasons,
+        "diagnostics": unique_diagnostics,
+    }
+
+
+args = parse_args()
+target, json_mode = args.target, args.json
+evidence_paths = args.evidence
+run_evidence = (
+    aggregate_run_evidence(
+        args.run_summary,
+        args.attempt_index,
+        args.certification_min_executions,
+    )
+    if args.run_summary
+    else None
+)
 
 rows = []
 missing_evidence_files = []
@@ -568,6 +973,8 @@ missing = evidence_issue_labels + [
 insufficient = [
     item["name"] for item in requirement_results if item.get("status") == "insufficient"
 ]
+if run_evidence is not None and not run_evidence["certificationReady"]:
+    insufficient.append("run certification evidence")
 failed_evidence_labels = [f"failed evidence: {name}" for name in failed]
 planned_evidence_labels = [f"planned evidence: {name}" for name in planned]
 blocked = (
@@ -576,6 +983,8 @@ blocked = (
     + planned_evidence_labels
     + [item["name"] for item in requirement_results if item.get("status") != "satisfied"]
 )
+if run_evidence is not None and not run_evidence["certificationReady"]:
+    blocked.append("run certification evidence")
 ok = not blocked
 status = "ready" if ok else "blocked"
 
@@ -628,6 +1037,9 @@ next_step_commands = {
         "zmr-benchmark --zmr .zmr/android-smoke.json --platform <platform> --device <device-id> --app-id <app-id> --app-build <build-id-or-artifact> --runs 20 --trace-root traces/bench-comparison/zmr --results traces/bench-comparison/results.jsonl --replace --min-pass-rate 100 --max-failures 0",
         "zmr-benchmark-command --tool <baseline-name> --platform <platform> --device <device-id> --app-id <app-id> --scenario .zmr/android-smoke.json --app-build <build-id-or-artifact> --runs 20 --trace-root traces/bench-comparison/baseline --results traces/bench-comparison/results.jsonl -- <baseline command>",
         "zmr-compare-benchmarks --results traces/bench-comparison/results.jsonl --candidate zmr --baseline <baseline-name> --min-candidate-pass-rate 100 --max-candidate-failures 0 --min-mean-speedup 1.25 --min-p95-speedup 1.25 --out traces/bench-comparison/report.md --evidence-out traces/bench-comparison/evidence.jsonl",
+    ],
+    "run certification evidence": [
+        "zmr-release-readiness --evidence <evidence.jsonl> --run-summary <publication-dir> --attempt-index <publication-dir>/attempt-index.json --target production --json"
     ],
 }
 
@@ -823,6 +1235,8 @@ result = {
     "recommendedWording": recommended_wording,
     "claimLimitations": claim_limitations,
 }
+if run_evidence is not None:
+    result["runEvidence"] = run_evidence
 
 if json_mode:
     print(json.dumps(result, separators=(",", ":")))
@@ -877,5 +1291,14 @@ else:
         print("Next steps:")
         for item in next_steps:
             print(f"- {item['requirement']}: {item['command']}")
+    if run_evidence is not None:
+        print("")
+        print("Run evidence:")
+        print(f"- attempts: {run_evidence['attempts']}")
+        print(f"- logical executions: {run_evidence['logicalExecutions']}")
+        print(f"- eligible logical executions: {run_evidence['eligibleLogicalExecutions']}")
+        print(f"- certification ready: {str(run_evidence['certificationReady']).lower()}")
+        for reason in run_evidence["blockingReasons"]:
+            print(f"- blocker: {reason}")
 
 sys.exit(0 if ok else 1)

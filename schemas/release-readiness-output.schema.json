@@ -63,7 +63,10 @@
               "required": ["status"]
             },
             "then": {
-              "required": ["evidenceName"]
+              "required": ["evidenceName"],
+              "properties": {
+                "evidenceName": true
+              }
             }
           },
           {
@@ -74,7 +77,10 @@
               "required": ["status"]
             },
             "then": {
-              "required": ["reason"]
+              "required": ["reason"],
+              "properties": {
+                "reason": true
+              }
             }
           }
         ],
@@ -110,6 +116,61 @@
             "minItems": 1,
             "items": { "type": "string", "minLength": 1 }
           }
+        }
+      }
+    },
+    "runEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempts", "logicalExecutions", "eligibleLogicalExecutions", "firstAttemptPassRate", "eventualPassRate", "classificationCounts", "certificationMinimum", "certificationReady", "cohorts", "blockingReasons", "diagnostics"],
+      "properties": {
+        "attempts": { "type": "integer", "minimum": 0 },
+        "logicalExecutions": { "type": "integer", "minimum": 0 },
+        "eligibleLogicalExecutions": { "type": "integer", "minimum": 0 },
+        "firstAttemptPassRate": { "type": "number", "minimum": 0, "maximum": 100 },
+        "eventualPassRate": { "type": "number", "minimum": 0, "maximum": 100 },
+        "classificationCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "runner_failure", "app_failure", "infrastructure_failure", "configuration_failure", "cancelled"],
+          "properties": {
+            "passed": { "type": "integer", "minimum": 0 },
+            "runner_failure": { "type": "integer", "minimum": 0 },
+            "app_failure": { "type": "integer", "minimum": 0 },
+            "infrastructure_failure": { "type": "integer", "minimum": 0 },
+            "configuration_failure": { "type": "integer", "minimum": 0 },
+            "cancelled": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "certificationMinimum": { "type": "integer", "minimum": 1 },
+        "certificationReady": { "type": "boolean" },
+        "cohorts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidateRevision", "comparabilityKey", "logicalExecutions", "eligibleLogicalExecutions"],
+            "properties": {
+              "candidateRevision": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "comparabilityKey": {
+                "type": ["string", "null"],
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "logicalExecutions": { "type": "integer", "minimum": 1 },
+              "eligibleLogicalExecutions": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "blockingReasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },

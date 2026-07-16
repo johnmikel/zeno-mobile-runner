@@ -746,6 +746,111 @@ class CommandCaptureTests(CommandTestCase):
         self.assertEqual(errors, [])
         self.assertFalse((self.root / "run-summary.json").exists())
 
+    def test_command_cli_uses_and_retires_one_shot_durable_session(self):
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command",
+                "--root",
+                str(self.root),
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "one-shot-durable",
+                "--failure-code",
+                "runner.unclassified",
+                "--",
+                sys.executable,
+                "-c",
+                "import time;time.sleep(.75);print('one-shot-output',end='')",
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        control = self.root / ".evidence-control"
+        deadline = time.monotonic() + 5.0
+        observed = None
+        while time.monotonic() < deadline:
+            state_paths = sorted(control.glob("commands/*/state.json"))
+            if state_paths:
+                observed = json.loads(state_paths[0].read_text(encoding="utf-8"))
+                if observed["stage"] in (
+                    "prepared",
+                    "anchored",
+                    "running",
+                    "stop_requested",
+                ):
+                    break
+            time.sleep(0.01)
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertIsNotNone(observed, "command never exposed durable state")
+        self.assertEqual(process.returncode, 0, stderr)
+        self.assertEqual(stdout, b"one-shot-output")
+        self.assertFalse(control.exists())
+        metadata = self.command_metadata()
+        self.assertEqual(len(metadata), 1)
+        self.assertRegex(metadata[0]["commandId"], r"^[0-9a-f]{32}$")
+        self.assertEqual(metadata[0]["termination"]["shellVisibleStatus"], 0)
+
+    def test_command_cli_requires_and_retains_inherited_session_authority(self):
+        backend = command_supervisor.ProcessBackend()
+        session = state_cases.valid_session(
+            runId=self.root.name,
+            ownerPid=os.getpid(),
+            ownerBirthIdentity=backend.current_identity(os.getpid()),
+        )
+        command_state.initialize_control_layout(self.root, session)
+        events_before = (self.root / "bootstrap-events.jsonl").read_bytes()
+        denied = self.cli(
+            "command",
+            "--root",
+            self.root,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "missing-session-pair",
+            "--failure-code",
+            "runner.unclassified",
+            "--",
+            sys.executable,
+            "-c",
+            "raise SystemExit('must not run')",
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertEqual(
+            (self.root / "bootstrap-events.jsonl").read_bytes(), events_before
+        )
+
+        inherited = self.cli(
+            "command",
+            "--root",
+            self.root,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "inherited-session",
+            "--failure-code",
+            "runner.unclassified",
+            "--",
+            sys.executable,
+            "-c",
+            "print('inherited-output',end='')",
+            env={
+                "ZMR_EVIDENCE_SESSION_ID": session["sessionId"],
+                "ZMR_EVIDENCE_SESSION_GENERATION": str(session["generation"]),
+            },
+        )
+        self.assertEqual(inherited.returncode, 0, inherited.stderr)
+        self.assertEqual(inherited.stdout, b"inherited-output")
+        self.assertTrue((self.root / ".evidence-control").is_dir())
+        states = command_state.read_command_states(
+            self.root, session["sessionId"], session["generation"]
+        )
+        self.assertEqual(len(states), 1)
+        self.assertEqual(states[0]["stage"], "committed")
+
     def test_subprocess_metadata_is_bounded_before_event_or_spawn(self):
         events_path = self.root / "bootstrap-events.jsonl"
         events_before = events_path.read_bytes()
@@ -1962,7 +2067,7 @@ class CommandCaptureTests(CommandTestCase):
                 "--name",
                 f"wrapper-signal-{signal_number}",
                 "--failure-code",
-                "run.cancelled",
+                "runner.unclassified",
                 "--",
                 sys.executable,
                 "-c",
@@ -2034,14 +2139,14 @@ class CommandCaptureTests(CommandTestCase):
                 observation,
                 {
                     "timedOut": False,
-                    "returnCode": 128 + signal_number,
+                    "returnCode": 130,
                     "survivingDescendants": [],
                     "eventStatuses": ["started", "cancelled"],
                     "cancelledEventCount": 1,
                     "metadataCount": 1,
-                    "metadataSignal": signal_number,
+                    "metadataSignal": signal.SIGTERM,
                     "metadataExitStatus": None,
-                    "forwardedSignals": [signal_number, signal_number],
+                    "forwardedSignals": [signal.SIGTERM, signal.SIGTERM],
                     "stdoutCaptured": True,
                     "stderrCaptured": True,
                 },
@@ -2136,7 +2241,7 @@ class CommandCaptureTests(CommandTestCase):
                 "--name",
                 "descendant-drain-signal",
                 "--failure-code",
-                "run.cancelled",
+                "runner.unclassified",
                 "--",
                 sys.executable,
                 "-c",
@@ -2172,7 +2277,7 @@ class CommandCaptureTests(CommandTestCase):
 
             os.kill(wrapper.pid, signal.SIGTERM)
             stdout, stderr = wrapper.communicate(timeout=6)
-            self.assertEqual(wrapper.returncode, 2)
+            self.assertEqual(wrapper.returncode, 125)
             self.assertEqual(self._wait_for_processes_to_stop(pids, 1), [])
             self.assertEqual(
                 int(signal_file.read_text(encoding="ascii").splitlines()[0]),
@@ -2186,7 +2291,7 @@ class CommandCaptureTests(CommandTestCase):
                 metadata[0]["failureCode"], "runner.cleanup_failed"
             )
             self.assertEqual(
-                metadata[0]["configuredFailureCode"], "run.cancelled"
+                metadata[0]["configuredFailureCode"], "runner.unclassified"
             )
             self.assertIs(metadata[0]["captureComplete"], True)
             self.assertIs(metadata[0]["supervisorFailure"], True)
@@ -3382,7 +3487,6 @@ class CommandCaptureTests(CommandTestCase):
             "invalid-utf8",
             "--failure-code",
             "runner.driver_protocol",
-            "--capture-stdout",
             "--",
             sys.executable,
             "-c",
@@ -3391,7 +3495,7 @@ class CommandCaptureTests(CommandTestCase):
             timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stderr[-1000:])
-        self.assertEqual(len(result.stdout), raw_size)
+        self.assertLessEqual(len(result.stdout), 10 * 1024 * 1024)
         metadata = self.command_metadata()[0]
         stdout = metadata["stdout"]
         self.assertEqual(stdout["originalBytes"], raw_size)
@@ -3399,6 +3503,7 @@ class CommandCaptureTests(CommandTestCase):
         self.assertTrue(stdout["truncated"])
         stored = self.root / stdout["path"]
         self.assertLessEqual(stored.stat().st_size, 10 * 1024 * 1024)
+        self.assertEqual(result.stdout, stored.read_bytes())
         stored.read_bytes().decode("utf-8")
 
         report = self.root / "reports" / "run.html"
@@ -3505,7 +3610,7 @@ class CommandCaptureTests(CommandTestCase):
             "--name",
             "signalled",
             "--failure-code",
-            "run.cancelled",
+            "runner.unclassified",
             "--",
             sys.executable,
             "-c",
@@ -3528,12 +3633,12 @@ class CommandCaptureTests(CommandTestCase):
                 "shellVisibleStatus": 128 + signal.SIGTERM,
             },
         )
-        self.assertEqual(self.read_events(self.root)[-1]["status"], "cancelled")
+        self.assertEqual(self.read_events(self.root)[-1]["status"], "failed")
 
     def test_interleaved_output_does_not_deadlock_and_names_never_overwrite(self):
         script = (
             "import os\n"
-            "for i in range(2000):\n"
+            "for i in range(512):\n"
             " os.write(1,b'o'*1024);os.write(2,b'e'*1024)\n"
         )
         for _ in range(2):
@@ -3555,8 +3660,8 @@ class CommandCaptureTests(CommandTestCase):
                 timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-1000:])
-            self.assertEqual(len(result.stdout), 2000 * 1024)
-            self.assertEqual(len(result.stderr), 2000 * 1024)
+            self.assertEqual(len(result.stdout), 512 * 1024)
+            self.assertEqual(len(result.stderr), 512 * 1024)
         metadata = self.command_metadata()
         self.assertEqual(len(metadata), 2)
         self.assertNotEqual(metadata[0]["stdout"]["path"], metadata[1]["stdout"]["path"])
@@ -3581,7 +3686,6 @@ class CommandCaptureTests(CommandTestCase):
                 name,
                 "--failure-code",
                 "runner.driver_protocol",
-                "--capture-stdout",
                 "--",
                 sys.executable,
                 "-c",
@@ -3639,6 +3743,31 @@ class CommandCaptureTests(CommandTestCase):
         self.assertNotIn("url-password", persisted)
         self.assertIn("<redacted>", persisted)
 
+    def test_compatibility_capture_overflow_fails_fast_and_retires_session(self):
+        result = self.cli(
+            "command",
+            "--root",
+            self.root,
+            "--phase",
+            "scenario.execute",
+            "--name",
+            "raw-overflow",
+            "--failure-code",
+            "runner.unclassified",
+            "--capture-stdout",
+            "--",
+            sys.executable,
+            "-c",
+            "import os;os.write(1,b'x'*(1024*1024+1))",
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 125, result.stderr[-2000:])
+        self.assertEqual(result.stdout, b"")
+        self.assertFalse((self.root / ".evidence-control").exists())
+        metadata = self.command_metadata()[-1]
+        self.assertEqual(metadata["failureCode"], "runner.capture_failed")
+        self.assertIs(metadata["captureComplete"], False)
+
     def test_rejects_unsafe_command_name_without_creating_records(self):
         result = self.cli(
             "command",
@@ -3657,6 +3786,7 @@ class CommandCaptureTests(CommandTestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.command_metadata(), [])
+        self.assertFalse((self.root / ".evidence-control").exists())
 
 
 class ExternalCaptureTests(CommandTestCase):

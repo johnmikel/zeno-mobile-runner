@@ -293,7 +293,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         command_argv = list(args.command_argv)
         if command_argv and command_argv[0] == "--":
             command_argv.pop(0)
-        return_code = _run_command(
+        return_code = run_compatibility_command(
             args.root,
             args.phase,
             args.name,

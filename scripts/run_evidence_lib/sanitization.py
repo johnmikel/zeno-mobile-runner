@@ -710,6 +710,23 @@ def _credential_flag(value: str) -> bool:
     return bool(segments & _SENSITIVE_NAME_SEGMENTS)
 
 
+def _escape_argv_controls(value: str) -> str:
+    escaped: list[str] = []
+    for character in value:
+        codepoint = ord(character)
+        if character == "\n":
+            escaped.append("\\n")
+        elif character == "\r":
+            escaped.append("\\r")
+        elif character == "\t":
+            escaped.append("\\t")
+        elif codepoint <= 0x1F or codepoint == 0x7F:
+            escaped.append(f"\\u{codepoint:04x}")
+        else:
+            escaped.append(character)
+    return "".join(escaped)
+
+
 def _sanitize_argv(
     argv: list[str], *, roots: dict[str, str], secrets: list[str]
 ) -> list[str]:
@@ -745,7 +762,7 @@ def _sanitize_argv(
                 secrets=owned_secrets,
             )
         )
-    return sanitized
+    return [_escape_argv_controls(argument) for argument in sanitized]
 
 __all__ = (
     "_SANITIZATION_INPUT_LIMIT_DIAGNOSTIC",
@@ -762,5 +779,6 @@ __all__ = (
     "_sanitize_value_validated",
     "_sanitize_value",
     "_credential_flag",
+    "_escape_argv_controls",
     "_sanitize_argv",
 )

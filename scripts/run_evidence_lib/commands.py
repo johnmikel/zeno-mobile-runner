@@ -2174,6 +2174,193 @@ def supervise_command(
                 pass
 
 
+def _compatibility_session_pair() -> tuple[str, int] | None:
+    session_id = os.environ.get("ZMR_EVIDENCE_SESSION_ID")
+    generation_text = os.environ.get("ZMR_EVIDENCE_SESSION_GENERATION")
+    if (session_id is None) != (generation_text is None):
+        raise ValueError("inherited evidence session authority is incomplete")
+    if session_id is None:
+        return None
+    try:
+        generation = int(generation_text)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("inherited evidence session generation is invalid") from exc
+    return (
+        command_state._identifier(session_id, "inherited sessionId"),
+        command_state._integer(
+            generation, "inherited session generation", minimum=1
+        ),
+    )
+
+
+def _capture_compatibility_command(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    phase: str,
+    name: str,
+    failure_code: str,
+    argv: list[str],
+    *,
+    stderr_stream: Any,
+) -> tuple[dict[str, Any], bytes]:
+    """Run one raw-stdout command over the same bounded anonymous envelope."""
+
+    from .command_supervisor import (
+        CAPTURE_ENVELOPE_LIMIT,
+        decode_capture_envelope,
+    )
+
+    read_fd, write_fd = os.pipe()
+    chunks: list[bytes] = []
+    errors: list[BaseException] = []
+
+    def drain() -> None:
+        total = 0
+        try:
+            while True:
+                chunk = os.read(read_fd, 65_536)
+                if not chunk:
+                    return
+                total += len(chunk)
+                if total > CAPTURE_ENVELOPE_LIMIT:
+                    raise ValueError("capture envelope exceeds its limit")
+                chunks.append(chunk)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            os.close(read_fd)
+
+    reader = threading.Thread(
+        target=drain,
+        name=f"compatibility-capture-{command_id}",
+    )
+    reader.start()
+    try:
+        state = supervise_command(
+            root,
+            session_id,
+            generation,
+            command_id,
+            phase,
+            name,
+            failure_code,
+            "handled",
+            "none",
+            "capture-stdout",
+            "inherit",
+            argv,
+            capture_fd=write_fd,
+            stderr_stream=stderr_stream,
+        )
+    finally:
+        try:
+            os.close(write_fd)
+        except OSError:
+            pass
+        reader.join(timeout=5.0)
+    if reader.is_alive():
+        raise TimeoutError("capture envelope reader did not finish")
+    if errors:
+        raise errors[0]
+    if not chunks and state["capture"]["captureComplete"] is False:
+        return state, b""
+    decoded = decode_capture_envelope(
+        b"".join(chunks), expected_command_id=command_id
+    )
+    return state, decoded["stdout"]
+
+
+def run_compatibility_command(
+    root: Path,
+    phase: str,
+    name: str,
+    failure_code: str,
+    argv: list[str],
+    *,
+    capture_stdout: bool = False,
+    stdout_stream: Any = None,
+    stderr_stream: Any = None,
+) -> int:
+    """Run the legacy CLI surface through a durable inherited or one-shot session."""
+
+    from . import session as session_api
+
+    root = Path(root).absolute()
+    inherited = _compatibility_session_pair()
+    one_shot = inherited is None
+    if one_shot:
+        if os.path.lexists(root / command_state.CONTROL_DIRECTORY_NAME) or os.path.lexists(
+            root / command_state.CONTROL_RETIREMENT_NAME
+        ):
+            raise PermissionError(
+                "existing evidence control requires inherited session authority"
+            )
+        claimed = session_api.claim_session(root, os.getppid())
+        session_id = claimed["sessionId"]
+        generation = claimed["generation"]
+    else:
+        session_id, generation = inherited
+        status = session_api.session_status(root, session_id, generation)
+        if status["state"] != "active":
+            raise ValueError("inherited evidence session is not active")
+
+    command_id = new_command_id()
+    if stdout_stream is None:
+        stdout_stream = sys.stdout
+    if stderr_stream is None:
+        stderr_stream = sys.stderr
+    state: dict[str, Any] | None = None
+    raw_stdout: bytes | None = None
+    try:
+        if capture_stdout:
+            state, raw_stdout = _capture_compatibility_command(
+                root,
+                session_id,
+                generation,
+                command_id,
+                phase,
+                name,
+                failure_code,
+                argv,
+                stderr_stream=stderr_stream,
+            )
+        else:
+            state = supervise_command(
+                root,
+                session_id,
+                generation,
+                command_id,
+                phase,
+                name,
+                failure_code,
+                "handled",
+                "none",
+                "foreground",
+                "inherit",
+                argv,
+                stdout_stream=stdout_stream,
+                stderr_stream=stderr_stream,
+            )
+        if raw_stdout is not None:
+            _replay_bytes(stdout_stream, raw_stdout)
+        return state["outcome"]["shellVisibleStatus"]
+    finally:
+        if one_shot:
+            states = command_state.read_command_states(
+                root, session_id, generation
+            )
+            if all(item["stage"] == "committed" for item in states):
+                command_state.transition_session_state(
+                    root, session_id, generation, "finalizing"
+                )
+                command_state.transition_session_state(
+                    root, session_id, generation, "committed"
+                )
+                command_state.cleanup_committed_control_layout(root)
+
+
 def _preflight_started_and_terminal_events(
     root: Path,
     phase: str,
@@ -2951,6 +3138,7 @@ __all__ = (
     "stop_command",
     "recover_commands",
     "supervise_command",
+    "run_compatibility_command",
     "_run_command_during_lifecycle",
     "_run_command",
     "_record_external_during_lifecycle",

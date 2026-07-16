@@ -99,7 +99,13 @@ def _duration_ms(started_at: Any, finished_at: str) -> int:
         return 0
     started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
     finished = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
-    return max(0, int((finished - started).total_seconds() * 1000))
+    delta = finished - started
+    microseconds = (
+        delta.days * 86_400_000_000
+        + delta.seconds * 1_000_000
+        + delta.microseconds
+    )
+    return max(0, microseconds // 1000)
 
 
 def _summary_artifacts(context: dict) -> dict:

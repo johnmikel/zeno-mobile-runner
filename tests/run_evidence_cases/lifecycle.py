@@ -212,6 +212,15 @@ class AttemptIndexTests(StorageTestCase):
 
 
 class LifecycleTests(StorageTestCase):
+    def test_summary_duration_uses_exact_integer_milliseconds(self):
+        self.assertEqual(
+            run_evidence.summaries._duration_ms(
+                "2026-07-16T00:00:00.000Z",
+                "2026-07-16T00:00:01.001Z",
+            ),
+            1001,
+        )
+
     def initialize(self, context=None):
         context = valid_context() if context is None else context
         root = self.attempt_root(context["runId"])

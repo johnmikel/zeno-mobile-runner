@@ -29,6 +29,48 @@ from .sanitization import *  # noqa: F401,F403
 from .safe_io import *  # noqa: F401,F403
 from .journal import *  # noqa: F401,F403
 
+
+@contextmanager
+def _ordinary_session_gate(
+    root: Path,
+    session_id: str | None,
+    generation: int | None,
+):
+    """Bind ordinary mutations to one active owner/borrower session."""
+
+    from . import command_state
+    from . import session as session_api
+
+    root = Path(root).absolute()
+    if (session_id is None) != (generation is None):
+        raise ValueError("session-id and generation must be supplied together")
+    control = root / command_state.CONTROL_DIRECTORY_NAME
+    retirement = root / command_state.CONTROL_RETIREMENT_NAME
+    if _evidence_exists(retirement):
+        raise ValueError("retiring evidence control state blocks mutation")
+    if not _evidence_exists(control):
+        if session_id is not None:
+            raise ValueError("session authority was supplied without control state")
+        yield
+        return
+    if session_id is None or generation is None:
+        raise PermissionError("active evidence control requires session authority")
+    with command_state._stable_lock(
+        command_state._control_path(root, command_state.COMMANDS_LOCK_NAME)
+    ):
+        command_state._validate_control_layout_unlocked(root)
+        stored = command_state._load_session_unlocked(root)
+        command_state._authorize_session(stored, session_id, generation)
+        command_state._load_terminal_intent_unlocked(
+            root, stored["sessionId"], stored["generation"]
+        )
+        session_api._caller_role(
+            stored, os.getppid(), session_api._process_backend()
+        )
+        if stored["state"] != "active":
+            raise ValueError("ordinary mutation requires an active session")
+        yield
+
 def _load_index(index_path: Path) -> dict:
     if not _evidence_exists(Path(index_path)):
         return {"schemaVersion": "1.0", "executions": []}
@@ -264,6 +306,8 @@ def update_context(
     root: Path,
     patch: dict,
     *,
+    session_id: str | None = None,
+    generation: int | None = None,
     _recovered_transactions: list[dict] | None = None,
 ) -> dict:
     """Patch allowlisted context fields while preserving execution identity."""
@@ -312,6 +356,9 @@ def update_context(
                 sibling_roots.values(), key=lambda item: item.name
             )
             with ExitStack() as locks:
+                locks.enter_context(
+                    _ordinary_session_gate(root, session_id, generation)
+                )
                 for sibling_root in ordered_sibling_roots:
                     locks.enter_context(
                         _exclusive_lock(sibling_root / ".context.lock")
@@ -571,11 +618,20 @@ def _append_event_during_lifecycle(
 
 
 @_rooted_attempt_mutation
-def _append_event(root: Path, phase: str, status: str, **metadata: Any) -> dict:
+def _append_event(
+    root: Path,
+    phase: str,
+    status: str,
+    *,
+    session_id: str | None = None,
+    generation: int | None = None,
+    **metadata: Any,
+) -> dict:
     root = Path(root)
     _recover_pending_transactions(_publication_root_for_attempt(root))
-    with _exclusive_lock(root / ".lifecycle.lock"):
-        return _append_event_during_lifecycle(root, phase, status, **metadata)
+    with _ordinary_session_gate(root, session_id, generation):
+        with _exclusive_lock(root / ".lifecycle.lock"):
+            return _append_event_during_lifecycle(root, phase, status, **metadata)
 
 
 @_rooted_index_mutation
@@ -660,6 +716,7 @@ __all__ = (
     "_merge_resolved_identity",
     "_execution_for_run",
     "_context_with_registered_tuple",
+    "_ordinary_session_gate",
     "update_context",
     "_read_bootstrap_events",
     "_event_stream_candidate",

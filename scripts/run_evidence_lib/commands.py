@@ -2925,13 +2925,17 @@ def _record_external(
     outcome: str,
     failure_code: str,
     remediation: str,
+    *,
+    session_id: str | None = None,
+    generation: int | None = None,
 ) -> int:
     root = Path(root)
     _recover_pending_transactions(_publication_root_for_attempt(root))
-    with _exclusive_lock(root / ".lifecycle.lock"):
-        return _record_external_during_lifecycle(
-            root, phase, name, outcome, failure_code, remediation
-        )
+    with _ordinary_session_gate(root, session_id, generation):
+        with _exclusive_lock(root / ".lifecycle.lock"):
+            return _record_external_during_lifecycle(
+                root, phase, name, outcome, failure_code, remediation
+            )
 
 __all__ = (
     "_validate_command_name",

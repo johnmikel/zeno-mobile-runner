@@ -312,6 +312,121 @@ class CliAndAggregateTests(StorageTestCase):
         invalid = self.cli("validate", "--summary", summary_path)
         self.assertNotEqual(invalid.returncode, 0)
 
+    def test_active_session_requires_exact_pair_for_ordinary_mutations(self):
+        root = self.attempt_root("session-bound")
+        initialized = self.cli(
+            "init",
+            "--root",
+            root,
+            "--context-json",
+            json.dumps(
+                valid_context(runId="session-bound", runtimeVersion=None)
+            ),
+            "--index",
+            self.index_path,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        claimed = self.cli(
+            "session-claim",
+            "--root",
+            root,
+            "--owner-pid",
+            os.getpid(),
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        session = json.loads(claimed.stdout)
+        baseline = (root / "bootstrap-events.jsonl").read_bytes()
+
+        missing = self.cli(
+            "event",
+            "--root",
+            root,
+            "--phase",
+            "scenario.execute",
+            "--status",
+            "started",
+        )
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertEqual((root / "bootstrap-events.jsonl").read_bytes(), baseline)
+
+        partial = self.cli(
+            "context",
+            "--root",
+            root,
+            "--set-json",
+            json.dumps({"runtimeVersion": "18.6"}),
+            "--session-id",
+            session["sessionId"],
+        )
+        self.assertNotEqual(partial.returncode, 0)
+        self.assertIsNone(
+            self.read_json(root / "run-context.json")["runtimeVersion"]
+        )
+
+        pair = (
+            "--session-id",
+            session["sessionId"],
+            "--generation",
+            str(session["generation"]),
+        )
+        event = self.cli(
+            "event",
+            "--root",
+            root,
+            "--phase",
+            "scenario.execute",
+            "--status",
+            "started",
+            *pair,
+        )
+        self.assertEqual(event.returncode, 0, event.stderr)
+        context = self.cli(
+            "context",
+            "--root",
+            root,
+            "--set-json",
+            json.dumps({"runtimeVersion": "18.6"}),
+            *pair,
+        )
+        self.assertEqual(context.returncode, 0, context.stderr)
+        external = self.cli(
+            "external",
+            "--root",
+            root,
+            "--phase",
+            "report.generate",
+            "--name",
+            "hosted-report",
+            "--outcome",
+            "success",
+            "--failure-code",
+            "runner.report_failed",
+            "--remediation",
+            "Inspect hosted logs",
+            *pair,
+        )
+        self.assertEqual(external.returncode, 0, external.stderr)
+
+        closed = self.cli(
+            "session-close", "--root", root, *pair
+        )
+        self.assertEqual(closed.returncode, 0, closed.stderr)
+        after_close = self.cli(
+            "event",
+            "--root",
+            root,
+            "--phase",
+            "cleanup",
+            "--status",
+            "started",
+            *pair,
+        )
+        self.assertNotEqual(after_close.returncode, 0)
+        legacy_finalize = self.cli(
+            "finalize", "--root", root, "--status", "passed"
+        )
+        self.assertNotEqual(legacy_finalize.returncode, 0)
+
     def test_cli_diagnostics_are_sanitized(self):
         secret = "diagnostic-secret"
         root = self.attempt_root("run-1")

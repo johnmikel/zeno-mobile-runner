@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import bounded_io
+from . import command_state
 from . import constants as _limits
 from .constants import *  # noqa: F401,F403
 from .contracts import *  # noqa: F401,F403
@@ -71,6 +72,8 @@ def _build_parser() -> argparse.ArgumentParser:
     context_parser = subparsers.add_parser("context")
     context_parser.add_argument("--root", required=True, type=Path)
     context_parser.add_argument("--set-json", required=True)
+    context_parser.add_argument("--session-id")
+    context_parser.add_argument("--generation", type=int)
 
     event_parser = subparsers.add_parser("event")
     event_parser.add_argument("--root", required=True, type=Path)
@@ -81,6 +84,8 @@ def _build_parser() -> argparse.ArgumentParser:
     event_parser.add_argument("--command")
     event_parser.add_argument("--command-status", type=int)
     event_parser.add_argument("--artifact")
+    event_parser.add_argument("--session-id")
+    event_parser.add_argument("--generation", type=int)
 
     command_parser = subparsers.add_parser("command")
     command_parser.add_argument("--root", required=True, type=Path)
@@ -182,6 +187,8 @@ def _build_parser() -> argparse.ArgumentParser:
             f"(maximum {MAX_EXTERNAL_REMEDIATION_BYTES} UTF-8 bytes)"
         ),
     )
+    external_parser.add_argument("--session-id")
+    external_parser.add_argument("--generation", type=int)
 
     finalize_parser = subparsers.add_parser("finalize")
     finalize_parser.add_argument("--root", required=True, type=Path)
@@ -254,7 +261,14 @@ def _dispatch(args: argparse.Namespace) -> int:
         return 0
     if args.action == "context":
         patch = _parse_json_argument(args.set_json, "--set-json")
-        _print_json(update_context(args.root, patch))
+        _print_json(
+            update_context(
+                args.root,
+                patch,
+                session_id=args.session_id,
+                generation=args.generation,
+            )
+        )
         return 0
     if args.action == "event":
         metadata = {
@@ -264,7 +278,16 @@ def _dispatch(args: argparse.Namespace) -> int:
             "commandStatus": args.command_status,
             "artifact": args.artifact,
         }
-        _print_json(_append_event(args.root, args.phase, args.status, **metadata))
+        _print_json(
+            _append_event(
+                args.root,
+                args.phase,
+                args.status,
+                session_id=args.session_id,
+                generation=args.generation,
+                **metadata,
+            )
+        )
         return 0
     if args.action == "command":
         command_argv = list(args.command_argv)
@@ -366,8 +389,16 @@ def _dispatch(args: argparse.Namespace) -> int:
             args.outcome,
             args.failure_code,
             args.remediation,
+            session_id=args.session_id,
+            generation=args.generation,
         )
     if args.action == "finalize":
+        control = args.root / command_state.CONTROL_DIRECTORY_NAME
+        retirement = args.root / command_state.CONTROL_RETIREMENT_NAME
+        if os.path.lexists(control) or os.path.lexists(retirement):
+            raise ValueError(
+                "legacy finalize is forbidden while evidence control exists"
+            )
         artifact_patch = {
             key: value
             for key, value in (("trace", args.trace), ("report", args.report))

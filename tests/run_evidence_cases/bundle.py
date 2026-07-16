@@ -257,7 +257,7 @@ class BundleValidationTests(CommandTestCase):
                 1,
                 event,
                 {reference: run_evidence.bundle._command_link_projection(metadata)},
-                {reference: 0},
+                {reference: {"started": 0, "terminal": 0}},
                 None,
                 link_errors,
             )

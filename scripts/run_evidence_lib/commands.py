@@ -1811,6 +1811,126 @@ def command_status(
             time.sleep(0.02)
 
 
+def stop_command(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    kind: str,
+    *,
+    grace_seconds: float = 2.0,
+    process_backend: Any | None = None,
+) -> dict[str, Any]:
+    """Persist stop intent, signal the verified group, and await commitment."""
+
+    from . import session as session_api
+    from .command_supervisor import ProcessBackend, _verify_live_anchor
+
+    root = Path(root).absolute()
+    session_api.session_status(root, session_id, generation)
+    backend = ProcessBackend() if process_backend is None else process_backend
+    state = command_state.persist_command_stop_intent(
+        root, session_id, generation, command_id, kind
+    )
+    anchor = state["anchor"]
+    if anchor is None:
+        raise ValueError("stoppable command has no anchor identity")
+    _verify_live_anchor(anchor, backend)
+    try:
+        os.killpg(anchor["pgid"], signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        status = command_status(
+            root, session_id, generation, command_id, wait=False
+        )
+        if status["stage"] == "committed":
+            return status
+        time.sleep(0.02)
+
+    current = command_state.read_command_state(root, command_id, session_id)
+    if current["stage"] == "committed":
+        return command_status(
+            root, session_id, generation, command_id, wait=False
+        )
+    if current["stage"] in ("exited", "materialized"):
+        completion_deadline = time.monotonic() + 5.0
+        while time.monotonic() < completion_deadline:
+            status = command_status(
+                root, session_id, generation, command_id, wait=False
+            )
+            if status["stage"] == "committed":
+                return status
+            time.sleep(0.02)
+        raise TimeoutError("stopped command did not commit its evidence")
+
+    escalated = command_state.persist_command_kill_authorization(
+        root, session_id, generation, command_id
+    )
+    _verify_live_anchor(escalated["anchor"], backend)
+    try:
+        os.killpg(escalated["anchor"]["pgid"], signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    completion_deadline = time.monotonic() + 5.0
+    while time.monotonic() < completion_deadline:
+        status = command_status(
+            root, session_id, generation, command_id, wait=False
+        )
+        if status["stage"] == "committed":
+            return status
+        time.sleep(0.02)
+    raise TimeoutError("escalated command did not commit its evidence")
+
+
+def recover_commands(
+    root: Path,
+    session_id: str,
+    generation: int,
+    *,
+    cancel_live: bool = False,
+) -> dict[str, Any]:
+    """Recover every stale command in one authorized session snapshot."""
+
+    from . import session as session_api
+    from .command_supervisor import recover_command
+
+    if type(cancel_live) is not bool:
+        raise ValueError("cancel-live must be a boolean")
+    root = Path(root).absolute()
+    session_api.session_status(root, session_id, generation)
+    states = command_state.read_command_states(root, session_id, generation)
+    command_ids = sorted(state["commandId"] for state in states)
+    busy: list[str] = []
+    for state in sorted(states, key=lambda item: item["commandId"]):
+        command_id = state["commandId"]
+        if state["stage"] == "committed":
+            verify_committed_command_materialization(
+                root, session_id, generation, command_id
+            )
+            continue
+        try:
+            recover_command(root, session_id, generation, command_id)
+        except TimeoutError:
+            if not cancel_live:
+                busy.append(command_id)
+                continue
+            stop_command(
+                root,
+                session_id,
+                generation,
+                command_id,
+                "cancel",
+            )
+    return {
+        "schemaVersion": 1,
+        "commands": command_ids,
+        "busy": busy,
+    }
+
+
 def _prepared_command_state(
     *,
     root: Path,
@@ -2824,6 +2944,8 @@ __all__ = (
     "verify_committed_command_materialization",
     "new_command_id",
     "command_status",
+    "stop_command",
+    "recover_commands",
     "supervise_command",
     "_run_command_during_lifecycle",
     "_run_command",

@@ -250,6 +250,340 @@ class CommandCaptureTests(CommandTestCase):
         commands_root = self.root / ".evidence-control" / "commands"
         self.assertEqual(list(commands_root.iterdir()), [])
 
+    def test_command_stop_cli_persists_expected_stop_before_group_term(self):
+        backend = command_supervisor.ProcessBackend()
+        command_state.initialize_control_layout(
+            self.root,
+            state_cases.valid_session(
+                runId=self.root.name,
+                ownerPid=os.getpid(),
+                ownerBirthIdentity=backend.current_identity(os.getpid()),
+            ),
+        )
+        command_id = state_cases.COMMAND_ID
+        supervisor = subprocess.Popen(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command-supervise",
+                "--root",
+                str(self.root),
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                "1",
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "expected-stop",
+                "--failure-code",
+                "runner.driver_protocol",
+                "--failure-policy",
+                "handled",
+                "--stop-policy",
+                "expected-term",
+                "--mode",
+                "background",
+                "--stdin-policy",
+                "devnull",
+                "--",
+                sys.executable,
+                "-c",
+                "import time;time.sleep(30)",
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        def cleanup_supervisor():
+            if supervisor.poll() is None:
+                supervisor.kill()
+            supervisor.communicate(timeout=5)
+
+        self.addCleanup(cleanup_supervisor)
+        deadline = time.monotonic() + 8.0
+        while time.monotonic() < deadline:
+            status = self.cli(
+                "command-status",
+                "--root",
+                self.root,
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                1,
+                text=True,
+            )
+            if status.returncode == 0:
+                payload = json.loads(status.stdout)
+                if payload["stage"] == "running":
+                    break
+            time.sleep(0.02)
+        else:
+            self.fail("durable command did not reach running state")
+
+        stopped = self.cli(
+            "command-stop",
+            "--root",
+            self.root,
+            "--command-id",
+            command_id,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            "--kind",
+            "expected",
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+        stop_status = json.loads(stopped.stdout)
+        self.assertEqual(stop_status["stage"], "committed")
+        self.assertEqual(stop_status["shellStatus"], 0)
+        stdout, stderr = supervisor.communicate(timeout=10)
+        self.assertEqual(supervisor.returncode, 0, stderr)
+        self.assertEqual(stdout, b"")
+        state = command_state.read_command_state(
+            self.root, command_id, state_cases.SESSION_ID
+        )
+        self.assertEqual(state["stopIntent"]["kind"], "expected")
+        self.assertIsNone(state["stopIntent"]["killAuthorizedAt"])
+        self.assertEqual(state["outcome"]["signal"], signal.SIGTERM)
+        self.assertEqual(state["outcome"]["shellVisibleStatus"], 0)
+
+    def test_command_stop_cli_persists_kill_authorization_before_escalation(self):
+        backend = command_supervisor.ProcessBackend()
+        command_state.initialize_control_layout(
+            self.root,
+            state_cases.valid_session(
+                runId=self.root.name,
+                ownerPid=os.getpid(),
+                ownerBirthIdentity=backend.current_identity(os.getpid()),
+            ),
+        )
+        command_id = state_cases.COMMAND_ID
+        supervisor = subprocess.Popen(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command-supervise",
+                "--root",
+                str(self.root),
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                "1",
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "escalated-stop",
+                "--failure-code",
+                "runner.driver_protocol",
+                "--failure-policy",
+                "handled",
+                "--stop-policy",
+                "expected-term",
+                "--mode",
+                "background",
+                "--stdin-policy",
+                "devnull",
+                "--",
+                sys.executable,
+                "-c",
+                (
+                    "import signal,time;"
+                    "signal.signal(signal.SIGTERM,lambda *_:None);"
+                    "time.sleep(30)"
+                ),
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        def cleanup_supervisor():
+            if supervisor.poll() is None:
+                supervisor.kill()
+            supervisor.communicate(timeout=5)
+
+        self.addCleanup(cleanup_supervisor)
+        deadline = time.monotonic() + 8.0
+        while time.monotonic() < deadline:
+            status = self.cli(
+                "command-status",
+                "--root",
+                self.root,
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                1,
+                text=True,
+            )
+            if status.returncode == 0 and json.loads(status.stdout)["stage"] == "running":
+                break
+            time.sleep(0.02)
+        else:
+            self.fail("stubborn durable command did not reach running state")
+
+        stopped = self.cli(
+            "command-stop",
+            "--root",
+            self.root,
+            "--command-id",
+            command_id,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            "--kind",
+            "expected",
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+        stop_status = json.loads(stopped.stdout)
+        self.assertEqual(stop_status["stage"], "committed")
+        self.assertEqual(stop_status["shellStatus"], 125)
+        _stdout, stderr = supervisor.communicate(timeout=10)
+        self.assertEqual(supervisor.returncode, 125, stderr)
+        state = command_state.read_command_state(
+            self.root, command_id, state_cases.SESSION_ID
+        )
+        self.assertIsNotNone(state["stopIntent"]["killAuthorizedAt"])
+        self.assertEqual(state["outcome"]["signal"], signal.SIGKILL)
+        self.assertEqual(state["outcome"]["shellVisibleStatus"], 125)
+
+    def test_command_recover_cli_materializes_lost_supervisor_once(self):
+        backend = command_supervisor.ProcessBackend()
+        command_state.initialize_control_layout(
+            self.root,
+            state_cases.valid_session(
+                runId=self.root.name,
+                ownerPid=os.getpid(),
+                ownerBirthIdentity=backend.current_identity(os.getpid()),
+            ),
+        )
+        command_id = state_cases.COMMAND_ID
+        supervisor = subprocess.Popen(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "command-supervise",
+                "--root",
+                str(self.root),
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                "1",
+                "--phase",
+                "scenario.execute",
+                "--name",
+                "recover-cli",
+                "--failure-code",
+                "runner.driver_protocol",
+                "--failure-policy",
+                "handled",
+                "--stop-policy",
+                "none",
+                "--mode",
+                "background",
+                "--stdin-policy",
+                "devnull",
+                "--",
+                sys.executable,
+                "-c",
+                "import time;time.sleep(30)",
+            ],
+            cwd=REPOSITORY_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        deadline = time.monotonic() + 8.0
+        while time.monotonic() < deadline:
+            status = self.cli(
+                "command-status",
+                "--root",
+                self.root,
+                "--command-id",
+                command_id,
+                "--session-id",
+                state_cases.SESSION_ID,
+                "--generation",
+                1,
+                text=True,
+            )
+            if status.returncode == 0 and json.loads(status.stdout)["stage"] == "running":
+                break
+            time.sleep(0.02)
+        else:
+            supervisor.kill()
+            supervisor.communicate(timeout=5)
+            self.fail("recoverable command did not reach running state")
+        supervisor.kill()
+        _stdout, _stderr = supervisor.communicate(timeout=5)
+        self.assertEqual(supervisor.returncode, -signal.SIGKILL)
+        orphaned = command_state.read_command_state(
+            self.root, command_id, state_cases.SESSION_ID
+        )
+        anchor = dict(orphaned["anchor"])
+        self.addCleanup(
+            lambda: os.killpg(anchor["pgid"], signal.SIGKILL)
+            if backend.group_probe(anchor["pgid"]) == "present"
+            else None
+        )
+
+        recovered = self.cli(
+            "command-recover",
+            "--root",
+            self.root,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        payload = json.loads(recovered.stdout)
+        self.assertEqual(payload["busy"], [])
+        self.assertEqual(payload["commands"], [command_id])
+        state = command_state.read_command_state(
+            self.root, command_id, state_cases.SESSION_ID
+        )
+        self.assertEqual(state["stage"], "committed")
+        self.assertEqual(state["outcome"]["kind"], "supervisor_failure")
+        self.assertEqual(
+            state["outcome"]["errorCode"], "runner.command_supervisor_lost"
+        )
+        self.assertEqual(backend.group_probe(anchor["pgid"]), "absent")
+
+        replay = self.cli(
+            "command-recover",
+            "--root",
+            self.root,
+            "--session-id",
+            state_cases.SESSION_ID,
+            "--generation",
+            1,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(replay.returncode, 0, replay.stderr)
+        self.assertEqual(json.loads(replay.stdout), payload)
+
     def test_long_running_command_does_not_hold_mutation_locks(self):
         errors = []
         event_done = threading.Event()

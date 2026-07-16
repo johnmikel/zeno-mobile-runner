@@ -52,6 +52,23 @@ def _linux_start_ticks_from_stat(content: str) -> str:
     return fields[19]
 
 
+def _linux_parent_pid_from_stat(content: str) -> int:
+    """Return proc stat field 4 without trusting the parenthesized name."""
+
+    if not isinstance(content, str):
+        raise ValueError("process stat record must be text")
+    close = content.rfind(")")
+    if close < 1 or close + 2 > len(content) or content[close + 1] != " ":
+        raise ValueError("process stat record is malformed")
+    fields = content[close + 2 :].split()
+    if len(fields) <= 1 or not fields[1].isdigit():
+        raise ValueError("process stat parent pid is malformed")
+    parent = int(fields[1])
+    if parent < 0:
+        raise ValueError("process stat parent pid is invalid")
+    return parent
+
+
 class _ProcBSDInfo(ctypes.Structure):
     _fields_ = [
         ("pbi_flags", ctypes.c_uint32),
@@ -135,6 +152,35 @@ class ProcessBackend:
         if self._platform == "darwin":
             return self._macos_identity(pid)
         raise RuntimeError("stable process identity is unavailable on this platform")
+
+    def parent_pid(self, pid: int) -> int:
+        """Observe one process parent using the same platform identity source."""
+
+        if type(pid) is not int or pid < 1:
+            raise ValueError("process pid must be positive")
+        if self._platform.startswith("linux"):
+            try:
+                content = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+            except FileNotFoundError as exc:
+                raise ProcessLookupError(pid) from exc
+            return _linux_parent_pid_from_stat(content)
+        if self._platform == "darwin":
+            if self._libproc is None:
+                self._macos_identity(pid)
+            info = _ProcBSDInfo()
+            size = ctypes.sizeof(info)
+            result = self._libproc.proc_pidinfo(
+                pid, 3, 0, ctypes.byref(info), size
+            )
+            if result == 0:
+                error = ctypes.get_errno()
+                if error in (errno.ESRCH, errno.ENOENT, 0):
+                    raise ProcessLookupError(pid)
+                raise OSError(error, os.strerror(error))
+            if result != size or info.pbi_pid != pid:
+                raise ValueError("macOS parent process observation is incomplete")
+            return int(info.pbi_ppid)
+        raise RuntimeError("process ancestry is unavailable on this platform")
 
     def predecessor_absent(self, pid: int, birth_identity: str) -> bool:
         if not isinstance(birth_identity, str) or not birth_identity:
@@ -1427,8 +1473,56 @@ class DurableCommandSupervisor:
             state = self._transition(candidate)
             self._checkpoint("after_anchored", state)
 
-            handshake = anchor.start()
-            if handshake.get("type") == "exec_failure":
+            current = self._current()
+            handshake = None
+            if current["stage"] == "anchor_stop_requested":
+                anchor.abandon_supervision()
+                anchor.wait_anchor(timeout=5.0)
+                anchor.wait_streams(timeout=5.0)
+                self._outcome_observed.set()
+                stdout_content, stdout_record = anchor._stdout_collector.stored()
+                stderr_content, stderr_record = anchor._stderr_collector.stored()
+                current = command_state.write_command_recovery_spools(
+                    self.root,
+                    self.session_id,
+                    self.generation,
+                    self.command_id,
+                    stdout_content,
+                    stderr_content,
+                    supervisor_lease=self.supervisor_lease,
+                )
+                stop_intent = current["stopIntent"]
+                escalated = stop_intent["killAuthorizedAt"] is not None
+                candidate = json.loads(json.dumps(current))
+                candidate.update(
+                    stage="exited",
+                    outcome={
+                        "kind": "stopped_before_ack",
+                        "requestKind": stop_intent["kind"],
+                        "graceExpired": escalated,
+                        "escalated": escalated,
+                        "shellVisibleStatus": (
+                            125
+                            if escalated
+                            else (0 if stop_intent["kind"] == "expected" else 130)
+                        ),
+                        "stoppedAt": safe_io._utc_now(),
+                    },
+                    capture={
+                        "captureComplete": True,
+                        "stdout": stdout_record,
+                        "stderr": stderr_record,
+                    },
+                )
+                raw_stdout = b""
+                raw_stderr = b""
+                raw_from_anchor = True
+            else:
+                handshake = anchor.start()
+
+            if handshake is None:
+                pass
+            elif handshake.get("type") == "exec_failure":
                 outcome_report = anchor.wait()
                 self._outcome_observed.set()
                 diagnostic = _canonical_message(handshake["diagnostic"])[
@@ -1479,8 +1573,17 @@ class DurableCommandSupervisor:
                 try:
                     outcome_report = anchor.wait()
                 except EOFError:
-                    if not self._kill_authorized:
+                    authorized = self._current()
+                    external_kill_authorized = (
+                        authorized["stage"]
+                        in ("anchor_stop_requested", "stop_requested")
+                        and authorized["stopIntent"] is not None
+                        and authorized["stopIntent"]["killAuthorizedAt"]
+                        is not None
+                    )
+                    if not self._kill_authorized and not external_kill_authorized:
                         raise
+                    self._kill_authorized = True
                     anchor.wait_streams()
                     outcome_report = {
                         "returnCode": -signal.SIGKILL,

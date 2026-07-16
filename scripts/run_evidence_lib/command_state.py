@@ -54,6 +54,7 @@ COMMANDS_LOCK_NAME = ".commands.lock"
 SESSION_FILE_NAME = "session.json"
 TERMINAL_INTENT_FILE_NAME = "terminal-intent.json"
 COMMANDS_DIRECTORY_NAME = "commands"
+CONTROL_RETIREMENT_NAME = ".evidence-control.retiring"
 
 _COMPATIBILITY_ACTIVITY_LOCK = threading.Lock()
 _COMPATIBILITY_ACTIVITY: dict[str, int] = {}
@@ -2682,6 +2683,23 @@ def read_terminal_intent(root: Path) -> dict[str, Any]:
             return copy.deepcopy(intent)
 
 
+def read_command_states(
+    root: Path, session_id: str, generation: int
+) -> list[dict[str, Any]]:
+    """Return one authorized bounded snapshot of all durable commands."""
+
+    root = Path(root).absolute()
+    with _with_rooted_read(root):
+        with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+            _validate_control_layout_unlocked(root)
+            session = _load_session_unlocked(root)
+            _authorize_session(session, session_id, generation)
+            _load_terminal_intent_unlocked(
+                root, session["sessionId"], session["generation"]
+            )
+            return copy.deepcopy(_scan_commands_unlocked(root, session))
+
+
 @safe_io._rooted_attempt_mutation
 def transition_session_state(
     root: Path,
@@ -2711,6 +2729,105 @@ def transition_session_state(
             _control_path(root, SESSION_FILE_NAME), content, 0o600
         )
         return candidate
+
+
+@safe_io._rooted_attempt_mutation
+def takeover_session(
+    root: Path,
+    session_id: str,
+    generation: int,
+    new_owner_pid: int,
+    new_owner_birth_identity: str,
+    *,
+    process_backend: Any,
+) -> dict[str, Any]:
+    """Atomically replace an absent owner only when every supervisor is stale."""
+
+    root = Path(root).absolute()
+    session_id = _identifier(session_id, "sessionId")
+    generation = _integer(generation, "generation", minimum=1)
+    new_owner_pid = _integer(new_owner_pid, "new ownerPid", minimum=1)
+    new_owner_birth_identity = _text(
+        new_owner_birth_identity,
+        "new ownerBirthIdentity",
+        maximum=_MAX_IDENTITY_BYTES,
+    )
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        _validate_control_layout_unlocked(root)
+        session = _load_session_unlocked(root)
+        _authorize_session(session, session_id, generation)
+        _load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        if session["state"] == "committed":
+            raise ValueError("committed session ownership is immutable")
+        if process_backend.predecessor_absent(
+            session["ownerPid"], session["ownerBirthIdentity"]
+        ) is not True:
+            raise PermissionError("live session owner blocks takeover")
+        if (
+            process_backend.current_identity(new_owner_pid)
+            != new_owner_birth_identity
+        ):
+            raise ValueError("new session owner identity changed")
+
+        states = _scan_commands_unlocked(root, session)
+        authority = safe_io._RootedIO(root.parent.parent)
+        claims: list[tuple[Any, Any]] = []
+        try:
+            for state in states:
+                if state["stage"] == "committed":
+                    continue
+                context = authority.lease(
+                    _command_path(
+                        root, state["commandId"], "supervisor.lease"
+                    ),
+                    timeout=0.0,
+                )
+                lease = context.__enter__()
+                claims.append((context, lease))
+                if lease.identity != state["supervisor"]["leaseIdentity"]:
+                    raise ValueError(
+                        "takeover supervisor lease identity changed"
+                    )
+                if process_backend.predecessor_absent(
+                    state["supervisor"]["pid"],
+                    state["supervisor"]["birthIdentity"],
+                ) is not True:
+                    raise ValueError(
+                        "takeover found a live command supervisor identity"
+                    )
+
+            if process_backend.predecessor_absent(
+                session["ownerPid"], session["ownerBirthIdentity"]
+            ) is not True:
+                raise PermissionError("session owner reappeared during takeover")
+            first = process_backend.current_identity(new_owner_pid)
+            second = process_backend.current_identity(new_owner_pid)
+            if first != new_owner_birth_identity or second != first:
+                raise ValueError("new session owner changed during takeover")
+            candidate = copy.deepcopy(session)
+            candidate.update(
+                ownerPid=new_owner_pid,
+                ownerBirthIdentity=new_owner_birth_identity,
+                generation=session["generation"] + 1,
+            )
+            content = encode_session(candidate)
+            safe_io._active_rooted_io().atomic_write(
+                _control_path(root, SESSION_FILE_NAME), content, 0o600
+            )
+            return copy.deepcopy(candidate)
+        finally:
+            release_error: BaseException | None = None
+            for context, _lease in reversed(claims):
+                try:
+                    context.__exit__(None, None, None)
+                except BaseException as exc:
+                    if release_error is None:
+                        release_error = exc
+            authority.close()
+            if release_error is not None:
+                raise release_error
 
 
 def _scan_commands_unlocked(
@@ -3671,6 +3788,118 @@ def transition_command_state(
             return copy.deepcopy(candidate)
 
 
+@safe_io._rooted_attempt_mutation
+def persist_command_stop_intent(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+    kind: str,
+) -> dict[str, Any]:
+    """Persist an authorized external stop before any group signal is sent."""
+
+    root = Path(root).absolute()
+    command_id = _identifier(command_id, "commandId")
+    if kind not in ("expected", "cancel"):
+        raise ValueError("command stop kind must be expected or cancel")
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        _validate_control_layout_unlocked(root)
+        session = _load_session_unlocked(root)
+        _authorize_session(session, session_id, generation)
+        _load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        if session["state"] == "committed":
+            raise ValueError("committed session commands are immutable")
+        _validate_command_layout_unlocked(root, command_id)
+        with _stable_lock(_command_path(root, command_id, "state.lock")):
+            persisted = _load_command_state_unlocked(
+                root, command_id, session["sessionId"]
+            )
+            if kind == "expected" and persisted["request"]["stopPolicy"] != "expected-term":
+                raise ValueError("expected stop requires expected-term policy")
+            if persisted["stage"] in (
+                "anchor_stop_requested",
+                "stop_requested",
+            ):
+                if persisted["stopIntent"]["kind"] != kind:
+                    raise ValueError("command already has a different stop intent")
+                return copy.deepcopy(persisted)
+            target = {
+                "anchored": "anchor_stop_requested",
+                "running": "stop_requested",
+            }.get(persisted["stage"])
+            if target is None:
+                raise ValueError("command is not externally stoppable")
+            candidate = copy.deepcopy(persisted)
+            candidate["stage"] = target
+            candidate["stopIntent"] = {
+                "kind": kind,
+                "requestedAt": _utc_now(),
+                "killAuthorizedAt": None,
+            }
+            candidate = validate_command_transition(
+                persisted,
+                candidate,
+                session_id=session["sessionId"],
+                generation=session["generation"],
+            )
+            safe_io._active_rooted_io().atomic_write(
+                _command_path(root, command_id, "state.json"),
+                encode_command_state(candidate),
+                0o600,
+            )
+            return copy.deepcopy(candidate)
+
+
+@safe_io._rooted_attempt_mutation
+def persist_command_kill_authorization(
+    root: Path,
+    session_id: str,
+    generation: int,
+    command_id: str,
+) -> dict[str, Any]:
+    """Persist grace expiry before an external SIGKILL escalation."""
+
+    root = Path(root).absolute()
+    command_id = _identifier(command_id, "commandId")
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        _validate_control_layout_unlocked(root)
+        session = _load_session_unlocked(root)
+        _authorize_session(session, session_id, generation)
+        _load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        if session["state"] == "committed":
+            raise ValueError("committed session commands are immutable")
+        _validate_command_layout_unlocked(root, command_id)
+        with _stable_lock(_command_path(root, command_id, "state.lock")):
+            persisted = _load_command_state_unlocked(
+                root, command_id, session["sessionId"]
+            )
+            if persisted["stage"] not in (
+                "anchor_stop_requested",
+                "stop_requested",
+            ):
+                raise ValueError("command has no active stop intent")
+            if persisted["stopIntent"]["killAuthorizedAt"] is not None:
+                return copy.deepcopy(persisted)
+            candidate = copy.deepcopy(persisted)
+            candidate["stopIntent"]["killAuthorizedAt"] = _utc_now()
+            candidate = validate_command_transition(
+                persisted,
+                candidate,
+                session_id=session["sessionId"],
+                generation=session["generation"],
+            )
+            safe_io._active_rooted_io().atomic_write(
+                _command_path(root, command_id, "state.json"),
+                encode_command_state(candidate),
+                0o600,
+            )
+            return copy.deepcopy(candidate)
+
+
 def _write_stable_private_content(
     path: Path,
     content: bytes,
@@ -3804,6 +4033,254 @@ def write_command_recovery_spools(
             return copy.deepcopy(persisted)
 
 
+def _private_entry_is_owned(metadata: os.stat_result, *, directory: bool) -> bool:
+    expected_mode = 0o700 if directory else 0o600
+    expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+    return (
+        expected_type(metadata.st_mode)
+        and stat.S_IMODE(metadata.st_mode) == expected_mode
+        and (
+            not hasattr(os, "geteuid")
+            or metadata.st_uid == os.geteuid()
+        )
+    )
+
+
+def _open_private_directory_at(
+    parent: int, name: str, label: str
+) -> int:
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent,
+    )
+    os.set_inheritable(descriptor, False)
+    opened = os.fstat(descriptor)
+    visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if (
+        not _private_entry_is_owned(opened, directory=True)
+        or not _private_entry_is_owned(visible, directory=True)
+        or (opened.st_dev, opened.st_ino) != (visible.st_dev, visible.st_ino)
+    ):
+        os.close(descriptor)
+        raise ValueError(f"{label} directory binding is unsafe")
+    return descriptor
+
+
+def _validate_private_file_at(parent: int, name: str, label: str) -> None:
+    metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not _private_entry_is_owned(metadata, directory=False):
+        raise ValueError(f"{label} file binding is unsafe")
+
+
+def _bounded_descriptor_names(
+    descriptor: int, maximum: int, label: str
+) -> list[str]:
+    names = os.listdir(descriptor)
+    if len(names) > maximum:
+        raise ValueError(f"{label} contains too many entries")
+    if any(type(name) is not str or not name or "/" in name for name in names):
+        raise ValueError(f"{label} contains an invalid entry name")
+    return sorted(names)
+
+
+def _delete_control_retirement_unlocked(root: Path) -> None:
+    """Resume deletion of an already-verified committed control tombstone."""
+
+    authority = safe_io._active_rooted_io()
+    tombstone = root / CONTROL_RETIREMENT_NAME
+    parent, tombstone_name, parent_relative, _relative = authority._parent(
+        tombstone
+    )
+    control_descriptor = -1
+    commands_descriptor = -1
+    try:
+        authority._validate_directory(parent_relative, parent)
+        control_descriptor = _open_private_directory_at(
+            parent, tombstone_name, "control retirement"
+        )
+        control_names = set(
+            _bounded_descriptor_names(
+                control_descriptor, 4, "control retirement directory"
+            )
+        )
+        allowed_control = {
+            COMMANDS_LOCK_NAME,
+            SESSION_FILE_NAME,
+            TERMINAL_INTENT_FILE_NAME,
+            COMMANDS_DIRECTORY_NAME,
+        }
+        if not control_names.issubset(allowed_control):
+            raise ValueError("control retirement contains an unknown entry")
+
+        if COMMANDS_DIRECTORY_NAME in control_names:
+            commands_descriptor = _open_private_directory_at(
+                control_descriptor,
+                COMMANDS_DIRECTORY_NAME,
+                "retired commands",
+            )
+            command_names = _bounded_descriptor_names(
+                commands_descriptor,
+                MAX_SESSION_COMMANDS,
+                "retired commands directory",
+            )
+            allowed_command_files = set(_COMMAND_STABLE_NAMES) | {"state.json"}
+            for command_id in command_names:
+                _identifier(command_id, "retired command directory name")
+                command_descriptor = _open_private_directory_at(
+                    commands_descriptor, command_id, "retired command"
+                )
+                try:
+                    names = set(
+                        _bounded_descriptor_names(
+                            command_descriptor,
+                            len(allowed_command_files),
+                            "retired command directory",
+                        )
+                    )
+                    if not names.issubset(allowed_command_files):
+                        raise ValueError(
+                            "retired command contains an unknown entry"
+                        )
+                    for name in sorted(names):
+                        _validate_private_file_at(
+                            command_descriptor, name, f"retired command {name}"
+                        )
+                    for name in sorted(names):
+                        os.unlink(name, dir_fd=command_descriptor)
+                        os.fsync(command_descriptor)
+                finally:
+                    os.close(command_descriptor)
+                os.rmdir(command_id, dir_fd=commands_descriptor)
+                os.fsync(commands_descriptor)
+            os.close(commands_descriptor)
+            commands_descriptor = -1
+            os.rmdir(COMMANDS_DIRECTORY_NAME, dir_fd=control_descriptor)
+            os.fsync(control_descriptor)
+
+        remaining = set(
+            _bounded_descriptor_names(
+                control_descriptor, 3, "control retirement directory"
+            )
+        )
+        allowed_files = {
+            COMMANDS_LOCK_NAME,
+            SESSION_FILE_NAME,
+            TERMINAL_INTENT_FILE_NAME,
+        }
+        if not remaining.issubset(allowed_files):
+            raise ValueError("control retirement file set is invalid")
+        for name in sorted(remaining):
+            _validate_private_file_at(
+                control_descriptor, name, f"retired control {name}"
+            )
+        for name in sorted(remaining):
+            os.unlink(name, dir_fd=control_descriptor)
+            os.fsync(control_descriptor)
+        os.close(control_descriptor)
+        control_descriptor = -1
+        os.rmdir(tombstone_name, dir_fd=parent)
+        os.fsync(parent)
+        authority._validate_directory(parent_relative, parent)
+    finally:
+        if commands_descriptor >= 0:
+            os.close(commands_descriptor)
+        if control_descriptor >= 0:
+            os.close(control_descriptor)
+        os.close(parent)
+
+
+@safe_io._rooted_attempt_mutation
+def cleanup_committed_control_layout(root: Path) -> bool:
+    """Retire verified committed private control state, resumably after rename."""
+
+    root = Path(root).absolute()
+    authority = safe_io._active_rooted_io()
+    control = _control_path(root)
+    tombstone = root / CONTROL_RETIREMENT_NAME
+    control_metadata = authority.stat(control, missing_ok=True)
+    tombstone_metadata = authority.stat(tombstone, missing_ok=True)
+    if control_metadata is None:
+        if tombstone_metadata is None:
+            return False
+        _delete_control_retirement_unlocked(root)
+        return True
+    if tombstone_metadata is not None:
+        raise ValueError("control state and retirement tombstone coexist")
+    if not _private_entry_is_owned(control_metadata, directory=True):
+        raise ValueError("private control directory is unsafe")
+    control_identity = (control_metadata.st_dev, control_metadata.st_ino)
+
+    with _stable_lock(_control_path(root, COMMANDS_LOCK_NAME)):
+        _validate_control_layout_unlocked(root)
+        session = _load_session_unlocked(root)
+        _load_terminal_intent_unlocked(
+            root, session["sessionId"], session["generation"]
+        )
+        if session["state"] != "committed":
+            raise ValueError("control retirement requires a committed session")
+        states = _scan_commands_unlocked(root, session)
+        if any(state["stage"] != "committed" for state in states):
+            raise ValueError("control retirement requires committed commands")
+        for state in states:
+            with _stable_lock(
+                _command_path(root, state["commandId"], "state.lock")
+            ):
+                pass
+            lease_authority = safe_io._RootedIO(root.parent.parent)
+            try:
+                for lease_name, expected in (
+                    (
+                        "supervisor.lease",
+                        state["supervisor"]["leaseIdentity"],
+                    ),
+                    (
+                        "group.lease",
+                        state["anchorReservation"]["groupLeaseIdentity"],
+                    ),
+                ):
+                    context = lease_authority.lease(
+                        _command_path(root, state["commandId"], lease_name),
+                        timeout=0.0,
+                    )
+                    lease = context.__enter__()
+                    try:
+                        if lease.identity != expected:
+                            raise ValueError(
+                                "control retirement lease identity changed"
+                            )
+                    finally:
+                        context.__exit__(None, None, None)
+            finally:
+                lease_authority.close()
+
+    current = authority.stat(control, missing_ok=True)
+    if current is None or (current.st_dev, current.st_ino) != control_identity:
+        raise ValueError("private control directory changed before retirement")
+    parent, control_name, parent_relative, _relative = authority._parent(control)
+    try:
+        authority._validate_directory(parent_relative, parent)
+        _atomic_rename_no_replace(
+            control_name,
+            CONTROL_RETIREMENT_NAME,
+            src_dir_fd=parent,
+            dst_dir_fd=parent,
+        )
+        renamed = os.stat(
+            CONTROL_RETIREMENT_NAME,
+            dir_fd=parent,
+            follow_symlinks=False,
+        )
+        if (renamed.st_dev, renamed.st_ino) != control_identity:
+            raise ValueError("control retirement directory identity changed")
+        os.fsync(parent)
+        authority._validate_directory(parent_relative, parent)
+    finally:
+        os.close(parent)
+    _delete_control_retirement_unlocked(root)
+    return True
+
+
 def _utc_now() -> str:
     return safe_io._utc_now()
 
@@ -3885,6 +4362,7 @@ __all__ = (
     "SESSION_FILE_NAME",
     "TERMINAL_INTENT_FILE_NAME",
     "COMMANDS_DIRECTORY_NAME",
+    "CONTROL_RETIREMENT_NAME",
     "MAX_SESSION_STATE_BYTES",
     "MAX_TERMINAL_INTENT_BYTES",
     "MAX_COMMAND_STATE_BYTES",
@@ -3907,12 +4385,18 @@ __all__ = (
     "initialize_control_layout",
     "read_session",
     "read_terminal_intent",
+    "read_command_states",
     "transition_session_state",
+    "takeover_session",
     "reserve_command_layout",
     "retire_unprepared_command_layout",
     "claim_command_recovery",
     "create_command_state",
     "read_command_state",
     "transition_command_state",
+    "persist_command_stop_intent",
+    "persist_command_kill_authorization",
+    "write_command_recovery_spools",
+    "cleanup_committed_control_layout",
     "record_terminal_diagnostic",
 )

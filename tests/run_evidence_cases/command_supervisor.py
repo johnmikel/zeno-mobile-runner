@@ -342,6 +342,45 @@ class CommandSupervisorTests(state_cases.CommandStateTestCase):
         self.assertEqual(exited["outcome"]["signal"], signal.SIGTERM)
         self.assertEqual(exited["outcome"]["shellVisibleStatus"], 0)
 
+    def test_external_stop_between_anchor_and_child_ack_never_launches_child(self):
+        marker = self.attempt_root / "child-launched"
+        argv = [sys.executable, "-c", f"open({str(marker)!r},'w').close()"]
+        self.prepare(argv, stop_policy="expected-term")
+        checkpoints = []
+
+        def stop_after_anchor(stage, state):
+            checkpoints.append(stage)
+            if stage != "after_anchored":
+                return
+            stopped = command_state.persist_command_stop_intent(
+                self.attempt_root,
+                state_cases.SESSION_ID,
+                1,
+                state_cases.COMMAND_ID,
+                "expected",
+            )
+            os.killpg(stopped["anchor"]["pgid"], signal.SIGTERM)
+
+        exited = command_supervisor.DurableCommandSupervisor(
+            root=self.attempt_root,
+            session_id=state_cases.SESSION_ID,
+            generation=1,
+            command_id=state_cases.COMMAND_ID,
+            supervisor_lease=self.reservation,
+            argv=argv,
+            checkpoint=stop_after_anchor,
+        ).run()
+
+        self.assertFalse(marker.exists())
+        self.assertIsNone(exited["child"])
+        self.assertEqual(exited["stopIntent"]["kind"], "expected")
+        self.assertEqual(exited["outcome"]["kind"], "stopped_before_ack")
+        self.assertEqual(exited["outcome"]["shellVisibleStatus"], 0)
+        self.assertIs(exited["capture"]["captureComplete"], True)
+        self.assertEqual(
+            checkpoints, ["after_anchored", "after_exited", "after_ack"]
+        )
+
     def test_kill_escalation_is_write_ahead_cleanup_failure(self):
         argv = [
             sys.executable,

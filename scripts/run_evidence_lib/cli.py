@@ -31,6 +31,7 @@ from .journal import *  # noqa: F401,F403
 from .lifecycle import *  # noqa: F401,F403
 from .summaries import *  # noqa: F401,F403
 from .commands import *  # noqa: F401,F403
+from .session import *  # noqa: F401,F403
 from .bundle import *  # noqa: F401,F403
 from .aggregate import *  # noqa: F401,F403
 
@@ -122,6 +123,48 @@ def _build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--session-id", required=True)
     status_parser.add_argument("--generation", required=True, type=int)
     status_parser.add_argument("--wait", action="store_true")
+
+    stop_parser = subparsers.add_parser("command-stop")
+    stop_parser.add_argument("--root", required=True, type=Path)
+    stop_parser.add_argument("--command-id", required=True)
+    stop_parser.add_argument("--session-id", required=True)
+    stop_parser.add_argument("--generation", required=True, type=int)
+    stop_parser.add_argument(
+        "--kind", required=True, choices=("expected", "cancel")
+    )
+
+    recover_parser = subparsers.add_parser("command-recover")
+    recover_parser.add_argument("--root", required=True, type=Path)
+    recover_parser.add_argument("--session-id", required=True)
+    recover_parser.add_argument("--generation", required=True, type=int)
+    recover_parser.add_argument("--cancel-live", action="store_true")
+
+    session_claim_parser = subparsers.add_parser("session-claim")
+    session_claim_parser.add_argument("--root", required=True, type=Path)
+    session_claim_parser.add_argument("--owner-pid", required=True, type=int)
+
+    session_status_parser = subparsers.add_parser("session-status")
+    session_status_parser.add_argument("--root", required=True, type=Path)
+    session_status_parser.add_argument("--session-id", required=True)
+    session_status_parser.add_argument("--generation", required=True, type=int)
+
+    session_close_parser = subparsers.add_parser("session-close")
+    session_close_parser.add_argument("--root", required=True, type=Path)
+    session_close_parser.add_argument("--session-id", required=True)
+    session_close_parser.add_argument("--generation", required=True, type=int)
+
+    session_intent_parser = subparsers.add_parser("session-intent")
+    session_intent_parser.add_argument("--root", required=True, type=Path)
+    session_intent_parser.add_argument("--session-id", required=True)
+    session_intent_parser.add_argument("--generation", required=True, type=int)
+    session_intent_parser.add_argument("--intent-json", required=True)
+
+    session_finalize_parser = subparsers.add_parser("session-finalize")
+    session_finalize_parser.add_argument("--root", required=True, type=Path)
+    session_finalize_parser.add_argument("--session-id", required=True)
+    session_finalize_parser.add_argument(
+        "--generation", required=True, type=int
+    )
 
     external_parser = subparsers.add_parser("external")
     external_parser.add_argument("--root", required=True, type=Path)
@@ -265,6 +308,54 @@ def _dispatch(args: argparse.Namespace) -> int:
                 args.command_id,
                 wait=args.wait,
             )
+        )
+        return 0
+    if args.action == "command-stop":
+        _print_json(
+            stop_command(
+                args.root,
+                args.session_id,
+                args.generation,
+                args.command_id,
+                args.kind,
+            )
+        )
+        return 0
+    if args.action == "command-recover":
+        _print_json(
+            recover_commands(
+                args.root,
+                args.session_id,
+                args.generation,
+                cancel_live=args.cancel_live,
+            )
+        )
+        return 0
+    if args.action == "session-claim":
+        _print_json(claim_session(args.root, args.owner_pid))
+        return 0
+    if args.action == "session-status":
+        _print_json(
+            session_status(args.root, args.session_id, args.generation)
+        )
+        return 0
+    if args.action == "session-close":
+        _print_json(close_session(args.root, args.session_id, args.generation))
+        return 0
+    if args.action == "session-intent":
+        diagnostic = _parse_json_argument(args.intent_json, "--intent-json")
+        _print_json(
+            record_session_intent(
+                args.root,
+                args.session_id,
+                args.generation,
+                diagnostic,
+            )
+        )
+        return 0
+    if args.action == "session-finalize":
+        _print_json(
+            finalize_session(args.root, args.session_id, args.generation)
         )
         return 0
     if args.action == "external":

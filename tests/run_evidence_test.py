@@ -14,6 +14,7 @@ from tests.run_evidence_cases import (
     lifecycle,
     rooted_io,
     sanitization,
+    session,
 )
 
 
@@ -26,6 +27,7 @@ CASE_MODULES = (
     command_state,
     command_materialization,
     command_supervisor,
+    session,
     commands,
     bundle,
     cli,

@@ -619,7 +619,7 @@ def _validate_command_event_link(
     line_number: int,
     event: dict,
     metadata_by_reference: dict[str, dict],
-    link_counts: dict[str, int],
+    link_counts: dict[str, dict[str, int]],
     summary: Any,
     errors: list[str],
     *,
@@ -652,10 +652,16 @@ def _validate_command_event_link(
     if metadata is None:
         errors.append(f"{label}: referenced command record is missing")
         return False
-    link_counts[reference] += 1
-    if event.get("status") not in ("passed", "failed", "cancelled"):
+    event_status = event.get("status")
+    if event_status == "started":
+        link_counts[reference]["started"] += 1
+        if event.get("phase") != metadata.get("phase"):
+            errors.append(f"{label}: phase disagrees with command metadata")
+        return False
+    if event_status not in ("passed", "failed", "cancelled"):
         errors.append(f"{label}: command metadata may only appear on a terminal event")
         return False
+    link_counts[reference]["terminal"] += 1
     if event.get("phase") != metadata.get("phase"):
         errors.append(f"{label}: phase disagrees with command metadata")
 
@@ -1030,7 +1036,10 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             snapshot=snapshot,
         )
 
-    link_counts = {reference: 0 for reference in metadata_by_reference}
+    link_counts = {
+        reference: {"started": 0, "terminal": 0}
+        for reference in metadata_by_reference
+    }
     event_count = 0
     terminal_event = None
     sequence_error = False
@@ -1126,10 +1135,14 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
         if not consistent:
             errors.append("bootstrap-events.jsonl: terminal event disagrees with summary")
 
-    for reference, count in sorted(link_counts.items()):
-        if count != 1:
+    for reference, counts in sorted(link_counts.items()):
+        if counts["terminal"] != 1:
             errors.append(
                 f"{reference}: command metadata must have exactly one terminal event link"
+            )
+        if counts["started"] > 1:
+            errors.append(
+                f"{reference}: command metadata has duplicate started event links"
             )
 
     if (

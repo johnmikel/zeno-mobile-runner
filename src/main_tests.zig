@@ -571,6 +571,8 @@ test "cli run module parses scenario device platform and emulator options" {
         "./tools/avdmanager",
         "--android-shim",
         "./.zmr/android-shim",
+        "--outcome-file",
+        "run-outcomes/0123456789abcdef0123456789abcdef.json",
         "--android-avd",
         "Pixel_8",
         "--create-avd-if-missing",
@@ -600,6 +602,7 @@ test "cli run module parses scenario device platform and emulator options" {
     try std.testing.expectEqualStrings("./tools/avdmanager", parsed.avdmanager_path);
     try std.testing.expect(parsed.avdmanager_path_set);
     try std.testing.expectEqualStrings("./.zmr/android-shim", parsed.raw.android_shim_path.?);
+    try std.testing.expectEqualStrings("run-outcomes/0123456789abcdef0123456789abcdef.json", parsed.outcome_file.?);
     try std.testing.expectEqualStrings("Pixel_8", parsed.raw.android_avd_name.?);
     try std.testing.expect(parsed.raw.android_create_avd_if_missing.?);
     try std.testing.expectEqualStrings("system-images;android-35;google_apis;arm64-v8a", parsed.raw.android_avd_system_image.?);
@@ -610,12 +613,13 @@ test "cli run module parses scenario device platform and emulator options" {
     try std.testing.expect(parsed.raw.ensure_device.?);
     try std.testing.expect(parsed.raw.screen_recording.?);
 
-    const ios_args = try cli_run.parseArgs(&.{ "--platform", "ios", "--ios-device-type", "physical", "--xcrun", "./tools/xcrun", "--ios-shim", "./.zmr/ios-shim", "--no-ensure-device" });
+    const ios_args = try cli_run.parseArgs(&.{ "--platform", "ios", "--ios-device-type", "physical", "--xcrun", "./tools/xcrun", "--ios-shim", "./.zmr/ios-shim", "--ios-shim-mode", "provided", "--no-ensure-device" });
     try std.testing.expectEqual(run_options.Platform.ios, ios_args.raw.platform);
     try std.testing.expectEqual(run_options.IosDeviceType.physical, ios_args.raw.ios_device_type);
     try std.testing.expectEqualStrings("./tools/xcrun", ios_args.xcrun_path);
     try std.testing.expect(ios_args.xcrun_path_set);
     try std.testing.expectEqualStrings("./.zmr/ios-shim", ios_args.raw.ios_shim_path.?);
+    try std.testing.expectEqual(.provided, try cli_run.resolveIosShimMode(ios_args.ios_shim_mode, ios_args.raw.ios_shim_path));
     try std.testing.expectEqual(false, ios_args.raw.ensure_device.?);
 
     const config_only = try cli_run.parseArgs(&.{});

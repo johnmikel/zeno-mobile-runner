@@ -35,6 +35,7 @@ from .commands import *  # noqa: F401,F403
 from .session import *  # noqa: F401,F403
 from .bundle import *  # noqa: F401,F403
 from .aggregate import *  # noqa: F401,F403
+from .run_outcome import *  # noqa: F401,F403
 
 _DIAGNOSTIC_UNAVAILABLE = "error: diagnostic unavailable"
 
@@ -143,6 +144,11 @@ def _build_parser() -> argparse.ArgumentParser:
     recover_parser.add_argument("--session-id", required=True)
     recover_parser.add_argument("--generation", required=True, type=int)
     recover_parser.add_argument("--cancel-live", action="store_true")
+
+    consume_outcome_parser = subparsers.add_parser("consume-outcome")
+    consume_outcome_parser.add_argument("--root", required=True, type=Path)
+    consume_outcome_parser.add_argument("--session-id", required=True)
+    consume_outcome_parser.add_argument("--path", required=True)
 
     session_claim_parser = subparsers.add_parser("session-claim")
     session_claim_parser.add_argument("--root", required=True, type=Path)
@@ -352,6 +358,11 @@ def _dispatch(args: argparse.Namespace) -> int:
                 args.generation,
                 cancel_live=args.cancel_live,
             )
+        )
+        return 0
+    if args.action == "consume-outcome":
+        _print_json(
+            consume_run_outcome(args.root, args.session_id, args.path)
         )
         return 0
     if args.action == "session-claim":

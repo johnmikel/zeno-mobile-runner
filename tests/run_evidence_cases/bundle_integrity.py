@@ -497,6 +497,9 @@ class BundleIntegrityTests(CommandTestCase):
 
         trace_directory = self.root / "traces" / "directory-target"
         trace_directory.mkdir(parents=True)
+        (trace_directory / "trace.jsonl").write_text(
+            '{"event":"scenario-start"}\n', encoding="utf-8"
+        )
         context = copy.deepcopy(original_context)
         summary = copy.deepcopy(original_summary)
         context["artifacts"]["trace"] = "traces/directory-target"
@@ -512,8 +515,30 @@ class BundleIntegrityTests(CommandTestCase):
             summary_path.write_text(
                 json.dumps(original_summary), encoding="utf-8"
             )
-        self.assertIn(
+        self.assertNotIn(
             "run-summary.json.artifacts.trace: referenced path must be a file",
+            errors,
+        )
+
+        report_directory = self.root / "reports" / "directory-target"
+        report_directory.mkdir(parents=True)
+        context = copy.deepcopy(original_context)
+        summary = copy.deepcopy(original_summary)
+        context["artifacts"]["report"] = "reports/directory-target"
+        summary["artifacts"]["report"] = "reports/directory-target"
+        context_path.write_text(json.dumps(context), encoding="utf-8")
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        try:
+            errors = run_evidence.validate_bundle(self.root, secrets=[])
+        finally:
+            context_path.write_text(
+                json.dumps(original_context), encoding="utf-8"
+            )
+            summary_path.write_text(
+                json.dumps(original_summary), encoding="utf-8"
+            )
+        self.assertIn(
+            "run-summary.json.artifacts.report: referenced path must be a file",
             errors,
         )
 

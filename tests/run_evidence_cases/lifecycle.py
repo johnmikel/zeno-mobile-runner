@@ -239,6 +239,7 @@ class LifecycleTests(StorageTestCase):
     def test_init_creates_context_commands_index_and_ordered_init_events(self):
         root = self.initialize()
         self.assertTrue((root / "commands").is_dir())
+        self.assertTrue((root / "run-outcomes").is_dir())
         stored = self.read_json(root / "run-context.json")
         self.assertEqual(stored["runId"], "run-1")
         self.assertRegex(stored["startedAt"], r"Z$")

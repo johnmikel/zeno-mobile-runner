@@ -13,6 +13,7 @@ from tests.run_evidence_cases import (
     journal,
     lifecycle,
     rooted_io,
+    run_outcome,
     sanitization,
     session,
 )
@@ -23,6 +24,7 @@ CASE_MODULES = (
     lifecycle,
     journal,
     rooted_io,
+    run_outcome,
     sanitization,
     command_state,
     command_materialization,

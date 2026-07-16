@@ -723,6 +723,7 @@ else:
                 )
                 self.assertEqual(recovered["runId"], context["runId"])
                 self.assertTrue((root / "commands").is_dir())
+                self.assertTrue((root / "run-outcomes").is_dir())
                 self.assertEqual(
                     [(event["seq"], event["phase"], event["status"])
                      for event in self.read_events(root)],

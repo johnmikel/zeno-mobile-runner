@@ -684,7 +684,12 @@ def _initialize_attempt(index_path: Path, root: Path, context: dict) -> dict:
                 publication_root,
                 "init",
                 root,
-                ["attempts", attempt_relative, attempt_relative + "/commands"],
+                [
+                    "attempts",
+                    attempt_relative,
+                    attempt_relative + "/commands",
+                    attempt_relative + "/run-outcomes",
+                ],
                 [
                     (
                         attempt_relative + "/run-context.json",

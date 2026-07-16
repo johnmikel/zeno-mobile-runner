@@ -54,6 +54,7 @@ def _validate_transaction_operation(
             "attempts",
             attempt_relative,
             attempt_relative + "/commands",
+            attempt_relative + "/run-outcomes",
         ]
         if (
             ordered_paths != expected_paths

@@ -99,6 +99,8 @@ const runner_tests = @import("runner_tests.zig");
 const runner_waits = @import("runner_waits.zig");
 const run_options = @import("run_options.zig");
 const run_options_tests = @import("run_options_tests.zig");
+const run_outcome = @import("run_outcome.zig");
+const run_outcome_tests = @import("run_outcome_tests.zig");
 const scaffold = @import("scaffold.zig");
 const scaffold_tests = @import("scaffold_tests.zig");
 const scenario = @import("scenario.zig");
@@ -228,6 +230,8 @@ test {
     _ = runner_waits;
     _ = run_options;
     _ = run_options_tests;
+    _ = run_outcome;
+    _ = run_outcome_tests;
     _ = scaffold;
     _ = scaffold_tests;
     _ = scenario;

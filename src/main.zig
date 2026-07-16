@@ -124,9 +124,17 @@ fn exitCodeForError(err: anyerror) u8 {
         error.MissingZigPath,
         error.MissingPlatform,
         error.MissingIosDeviceType,
+        error.MissingOutcomeFile,
+        error.MissingIosShimMode,
+        error.MissingRunEvidenceRoot,
         error.MissingParam,
         error.UnsupportedPlatform,
         error.UnsupportedIosDeviceType,
+        error.UnsupportedIosShimMode,
+        error.IosShimPathRequired,
+        error.IosShimPathForbidden,
+        error.InvalidOutcomePath,
+        error.OutcomeArtifactOutsideAttempt,
         error.UnsupportedTransport,
         => 2,
         else => 1,
@@ -154,7 +162,7 @@ fn usage() !void {
         \\  zmr init --app [--dir <app-root>] [--app-id <id>] [--force] [--json]
         \\  zmr import flow-yaml <flow.yaml> --out <scenario.json> [--name <name>] [--app-id <id>] [--force] [--json]
         \\  zmr inspect [--json] [--dir <app-root>] [--config <path>]
-        \\  zmr run [scenario.json] [--json] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--discover-out <scenario.json>] [--android-avd <name>] [--create-avd-if-missing] [--avd-system-image <pkg>] [--avd-device <profile>] [--restore-snapshot <name>] [--reset-emulator] [--wait-emulator] [--ensure-device] [--no-ensure-device] [--screen-record] [--no-screen-record] [--adb <path>] [--emulator <path>] [--avdmanager <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
+        \\  zmr run [scenario.json] [--json] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--discover-out <scenario.json>] [--outcome-file <run-outcomes/command-id.json>] [--android-avd <name>] [--create-avd-if-missing] [--avd-system-image <pkg>] [--avd-device <profile>] [--restore-snapshot <name>] [--reset-emulator] [--wait-emulator] [--ensure-device] [--no-ensure-device] [--screen-record] [--no-screen-record] [--adb <path>] [--emulator <path>] [--avdmanager <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>] [--ios-shim-mode disabled|generated|provided]
         \\  zmr report <trace-or-benchmark-dir> --out <report.html> [--junit <report.xml>]
         \\  zmr explain <trace-dir> [--json]
         \\  zmr export <trace-dir> --out <bundle.zmrtrace> [--redact] [--omit-screenshots]

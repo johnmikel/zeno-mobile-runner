@@ -13,6 +13,7 @@ from . import commands
 from . import bundle_scan
 from . import bundle
 from . import aggregate
+from . import run_outcome
 from . import cli
 
 from .constants import *  # noqa: F401,F403
@@ -28,6 +29,7 @@ from .commands import *  # noqa: F401,F403
 from .bundle_scan import *  # noqa: F401,F403
 from .bundle import *  # noqa: F401,F403
 from .aggregate import *  # noqa: F401,F403
+from .run_outcome import *  # noqa: F401,F403
 from .cli import *  # noqa: F401,F403
 
 __all__ = [
@@ -44,6 +46,7 @@ __all__ = [
     "bundle_scan",
     "bundle",
     "aggregate",
+    "run_outcome",
     "cli",
     *constants.__all__,
     *sanitization.__all__,
@@ -58,5 +61,6 @@ __all__ = [
     *bundle_scan.__all__,
     *bundle.__all__,
     *aggregate.__all__,
+    *run_outcome.__all__,
     *cli.__all__,
 ]

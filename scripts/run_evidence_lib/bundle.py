@@ -38,6 +38,7 @@ from .bounded_io import *  # noqa: F401,F403
 from .bundle_scan import *  # noqa: F401,F403
 from .bundle_consistency import *  # noqa: F401,F403
 from .bundle_consistency import _registrations_for_run
+from . import run_outcome as _run_outcome
 
 
 _MAX_VALIDATION_DIAGNOSTICS = 4096
@@ -127,6 +128,14 @@ def _resolve_bundle_reference(
         else not _evidence_is_dir(candidate)
     ):
         errors.append(f"{label}: referenced path must be a directory")
+    elif expected == "file-or-directory" and (
+        not (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode))
+        if metadata is not None
+        else not (
+            _evidence_is_file(candidate) or _evidence_is_dir(candidate)
+        )
+    ):
+        errors.append(f"{label}: referenced path must be a file or directory")
     return candidate
 
 
@@ -982,7 +991,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             for field, expected in (
                 ("bootstrapEvents", "file"),
                 ("commands", "directory"),
-                ("trace", "file"),
+                ("trace", "file-or-directory"),
                 ("report", "file"),
             ):
                 if field not in artifacts or artifacts[field] is None:
@@ -1006,6 +1015,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
 
     metadata_paths: list[Path] = []
     metadata_by_reference = {}
+    metadata_documents = {}
     commands_metadata = snapshot.metadata("commands")
     if commands_metadata is not None and stat.S_ISDIR(commands_metadata.st_mode):
         metadata_paths = [
@@ -1025,6 +1035,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
             )
             continue
         if isinstance(metadata, dict):
+            metadata_documents[metadata_relative] = metadata
             metadata_by_reference[metadata_relative] = (
                 _command_link_projection(metadata)
             )
@@ -1044,6 +1055,7 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
     terminal_event = None
     sequence_error = False
     summary_command_owner_found = False
+    decoded_events = []
     events_path = root / "bootstrap-events.jsonl"
     events_metadata = snapshot.metadata("bootstrap-events.jsonl")
     if events_metadata is None or not stat.S_ISREG(events_metadata.st_mode):
@@ -1089,6 +1101,10 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                     sequence_error = True
                 terminal_event = event
                 artifact = event.get("artifact")
+                if isinstance(artifact, str) and artifact.startswith(
+                    "run-outcomes/"
+                ):
+                    decoded_events.append(event)
                 if artifact is not None:
                     _resolve_bundle_reference(
                         root,
@@ -1110,6 +1126,15 @@ def validate_bundle(root: Path, *, secrets: list[str]) -> list[str]:
                     summary_command_owner_found = True
         except (OSError, RootedIOError) as exc:
             errors.append(f"bootstrap-events.jsonl: cannot read event log: {exc}")
+
+    errors.extend(
+        _run_outcome.validate_published_run_outcomes(
+            root,
+            snapshot,
+            metadata_documents,
+            decoded_events,
+        )
+    )
 
     if event_count == 0:
         errors.append("bootstrap-events.jsonl: must contain events")

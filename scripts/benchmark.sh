@@ -13,6 +13,9 @@ done
 ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 CALLER_CWD="$(pwd -P)"
 
+# shellcheck source=run-evidence.sh
+source "$ROOT/scripts/run-evidence.sh"
+
 # Some sandboxed environments do not allow writing to the default temp directory
 # (/var/folders, /tmp). Use a repo-local TMPDIR so adb/xcrun/mktemp/heredocs work.
 if [[ -z "${TMPDIR:-}" || ! -w "${TMPDIR:-/nonexistent}" ]]; then
@@ -35,6 +38,7 @@ ADB="${ADB:-}"
 ANDROID_SHIM="${ANDROID_SHIM:-}"
 XCRUN="${XCRUN:-}"
 IOS_SHIM="${IOS_SHIM:-}"
+IOS_SHIM_MODE="${IOS_SHIM_MODE:-}"
 IOS_DEVICE_TYPE="${IOS_DEVICE_TYPE:-}"
 APP_BUILD="${APP_BUILD:-}"
 MIN_PASS_RATE="${MIN_PASS_RATE:-}"
@@ -65,6 +69,7 @@ Forwarded ZMR options:
   --android-shim <path>
   --xcrun <path>
   --ios-shim <path>
+  --ios-shim-mode <disabled|generated|provided>
   --ios-device-type <simulator|physical>
   --app-build <id>       App build fingerprint, artifact path, or CI build id for comparison context.
 
@@ -73,7 +78,8 @@ Environment:
   RUNS          Default run count when --runs is omitted.
   DEVICE        Default Android serial when --device is omitted.
   TRACE_ROOT    Default benchmark output root. Otherwise traces/bench-<timestamp> in the caller directory.
-  PLATFORM, APP_ID, ADB, ANDROID_SHIM, XCRUN, IOS_SHIM, IOS_DEVICE_TYPE, APP_BUILD
+  PLATFORM, APP_ID, ADB, ANDROID_SHIM, XCRUN, IOS_SHIM, IOS_SHIM_MODE,
+  IOS_DEVICE_TYPE, APP_BUILD
                 Default forwarded ZMR options when matching flags are omitted.
   MIN_PASS_RATE, MAX_FAILURES, MAX_MEAN_MS, MAX_P95_MS
                 Default gate thresholds when matching flags are omitted.
@@ -143,6 +149,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ios-shim)
       IOS_SHIM="$(require_value "$1" "${2-}")"
+      shift 2
+      ;;
+    --ios-shim-mode)
+      IOS_SHIM_MODE="$(require_value "$1" "${2-}")"
       shift 2
       ;;
     --ios-device-type)
@@ -225,8 +235,24 @@ if [[ -n "$IOS_DEVICE_TYPE" && "$IOS_DEVICE_TYPE" != "simulator" && "$IOS_DEVICE
   echo "--ios-device-type must be simulator or physical" >&2
   exit 2
 fi
+if [[ "$PLATFORM" == ios || -n "$IOS_DEVICE_TYPE" || -n "$IOS_SHIM" ]]; then
+  if [[ -z "$IOS_SHIM_MODE" ]]; then
+    if [[ -n "$IOS_SHIM" ]]; then IOS_SHIM_MODE=provided; else IOS_SHIM_MODE=disabled; fi
+  fi
+else
+  IOS_SHIM_MODE=none
+fi
+case "$IOS_SHIM_MODE" in
+  none) ;;
+  disabled) [[ -z "$IOS_SHIM" ]] || die "disabled --ios-shim-mode forbids --ios-shim" ;;
+  generated|provided) [[ -n "$IOS_SHIM" ]] || die "--ios-shim-mode $IOS_SHIM_MODE requires --ios-shim" ;;
+  *) die "--ios-shim-mode must be disabled, generated, or provided" ;;
+esac
 
 mkdir -p "$TRACE_ROOT"
+if _zmr_evidence_enabled; then
+  TRACE_ROOT="$(cd "$TRACE_ROOT" && pwd -P)"
+fi
 if [[ -z "$RESULTS" ]]; then
   RESULTS="$TRACE_ROOT/results.jsonl"
 fi
@@ -244,9 +270,12 @@ run_one() {
   local start_ms end_ms duration_ms trace_dir
   local -a zmr_args=()
   local -a metadata_args=()
+  local -a zmr_command=()
+  local -a public_trace_args
 
   trace_dir="$TRACE_ROOT/$tool-$run"
   mkdir -p "$trace_dir"
+  public_trace_args=(--public-trace-dir "$trace_dir")
   if [[ -n "$PLATFORM" ]]; then
     zmr_args+=(--platform "$PLATFORM")
   fi
@@ -278,17 +307,41 @@ run_one() {
     metadata_args+=(--app-id "$APP_ID")
   fi
   if [[ -n "$ZMR_SCENARIO" ]]; then
-    metadata_args+=(--scenario "$ZMR_SCENARIO")
+    if _zmr_evidence_enabled && [[ "$ZMR_SCENARIO" == /* ]]; then
+      metadata_args+=(--scenario "$(basename "$ZMR_SCENARIO")")
+    else
+      metadata_args+=(--scenario "$ZMR_SCENARIO")
+    fi
   fi
   if [[ -n "$APP_BUILD" ]]; then
-    metadata_args+=(--app-build "$APP_BUILD")
+    if _zmr_evidence_enabled && [[ "$APP_BUILD" == /* ]]; then
+      metadata_args+=(--app-build "$(basename "$APP_BUILD")")
+    else
+      metadata_args+=(--app-build "$APP_BUILD")
+    fi
+  fi
+  if _zmr_evidence_enabled; then
+    case $trace_dir in
+      "$ZMR_RUN_EVIDENCE_ROOT"/*)
+        public_trace_args=(--public-trace-dir "${trace_dir#"$ZMR_RUN_EVIDENCE_ROOT"/}")
+        ;;
+      *)
+        zmr_evidence_finalize_failure runner_failure trace.finalize \
+          runner.evidence_invalid \
+          "Benchmark traces are outside the evidence attempt" \
+          "Place --trace-root beneath ZMR_RUN_EVIDENCE_ROOT." 125
+        return 125
+        ;;
+    esac
   fi
   start_ms="$(python3 -c 'import time; print(int(time.time() * 1000))')"
   if [[ "${#zmr_args[@]}" -gt 0 ]]; then
-    "$ZMR_BIN" run "$ZMR_SCENARIO" --device "$DEVICE" "${zmr_args[@]}" --trace-dir "$trace_dir" || command_status=$?
+    zmr_command=("$ZMR_BIN" run "$ZMR_SCENARIO" --device "$DEVICE" "${zmr_args[@]}" --trace-dir "$trace_dir")
   else
-    "$ZMR_BIN" run "$ZMR_SCENARIO" --device "$DEVICE" --trace-dir "$trace_dir" || command_status=$?
+    zmr_command=("$ZMR_BIN" run "$ZMR_SCENARIO" --device "$DEVICE" --trace-dir "$trace_dir")
   fi
+  zmr_evidence_run_outcome scenario.execute benchmark-zmr-run "$IOS_SHIM_MODE" -- \
+    "${zmr_command[@]}" || command_status=$?
 
   end_ms="$(python3 -c 'import time; print(int(time.time() * 1000))')"
   duration_ms=$((end_ms - start_ms))
@@ -300,6 +353,7 @@ run_one() {
       --command-status "$command_status" \
       --duration-ms "$duration_ms" \
       --trace-dir "$trace_dir" \
+      "${public_trace_args[@]}" \
       "${metadata_args[@]}" >> "$RESULTS"
   else
     "$ROOT/scripts/benchmark_result_row.py" \
@@ -307,7 +361,8 @@ run_one() {
       --run "$run" \
       --command-status "$command_status" \
       --duration-ms "$duration_ms" \
-      --trace-dir "$trace_dir" >> "$RESULTS"
+      --trace-dir "$trace_dir" \
+      "${public_trace_args[@]}" >> "$RESULTS"
   fi
 
   return "$command_status"

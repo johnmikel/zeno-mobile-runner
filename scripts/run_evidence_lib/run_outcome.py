@@ -170,6 +170,37 @@ def _parse_sidecar_path(value: str) -> tuple[str, str]:
     return relative, command_id
 
 
+def _sidecar_identity(root: Path, relative: str) -> tuple[int, int] | None:
+    """Bind a candidate sidecar entry before crossing the validation boundary."""
+
+    path = root.joinpath(*PurePosixPath(relative).parts)
+    publication_root = journal._publication_root_for_attempt(root)
+    with safe_io._rooted_io(publication_root, mutation=False):
+        if not safe_io._evidence_exists(path):
+            return None
+        metadata = safe_io._evidence_stat(path)
+    return metadata.st_dev, metadata.st_ino
+
+
+def _discard_invalid_sidecar(
+    root: Path,
+    relative: str | None,
+    expected_identity: tuple[int, int] | None,
+) -> None:
+    """Remove only the exact invalid entry so a fallback bundle is publishable."""
+
+    if relative is None or expected_identity is None:
+        return
+    path = root.joinpath(*PurePosixPath(relative).parts)
+    publication_root = journal._publication_root_for_attempt(root)
+    with safe_io._rooted_io(publication_root, mutation=True):
+        safe_io._evidence_unlink(
+            path,
+            missing_ok=True,
+            expected_identity=expected_identity,
+        )
+
+
 def _read_json_file(root: Path, relative: str, *, maximum: int, label: str) -> dict:
     path = root.joinpath(*PurePosixPath(relative).parts)
     publication_root = journal._publication_root_for_attempt(root)
@@ -350,8 +381,11 @@ def consume_run_outcome(root: Path, session_id: str, path: str) -> dict[str, str
         raise PermissionError("run outcome sessionId does not match active session")
     generation = stored_session["generation"]
     command_status: int | None = None
+    relative: str | None = None
+    sidecar_identity: tuple[int, int] | None = None
     try:
         relative, command_id = _parse_sidecar_path(path)
+        sidecar_identity = _sidecar_identity(root, relative)
         _state, _metadata, command_status = _command_binding(
             root, session_id, command_id
         )
@@ -410,6 +444,12 @@ def consume_run_outcome(root: Path, session_id: str, path: str) -> dict[str, str
             raise ValueError(
                 "run outcome evidence is invalid and could not be recorded"
             ) from record_error
+        try:
+            _discard_invalid_sidecar(root, relative, sidecar_identity)
+        except Exception as discard_error:
+            raise ValueError(
+                "run outcome evidence is invalid and could not be quarantined"
+            ) from discard_error
         raise ValueError("run outcome evidence is invalid") from exc
 
 

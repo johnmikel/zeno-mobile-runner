@@ -89,6 +89,7 @@ test "structured run outcome owns assertion shim and unclassified failures exact
     try std.testing.expectEqual(.configuration, contradictory.failure_owner);
     try std.testing.expectEqualStrings("config.invalid", contradictory.error_code.?);
     try std.testing.expectEqualStrings("invocation", contradictory.phase);
+    try std.testing.expectEqual(2, contradictory.child_status.?);
 
     const shim_build = cli_run.outcomeForRun(
         error.IosXCTestShimBuildTimedOut,

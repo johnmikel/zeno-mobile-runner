@@ -11,6 +11,10 @@ while [[ -h "$SOURCE" ]]; do
 done
 
 ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+CREATE_ANDROID_DEMO_APP="${CREATE_ANDROID_DEMO_APP:-$ROOT/scripts/create-android-demo-app.sh}"
+ANDROID_PILOT="${ANDROID_PILOT:-$ROOT/scripts/run-android-pilot.sh}"
+# shellcheck source=run-evidence.sh
+source "$ROOT/scripts/run-evidence.sh"
 OUT="/tmp/zmr-android-demo-$(date +%Y%m%d-%H%M%S)"
 APP_ID="com.example.mobiletest"
 DEVICE="emulator-5554"
@@ -24,6 +28,7 @@ ADB="${ADB:-adb}"
 EMULATOR="${EMULATOR:-emulator}"
 AUTO_BOOT_EMULATOR=1
 DRY_RUN=0
+DEMO_EMULATOR_HANDLE=""
 
 usage() {
   cat <<'USAGE'
@@ -81,19 +86,50 @@ run() {
   fi
 }
 
+run_evidence() {
+  local phase="$1"
+  local name="$2"
+  local failure_code="$3"
+  shift 3
+  echo "+ $(quote_cmd "$@")"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    zmr_evidence_run "$phase" "$name" "$failure_code" -- "$@"
+  fi
+}
+
 run_allow_fail() {
   echo "+ $(quote_cmd "$@")"
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    "$@" >/dev/null 2>&1 || true
+    zmr_evidence_try app.install remove-existing-app runner.unclassified -- "$@" >/dev/null 2>&1 || true
   fi
 }
 
 run_background() {
   echo "+ $(quote_cmd "$@") &"
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    "$@" &
+    if _zmr_evidence_enabled; then
+      zmr_evidence_run_background DEMO_EMULATOR_HANDLE \
+        device.acquire boot-android-emulator infra.emulator_provision \
+        --expected-stop -- "$@"
+    else
+      "$@" &
+    fi
   fi
 }
+
+cleanup_demo_emulator() {
+  if [[ -z "$DEMO_EMULATOR_HANDLE" ]]; then
+    return 0
+  fi
+  zmr_evidence_event cleanup started
+  zmr_evidence_stop "$DEMO_EMULATOR_HANDLE" cleanup
+  zmr_evidence_wait "$DEMO_EMULATOR_HANDLE"
+  zmr_evidence_event cleanup passed
+}
+
+if _zmr_evidence_enabled; then
+  zmr_evidence_register_cleanup cleanup_demo_emulator
+fi
 
 device_ready() {
   echo "+ $(quote_cmd "$ADB" -s "$DEVICE" get-state)"
@@ -101,12 +137,21 @@ device_ready() {
     return 1
   fi
   local state
-  state="$("$ADB" -s "$DEVICE" get-state 2>/dev/null | tr -d '\r' || true)"
+  if _zmr_evidence_enabled; then
+    state=
+    zmr_evidence_try_capture state device.preflight android-device-state \
+      infra.device_unavailable -- "$ADB" -s "$DEVICE" get-state || true
+    state="${state//$'\r'/}"
+  else
+    state="$("$ADB" -s "$DEVICE" get-state 2>/dev/null | tr -d '\r' || true)"
+  fi
   [[ "$state" == "device" ]]
 }
 
 ensure_android_device_ready() {
   if device_ready; then
+    zmr_evidence_event device.acquire passed '' "Requested Android device is available"
+    zmr_evidence_event device.boot passed '' "Requested Android device is ready"
     return 0
   fi
 
@@ -117,7 +162,8 @@ ensure_android_device_ready() {
 
   echo "+ auto boot Android emulator $AVD when $DEVICE is not ready"
   run_background "$ROOT/scripts/android-emulator.sh" boot --avd "$AVD" --device "$DEVICE"
-  run "$ROOT/scripts/android-emulator.sh" wait-ready --device "$DEVICE"
+  run_evidence device.boot wait-android-emulator infra.emulator_provision \
+    "$ROOT/scripts/android-emulator.sh" wait-ready --device "$DEVICE"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -203,7 +249,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "DRY RUN: commands will be printed but not executed"
 fi
 
-run "$ROOT/scripts/create-android-demo-app.sh" \
+run_evidence app.build create-android-demo config.required_tool_missing "$CREATE_ANDROID_DEMO_APP" \
   --out "$OUT" \
   --app-id "$APP_ID" \
   --api "$API" \
@@ -213,16 +259,37 @@ run "$ROOT/scripts/create-android-demo-app.sh" \
 ensure_android_device_ready
 
 run_allow_fail "$ADB" -s "$DEVICE" uninstall "$APP_ID"
-run "$ADB" -s "$DEVICE" install -r "$APK"
+run_evidence app.install install-android-demo runner.unclassified "$ADB" -s "$DEVICE" install -r "$APK"
 
-run "$ROOT/scripts/benchmark.sh" \
-  --zmr "$SCENARIO" \
+echo "+ $(quote_cmd "$ANDROID_PILOT" \
+  --app-root "$OUT" \
+  --apk "$APK" \
+  --scenario "$SCENARIO" \
+  --skip-emulator \
+  --skip-metro \
   --device "$DEVICE" \
   --app-id "$APP_ID" \
+  --adb "$ADB" \
   --runs "$RUNS" \
   --trace-root "$TRACE_ROOT" \
   --min-pass-rate 100 \
-  --max-failures 0
+  --max-failures 0)"
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  zmr_evidence_delegate scenario.execute android-pilot runner.unclassified -- \
+    "$ANDROID_PILOT" \
+    --app-root "$OUT" \
+    --apk "$APK" \
+    --scenario "$SCENARIO" \
+    --skip-emulator \
+    --skip-metro \
+    --device "$DEVICE" \
+    --app-id "$APP_ID" \
+    --adb "$ADB" \
+    --runs "$RUNS" \
+    --trace-root "$TRACE_ROOT" \
+    --min-pass-rate 100 \
+    --max-failures 0
+fi
 
 cat <<EOF
 

@@ -466,7 +466,10 @@ pub fn outcomeForRun(
         .summary = failure.summary,
         .hint = failure.hint,
         .trace = trace_path,
-        .child_status = 1,
+        .child_status = switch (err) {
+            error.IosShimPathRequired, error.IosShimPathForbidden => 2,
+            else => 1,
+        },
         .ios_shim = ios_shim,
     };
 }

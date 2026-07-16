@@ -474,6 +474,18 @@ def validate_summary(summary: dict) -> list[str]:
                 "$.classification",
                 "does not match the declared error code",
             )
+        if error_code == "runner.evidence_invalid":
+            for field, expected in (
+                ("phase", EVIDENCE_INVALID_PHASE),
+                ("summary", EVIDENCE_INVALID_SUMMARY),
+                ("hint", EVIDENCE_INVALID_HINT),
+            ):
+                if summary.get(field) != expected:
+                    _error(
+                        errors,
+                        "$." + field,
+                        "must use the canonical evidence-invalid fallback value",
+                    )
     elif status == "cancelled":
         if classification != "cancelled":
             _error(errors, "$.classification", "must equal cancelled")

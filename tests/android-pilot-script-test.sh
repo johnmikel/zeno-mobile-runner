@@ -235,3 +235,117 @@ assert "benchmark.sh --zmr examples/android-app-auth-probe.json" in output
 assert "benchmark.sh --zmr examples/android-app-login-smoke.json" in output
 assert f"--adb {custom_adb}" in output
 PY
+
+EVIDENCE_ZMR="$TMPDIR/evidence-zmr.sh"
+cat > "$EVIDENCE_ZMR" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+action=${1:-}
+shift || true
+case "$action" in
+  version) printf 'zmr 1.0.0\n' ;;
+  validate) ;;
+  run)
+    trace_dir=
+    outcome_file=
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --trace-dir) trace_dir=${2:-}; shift 2 ;;
+        --outcome-file) outcome_file=${2:-}; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    [[ -n "$trace_dir" && -n "$outcome_file" ]]
+    trace_relative=${trace_dir#"$ZMR_RUN_EVIDENCE_ROOT"/}
+    [[ "$trace_relative" != "$trace_dir" ]]
+    mkdir -p "$trace_dir"
+    printf '%s\n' '{"event":"scenario-start"}' > "$trace_dir/trace.jsonl"
+    printf '%s\n' "{\"schemaVersion\":1,\"status\":\"passed\",\"failureOwner\":\"none\",\"errorCode\":null,\"phase\":\"complete\",\"summary\":null,\"hint\":null,\"trace\":\"$trace_relative\",\"report\":null,\"childStatus\":0,\"iosShim\":null}" > "$ZMR_RUN_EVIDENCE_ROOT/$outcome_file"
+    ;;
+  report)
+    trace_dir=${1:?}
+    shift
+    report=
+    junit=
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --out) report=${2:-}; shift 2 ;;
+        --junit) junit=${2:-}; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf 'report\n' > "$report"
+    printf '<testsuite/>\n' > "$junit"
+    ;;
+  export)
+    shift
+    while [[ $# -gt 0 ]]; do
+      if [[ "$1" == --out ]]; then
+        printf 'bundle\n' > "${2:?}"
+        exit 0
+      fi
+      shift
+    done
+    exit 2
+    ;;
+  *) exit 2 ;;
+esac
+SH
+chmod +x "$EVIDENCE_ZMR"
+
+EVIDENCE_ADB="$TMPDIR/evidence-adb.sh"
+cat > "$EVIDENCE_ADB" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == devices ]]; then
+  printf 'List of devices attached\nemulator-5554\tdevice\n'
+  exit 0
+fi
+if [[ "${1:-}" == -s && "${3:-}" == shell && "${4:-}" == getprop ]]; then
+  printf '1\n'
+fi
+exit 0
+SH
+chmod +x "$EVIDENCE_ADB"
+
+EVIDENCE_PUBLICATION="$TMPDIR/evidence-android-pilot"
+EVIDENCE_ATTEMPT="$EVIDENCE_PUBLICATION/attempts/android-pilot-run"
+EVIDENCE_INDEX="$EVIDENCE_PUBLICATION/attempt-index.json"
+mkdir -p "$EVIDENCE_PUBLICATION/attempts"
+python3 "$ROOT/scripts/run_evidence.py" init \
+  --root "$EVIDENCE_ATTEMPT" \
+  --index "$EVIDENCE_INDEX" \
+  --context-json '{"runId":"android-pilot-run","executionId":"android-pilot-logical","fixtureId":"android-pilot","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","appBuildDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":"android","deviceClass":"android-emulator","runtimeVersion":"35","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"emulator-5554","resolved":"emulator-5554"},"toolchain":{"xcode":null,"zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
+
+touch "$TMPDIR/android-smoke-evidence.json"
+ZMR_RUN_EVIDENCE_ROOT="$EVIDENCE_ATTEMPT" \
+ZMR_RUN_EVIDENCE_INDEX="$EVIDENCE_INDEX" \
+  "$ROOT/scripts/run-android-pilot.sh" \
+  --skip-emulator \
+  --skip-metro \
+  --app-root "$APP_ROOT" \
+  --scenario "$TMPDIR/android-smoke-evidence.json" \
+  --zmr-bin "$EVIDENCE_ZMR" \
+  --adb "$EVIDENCE_ADB" \
+  --device emulator-5554 \
+  --trace-root "$EVIDENCE_ATTEMPT/traces/android-pilot" >/dev/null
+
+python3 "$ROOT/scripts/run_evidence.py" validate-bundle --root "$EVIDENCE_ATTEMPT" >/dev/null
+python3 - "$EVIDENCE_ATTEMPT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+events = [json.loads(line) for line in (root / "bootstrap-events.jsonl").read_text().splitlines()]
+phases = [event["phase"] for event in events]
+expected = ["scenario.validate", "app.install", "scenario.execute", "report.generate", "cleanup"]
+position = -1
+for phase in expected:
+    position = phases.index(phase, position + 1)
+summary = json.loads((root / "run-summary.json").read_text())
+assert summary["status"] == "passed"
+assert summary["artifacts"]["trace"] == "traces/android-pilot/scenario"
+assert summary["artifacts"]["report"] == "traces/android-pilot/scenario/report.html"
+assert list((root / "run-outcomes").glob("*.json"))
+PY

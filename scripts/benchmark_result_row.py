@@ -11,6 +11,7 @@ def parse_args():
     parser.add_argument("--command-status", required=True, type=int)
     parser.add_argument("--duration-ms", required=True, type=int)
     parser.add_argument("--trace-dir", required=True)
+    parser.add_argument("--public-trace-dir")
     parser.add_argument("--platform")
     parser.add_argument("--device")
     parser.add_argument("--app-id")
@@ -67,7 +68,7 @@ def main():
         "run": args.run,
         "status": "ok" if args.command_status == 0 else "failed",
         "durationMs": args.duration_ms,
-        "traceDir": args.trace_dir,
+        "traceDir": args.public_trace_dir or args.trace_dir,
     }
     metadata = {
         "platform": args.platform,

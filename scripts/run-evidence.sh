@@ -173,6 +173,12 @@ _zmr_evidence_install_traps() {
 
 _zmr_evidence_attach() {
   _zmr_evidence_enabled || return 0
+  local canonical_root
+  if ! canonical_root=$(CDPATH= cd -- "$ZMR_RUN_EVIDENCE_ROOT" && pwd -P); then
+    return 125
+  fi
+  ZMR_RUN_EVIDENCE_ROOT=$canonical_root
+  export ZMR_RUN_EVIDENCE_ROOT
   if [ -n "${ZMR_EVIDENCE_SESSION_ID:-}" ] || [ -n "${ZMR_EVIDENCE_SESSION_GENERATION:-}" ]; then
     _zmr_evidence_attach_inherited || return
   else
@@ -276,6 +282,73 @@ zmr_evidence_try() {
   _zmr_evidence_run_policy handled "$@"
 }
 
+zmr_evidence_run_outcome() {
+  [ "$#" -ge 5 ] || return 2
+  local phase=$1 name=$2 ios_shim_mode=$3 separator=$4
+  shift 4
+  _zmr_evidence_expect_separator "$separator" || return
+  [ "$#" -gt 0 ] || return 2
+  case $ios_shim_mode in
+    none|disabled|generated|provided) ;;
+    *)
+      echo "error: invalid iOS shim provenance mode" >&2
+      return 2
+      ;;
+  esac
+  if ! _zmr_evidence_enabled; then
+    "$@"
+    return $?
+  fi
+  _zmr_evidence_require_session_pair || return
+  local command_id outcome_path status consumed consumed_status
+  if ! command_id=$(_zmr_evidence_command_id); then return 125; fi
+  outcome_path=run-outcomes/$command_id.json
+  if [ "$ios_shim_mode" = none ]; then
+    if _zmr_evidence_supervise foreground handled none inherit \
+        "$phase" "$name" runner.unclassified "$command_id" \
+        "$@" --outcome-file "$outcome_path"; then
+      status=0
+    else
+      status=$?
+    fi
+  else
+    if _zmr_evidence_supervise foreground handled none inherit \
+        "$phase" "$name" runner.unclassified "$command_id" \
+        "$@" --outcome-file "$outcome_path" \
+        --ios-shim-mode "$ios_shim_mode"; then
+      status=0
+    else
+      status=$?
+    fi
+  fi
+  if ! consumed=$("$_ZMR_EVIDENCE_PYTHON" "$_ZMR_EVIDENCE_CLI" consume-outcome \
+      --root "$ZMR_RUN_EVIDENCE_ROOT" \
+      --session-id "$ZMR_EVIDENCE_SESSION_ID" \
+      --path "$outcome_path"); then
+    _ZMR_EVIDENCE_INTENT_RECORDED=1
+    return 125
+  fi
+  if ! consumed_status=$(printf '%s' "$consumed" | _zmr_evidence_json_field status); then
+    zmr_evidence_finalize_failure runner_failure scenario.execute runner.evidence_invalid \
+      "Structured run outcome evidence is invalid" \
+      "Inspect the bounded run-outcome sidecar and command binding" || :
+    _ZMR_EVIDENCE_INTENT_RECORDED=1
+    return 125
+  fi
+  case $consumed_status in
+    passed) ;;
+    failed|cancelled) _ZMR_EVIDENCE_INTENT_RECORDED=1 ;;
+    *)
+      zmr_evidence_finalize_failure runner_failure scenario.execute runner.evidence_invalid \
+        "Structured run outcome evidence is invalid" \
+        "Inspect the bounded run-outcome sidecar and command binding" || :
+      _ZMR_EVIDENCE_INTENT_RECORDED=1
+      return 125
+      ;;
+  esac
+  return "$status"
+}
+
 _zmr_evidence_decode_capture() {
   local command_id=$1 stream=$2
   "$_ZMR_EVIDENCE_PYTHON" -c '
@@ -289,7 +362,9 @@ sys.stdout.buffer.write(content)
 ' "$command_id" "$stream"
 }
 
-_zmr_evidence_capture_one() {
+_zmr_evidence_capture_one_policy() {
+  local _zmr_failure_policy=$1
+  shift
   local _zmr_destination=$1 _zmr_phase=$2 _zmr_name=$3 _zmr_failure_code=$4 _zmr_separator=$5
   shift 5
   _zmr_evidence_valid_destination "$_zmr_destination" || {
@@ -312,7 +387,7 @@ _zmr_evidence_capture_one() {
       --session-id "$ZMR_EVIDENCE_SESSION_ID" \
       --generation "$ZMR_EVIDENCE_SESSION_GENERATION" \
       --phase "$_zmr_phase" --name "$_zmr_name" --failure-code "$_zmr_failure_code" \
-      --failure-policy terminal --stop-policy none \
+      --failure-policy "$_zmr_failure_policy" --stop-policy none \
       --mode capture-stdout --stdin-policy inherit --capture-fd 3 \
       -- "$@" 3>&1); then
     _zmr_status=0
@@ -333,7 +408,7 @@ _zmr_evidence_capture_one() {
   fi
   unset _zmr_decoded
   [ "$_zmr_had_xtrace" -eq 0 ] || set -x
-  if [ "$_zmr_status" -ne 0 ]; then
+  if [ "$_zmr_status" -ne 0 ] && [ "$_zmr_failure_policy" = terminal ]; then
     if [ "$_zmr_decode_status" -eq 0 ]; then
       _zmr_evidence_record_command_failure "$_zmr_phase" "$_zmr_name" "$_zmr_failure_code" "$_zmr_status" || _zmr_status=125
     else
@@ -345,10 +420,17 @@ _zmr_evidence_capture_one() {
 
 zmr_evidence_capture() {
   [ "$#" -ge 6 ] || return 2
-  _zmr_evidence_capture_one "$@"
+  _zmr_evidence_capture_one_policy terminal "$@"
 }
 
-zmr_evidence_capture_both() {
+zmr_evidence_try_capture() {
+  [ "$#" -ge 6 ] || return 2
+  _zmr_evidence_capture_one_policy handled "$@"
+}
+
+_zmr_evidence_capture_both_policy() {
+  local _zmr_failure_policy=$1
+  shift
   [ "$#" -ge 7 ] || return 2
   local _zmr_stdout_destination=$1 _zmr_stderr_destination=$2 _zmr_phase=$3 _zmr_name=$4 _zmr_failure_code=$5 _zmr_separator=$6
   shift 6
@@ -369,7 +451,7 @@ zmr_evidence_capture_both() {
       --session-id "$ZMR_EVIDENCE_SESSION_ID" \
       --generation "$ZMR_EVIDENCE_SESSION_GENERATION" \
       --phase "$_zmr_phase" --name "$_zmr_name" --failure-code "$_zmr_failure_code" \
-      --failure-policy terminal --stop-policy none \
+      --failure-policy "$_zmr_failure_policy" --stop-policy none \
       --mode capture-both --stdin-policy inherit --capture-fd 3 \
       -- "$@" 3>&1); then _zmr_status=0; else _zmr_status=$?; fi
   _zmr_stdout_value=
@@ -385,7 +467,7 @@ zmr_evidence_capture_both() {
   fi
   unset _zmr_stdout_value _zmr_stderr_value
   [ "$_zmr_had_xtrace" -eq 0 ] || set -x
-  if [ "$_zmr_status" -ne 0 ]; then
+  if [ "$_zmr_status" -ne 0 ] && [ "$_zmr_failure_policy" = terminal ]; then
     if [ "$_zmr_stdout_status" -eq 0 ] && [ "$_zmr_stderr_status" -eq 0 ]; then
       _zmr_evidence_record_command_failure "$_zmr_phase" "$_zmr_name" "$_zmr_failure_code" "$_zmr_status" || _zmr_status=125
     else
@@ -393,6 +475,16 @@ zmr_evidence_capture_both() {
     fi
   fi
   return "$_zmr_status"
+}
+
+zmr_evidence_capture_both() {
+  [ "$#" -ge 7 ] || return 2
+  _zmr_evidence_capture_both_policy terminal "$@"
+}
+
+zmr_evidence_try_capture_both() {
+  [ "$#" -ge 7 ] || return 2
+  _zmr_evidence_capture_both_policy handled "$@"
 }
 
 _zmr_evidence_register_background() {
@@ -516,7 +608,7 @@ zmr_evidence_stop() {
 }
 
 zmr_evidence_delegate() {
-  _zmr_evidence_run_policy terminal "$@"
+  _zmr_evidence_run_policy handled "$@"
 }
 
 zmr_evidence_update_context() {
@@ -526,6 +618,29 @@ zmr_evidence_update_context() {
     --root "$ZMR_RUN_EVIDENCE_ROOT" --set-json "$1" \
     --session-id "$ZMR_EVIDENCE_SESSION_ID" \
     --generation "$ZMR_EVIDENCE_SESSION_GENERATION" >/dev/null
+}
+
+zmr_evidence_register_artifact() {
+  [ "$#" -eq 2 ] || return 2
+  local field=$1 absolute_path=$2 relative patch
+  _zmr_evidence_enabled || return 0
+  case $field in trace|report) ;; *) return 2 ;; esac
+  case $absolute_path in
+    "$ZMR_RUN_EVIDENCE_ROOT"/*)
+      relative=${absolute_path#"$ZMR_RUN_EVIDENCE_ROOT"/}
+      ;;
+    *)
+      echo "error: evidence artifact is outside the attempt root" >&2
+      return 125
+      ;;
+  esac
+  if ! patch=$("$_ZMR_EVIDENCE_PYTHON" -c '
+import json,sys
+print(json.dumps({"artifacts":{sys.argv[1]:sys.argv[2]}},sort_keys=True,separators=(",",":")))
+' "$field" "$relative"); then
+    return 125
+  fi
+  zmr_evidence_update_context "$patch"
 }
 
 zmr_evidence_finalize_pass() {
@@ -566,18 +681,18 @@ _zmr_evidence_owner_finalize() {
         "Inspect the owner shell and command evidence." "$original_status" || final_status=125
     fi
   fi
-  if ! "$_ZMR_EVIDENCE_PYTHON" "$_ZMR_EVIDENCE_CLI" session-close \
-      --root "$ZMR_RUN_EVIDENCE_ROOT" \
-      --session-id "$ZMR_EVIDENCE_SESSION_ID" \
-      --generation "$ZMR_EVIDENCE_SESSION_GENERATION" >/dev/null; then
-    return 125
-  fi
   if _zmr_evidence_run_cleanups; then :; else cleanup_status=$?; fi
   if [ "$cleanup_status" -ne 0 ]; then
     zmr_evidence_finalize_failure runner_failure cleanup runner.cleanup_failed \
       "Evidence cleanup failed with status $cleanup_status" \
       "Inspect the registered cleanup callback." "$cleanup_status" || :
     final_status=125
+  fi
+  if ! "$_ZMR_EVIDENCE_PYTHON" "$_ZMR_EVIDENCE_CLI" session-close \
+      --root "$ZMR_RUN_EVIDENCE_ROOT" \
+      --session-id "$ZMR_EVIDENCE_SESSION_ID" \
+      --generation "$ZMR_EVIDENCE_SESSION_GENERATION" >/dev/null; then
+    return 125
   fi
   if ! "$_ZMR_EVIDENCE_PYTHON" "$_ZMR_EVIDENCE_CLI" command-recover \
       --root "$ZMR_RUN_EVIDENCE_ROOT" \

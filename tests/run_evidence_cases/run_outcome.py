@@ -233,6 +233,14 @@ class RunOutcomeTests(support.CommandTestCase):
                 self.assertEqual(
                     intent["primary"]["errorCode"], "runner.evidence_invalid"
                 )
+                self.assertFalse(
+                    (self.root / "run-outcomes" / f"{COMMAND_ID}.json").exists()
+                )
+                self._finalize_session()
+                bundle = self.cli(
+                    "validate-bundle", "--root", self.root, text=True
+                )
+                self.assertEqual(bundle.returncode, 0, bundle.stderr)
 
     def test_missing_oversized_and_symlink_sidecars_are_rejected_boundedly(self):
         self._supervise()
@@ -246,6 +254,7 @@ class RunOutcomeTests(support.CommandTestCase):
         path.write_bytes(b"{" + b" " * (64 * 1024) + b"}")
         oversized = self._consume()
         self.assertEqual(oversized.returncode, 2)
+        self.assertFalse(path.exists())
 
         self.tearDown()
         self.setUp()
@@ -255,3 +264,7 @@ class RunOutcomeTests(support.CommandTestCase):
         (self.root / "run-outcomes" / f"{COMMAND_ID}.json").symlink_to(target)
         linked = self._consume()
         self.assertEqual(linked.returncode, 2)
+        self.assertFalse(
+            (self.root / "run-outcomes" / f"{COMMAND_ID}.json").exists()
+        )
+        self.assertTrue(target.exists())

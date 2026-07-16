@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-for args in "--zmr" "--device" "--runs" "--trace-root" "--results" "--platform" "--app-id" "--adb" "--android-shim" "--xcrun" "--ios-shim" "--ios-device-type" "--app-build" "--min-pass-rate" "--max-failures" "--max-mean-ms" "--max-p95-ms"; do
+for args in "--zmr" "--device" "--runs" "--trace-root" "--results" "--platform" "--app-id" "--adb" "--android-shim" "--xcrun" "--ios-shim" "--ios-shim-mode" "--ios-device-type" "--app-build" "--min-pass-rate" "--max-failures" "--max-mean-ms" "--max-p95-ms"; do
   set +e
   missing_value_output="$("$ROOT/scripts/benchmark.sh" $args 2>&1)"
   missing_value_status=$?
@@ -541,3 +541,38 @@ if "$ROOT/scripts/benchmark-command.sh" \
   exit 1
 fi
 grep -q 'runner-b: runs=1 passRate=0.00% failures=1' "$TMPDIR/runner-b-bench.out"
+
+EVIDENCE_PUBLICATION="$TMPDIR/benchmark-evidence"
+EVIDENCE_ATTEMPT="$EVIDENCE_PUBLICATION/attempts/benchmark-run"
+EVIDENCE_INDEX="$EVIDENCE_PUBLICATION/attempt-index.json"
+mkdir -p "$EVIDENCE_PUBLICATION/attempts"
+printf '{}\n' > "$TMPDIR/evidence-scenario.json"
+python3 "$ROOT/scripts/run_evidence.py" init \
+  --root "$EVIDENCE_ATTEMPT" \
+  --index "$EVIDENCE_INDEX" \
+  --context-json '{"runId":"benchmark-run","executionId":"benchmark-logical","fixtureId":"benchmark-android","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","appBuildDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":"android","deviceClass":"android-emulator","runtimeVersion":"35","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"emulator-5554","resolved":"emulator-5554"},"toolchain":{"xcode":null,"zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
+
+ZMR_BIN="$ROOT/tests/fixtures/fake-zmr-evidence-success.sh" \
+ZMR_RUN_EVIDENCE_ROOT="$EVIDENCE_ATTEMPT" \
+ZMR_RUN_EVIDENCE_INDEX="$EVIDENCE_INDEX" \
+  "$ROOT/scripts/benchmark.sh" \
+  --zmr "$TMPDIR/evidence-scenario.json" \
+  --device emulator-5554 \
+  --platform android \
+  --runs 2 \
+  --trace-root "$EVIDENCE_ATTEMPT/traces/benchmark" \
+  --min-pass-rate 100 \
+  --max-failures 0 >/dev/null
+
+python3 "$ROOT/scripts/run_evidence.py" validate-bundle --root "$EVIDENCE_ATTEMPT" >/dev/null
+python3 - "$EVIDENCE_ATTEMPT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+summary = json.loads((root / "run-summary.json").read_text())
+assert summary["status"] == "passed"
+assert summary["artifacts"]["trace"] == "traces/benchmark/zmr-2"
+assert len(list((root / "run-outcomes").glob("*.json"))) == 2
+PY

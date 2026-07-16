@@ -11,6 +11,10 @@ while [[ -h "$SOURCE" ]]; do
 done
 
 ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+CREATE_IOS_DEMO_APP="${CREATE_IOS_DEMO_APP:-$ROOT/scripts/create-ios-demo-app.sh}"
+IOS_PILOT="${IOS_PILOT:-$ROOT/scripts/run-ios-pilot.sh}"
+# shellcheck source=run-evidence.sh
+source "$ROOT/scripts/run-evidence.sh"
 OUT="/tmp/zmr-ios-demo-$(date +%Y%m%d-%H%M%S)"
 APP_NAME="ZMRDemo"
 APP_ID="com.example.mobiletest"
@@ -77,6 +81,17 @@ run() {
   fi
 }
 
+run_evidence() {
+  local phase="$1"
+  local name="$2"
+  local failure_code="$3"
+  shift 3
+  echo "+ $(quote_cmd "$@")"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    zmr_evidence_run "$phase" "$name" "$failure_code" -- "$@"
+  fi
+}
+
 available_ios_simulators() {
   "$XCRUN" simctl list devices available --json | python3 -c '
 import json
@@ -110,7 +125,7 @@ ensure_ios_simulator_ready() {
     return 0
   fi
 
-  run "$XCRUN" simctl list devices booted
+  run_evidence device.preflight list-ios-simulators infra.simulator_provision "$XCRUN" simctl list devices booted
   if [[ "$DRY_RUN" -eq 1 ]]; then
     if [[ "$DEVICE" == "booted" ]]; then
       echo "+ auto boot first available iOS simulator when no simulator is booted"
@@ -118,12 +133,13 @@ ensure_ios_simulator_ready() {
     else
       echo "+ auto boot iOS simulator $DEVICE when it is not booted"
     fi
-    run "$XCRUN" simctl bootstatus "$DEVICE" -b
+    run_evidence device.boot wait-ios-simulator infra.simulator_provision "$XCRUN" simctl bootstatus "$DEVICE" -b
     return 0
   fi
 
   if simulator_is_booted "$DEVICE"; then
-    run "$XCRUN" simctl bootstatus "$DEVICE" -b
+    zmr_evidence_event device.acquire passed '' "Requested iOS simulator is already booted"
+    run_evidence device.boot wait-ios-simulator infra.simulator_provision "$XCRUN" simctl bootstatus "$DEVICE" -b
     return 0
   fi
 
@@ -145,7 +161,7 @@ ensure_ios_simulator_ready() {
       status=$?
       set -e
       if [[ "$status" -eq 0 ]]; then
-        run "$XCRUN" simctl bootstatus "$candidate" -b
+        run_evidence device.boot wait-ios-simulator infra.simulator_provision "$XCRUN" simctl bootstatus "$candidate" -b
         return 0
       fi
       echo "warning: failed to boot iOS simulator $candidate; trying next available simulator" >&2
@@ -153,8 +169,8 @@ ensure_ios_simulator_ready() {
     die "no available iOS simulator could be booted"
   fi
 
-  run "$XCRUN" simctl boot "$boot_target"
-  run "$XCRUN" simctl bootstatus "$boot_target" -b
+  run_evidence device.acquire boot-ios-simulator infra.simulator_provision "$XCRUN" simctl boot "$boot_target"
+  run_evidence device.boot wait-ios-simulator infra.simulator_provision "$XCRUN" simctl bootstatus "$boot_target" -b
 }
 
 while [[ $# -gt 0 ]]; do
@@ -232,13 +248,13 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "DRY RUN: commands will be printed but not executed"
 fi
 
-run "$ROOT/scripts/create-ios-demo-app.sh" \
+run_evidence app.build create-ios-demo config.required_tool_missing "$CREATE_IOS_DEMO_APP" \
   --out "$OUT" \
   --name "$APP_NAME" \
   --bundle-id "$APP_ID" \
   --deployment-target "$DEPLOYMENT_TARGET"
 
-run xcodebuild \
+run_evidence app.build build-ios-demo runner.unclassified xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$APP_NAME" \
   -destination "generic/platform=iOS Simulator" \
@@ -248,18 +264,32 @@ run xcodebuild \
 
 ensure_ios_simulator_ready
 
-run "$ROOT/scripts/run-ios-pilot.sh" \
+echo "+ $(quote_cmd "$IOS_PILOT" \
   --app-root "$OUT" \
   --app-path "$APP_PATH" \
   --device "$DEVICE" \
   --app-id "$APP_ID" \
   --xcrun "$XCRUN" \
   --ios-shim "$IOS_SHIM" \
+  --ios-shim-mode generated \
   --runs "$RUNS" \
-  --trace-root "$TRACE_ROOT"
+  --trace-root "$TRACE_ROOT")"
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  zmr_evidence_delegate scenario.execute ios-pilot runner.unclassified -- \
+    "$IOS_PILOT" \
+    --app-root "$OUT" \
+    --app-path "$APP_PATH" \
+    --device "$DEVICE" \
+    --app-id "$APP_ID" \
+    --xcrun "$XCRUN" \
+    --ios-shim "$IOS_SHIM" \
+    --ios-shim-mode generated \
+    --runs "$RUNS" \
+    --trace-root "$TRACE_ROOT"
+fi
 
 if [[ "$CLEANUP_BUILD_PRODUCTS" -eq 1 ]]; then
-  run rm -rf "$DERIVED_DATA"
+  run_evidence cleanup remove-derived-data runner.cleanup_failed rm -rf "$DERIVED_DATA"
 fi
 
 cat <<EOF

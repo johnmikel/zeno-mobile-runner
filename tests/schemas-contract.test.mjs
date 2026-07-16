@@ -215,15 +215,39 @@ test("failed summary classification owns an exact stable error-code enum", () =>
       Object.assign(summary, {
         status: "failed",
         classification,
-        phase: "scenario.execute",
+        phase:
+          errorCode === "runner.evidence_invalid"
+            ? "evidence.finalize"
+            : "scenario.execute",
         errorCode,
-        summary: "Classified failure",
-        hint: "Inspect evidence",
+        summary:
+          errorCode === "runner.evidence_invalid"
+            ? "Run evidence validation failed"
+            : "Classified failure",
+        hint:
+          errorCode === "runner.evidence_invalid"
+            ? "Inspect the sanitized invalid-summary diagnostics"
+            : "Inspect evidence",
         commandStatus: null,
       });
       expectValid(validateRunSummary, summary, classification + "/" + errorCode);
     }
   }
+
+  const noncanonicalEvidenceFailure = validRunSummary();
+  Object.assign(noncanonicalEvidenceFailure, {
+    status: "failed",
+    classification: "runner_failure",
+    phase: "scenario.execute",
+    errorCode: "runner.evidence_invalid",
+    summary: "Custom evidence failure",
+    hint: "Inspect evidence",
+  });
+  expectInvalid(
+    validateRunSummary,
+    noncanonicalEvidenceFailure,
+    "noncanonical evidence-invalid fallback",
+  );
 
   const unknown = validRunSummary();
   Object.assign(unknown, {

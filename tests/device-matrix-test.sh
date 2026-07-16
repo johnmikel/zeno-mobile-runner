@@ -189,3 +189,67 @@ if ZMR_BIN="$TMPDIR/fake-zmr" "$ROOT/scripts/device-matrix.sh" \
 fi
 grep -q 'matrix gate failed' "$TMPDIR/matrix-fail.out"
 grep -q 'passRate=50.00%' "$TMPDIR/matrix-fail.out"
+
+EVIDENCE_PUBLICATION="$TMPDIR/matrix-evidence"
+EVIDENCE_INDEX="$EVIDENCE_PUBLICATION/attempt-index.json"
+mkdir -p "$EVIDENCE_PUBLICATION"
+cat > "$TMPDIR/matrix-evidence.json" <<JSON
+{
+  "runs": 1,
+  "devices": [
+    {
+      "name": "android-api-35",
+      "platform": "android",
+      "runtimeVersion": "35",
+      "serial": "emulator-5554",
+      "scenario": "$TMPDIR/android-smoke.json"
+    }
+  ]
+}
+JSON
+
+for retry in 1 2; do
+  ZMR_BIN="$ROOT/tests/fixtures/fake-zmr-evidence-success.sh" \
+  ZMR_RUN_EVIDENCE_ROOT="$EVIDENCE_PUBLICATION" \
+  ZMR_RUN_EVIDENCE_INDEX="$EVIDENCE_INDEX" \
+  ZMR_MATRIX_RUN_ID="release-candidate" \
+    "$ROOT/scripts/device-matrix.sh" \
+    --matrix "$TMPDIR/matrix-evidence.json" \
+    --trace-root "$TMPDIR/matrix-evidence-results" \
+    --min-pass-rate 100 \
+    --max-failures 0 >/dev/null
+done
+
+python3 - "$EVIDENCE_PUBLICATION" "$ROOT" <<'PY'
+import json
+import pathlib
+import subprocess
+import sys
+
+publication = pathlib.Path(sys.argv[1])
+root = pathlib.Path(sys.argv[2])
+index = json.loads((publication / "attempt-index.json").read_text())
+assert len(index["executions"]) == 1
+execution = index["executions"][0]
+assert execution["executionId"] == "release-candidate-android-api-35-logical-1"
+assert [row["attempt"] for row in execution["attempts"]] == [1, 2]
+run_ids = [row["runId"] for row in execution["attempts"]]
+assert len(set(run_ids)) == 2
+assert run_ids == [
+    "release-candidate-android-api-35-logical-1-attempt-1",
+    "release-candidate-android-api-35-logical-1-attempt-2",
+]
+for run_id in run_ids:
+    attempt = publication / "attempts" / run_id
+    context = json.loads((attempt / "run-context.json").read_text())
+    summary = json.loads((attempt / "run-summary.json").read_text())
+    assert context["executionId"] == execution["executionId"]
+    assert context["runId"] == run_id
+    assert summary["status"] == "passed"
+    assert list((attempt / "run-outcomes").glob("*.json"))
+    subprocess.run(
+        [sys.executable, str(root / "scripts/run_evidence.py"), "validate-bundle", "--root", str(attempt)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+PY

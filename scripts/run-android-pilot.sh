@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CALLER_CWD="$(pwd -P)"
 cd "$ROOT"
 
+# shellcheck source=run-evidence.sh
+source "$ROOT/scripts/run-evidence.sh"
+
 # Some sandboxed environments do not allow writing to the default temp directory
 # (/var/folders, /tmp). Use a repo-local TMPDIR so adb/mktemp/heredocs work.
 if [[ -z "${TMPDIR:-}" || ! -w "${TMPDIR:-/nonexistent}" ]]; then
@@ -171,9 +174,24 @@ run() {
   fi
 }
 
+run_evidence() {
+  local phase="$1"
+  local name="$2"
+  local failure_code="$3"
+  shift 3
+  echo "+ $(quote_cmd "$@")"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    zmr_evidence_run "$phase" "$name" "$failure_code" -- "$@"
+  fi
+}
+
 run_zmr_report() {
   local trace_dir="$1"
-  run "$ZMR_BIN" report "$trace_dir" --out "$trace_dir/report.html" --junit "$trace_dir/junit.xml"
+  run_evidence report.generate zmr-report runner.report_failed \
+    "$ZMR_BIN" report "$trace_dir" --out "$trace_dir/report.html" --junit "$trace_dir/junit.xml"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    zmr_evidence_register_artifact report "$trace_dir/report.html"
+  fi
 }
 
 capture() {
@@ -214,9 +232,11 @@ wait_for_boot() {
 }
 
 cleanup() {
+  local cleanup_status=0
   if [[ "$DRY_RUN" -eq 1 ]]; then
     return
   fi
+  zmr_evidence_event cleanup started
   if [[ -n "$SCREEN_RECORD_PID" ]]; then
     kill "$SCREEN_RECORD_PID" >/dev/null 2>&1 || true
     wait "$SCREEN_RECORD_PID" >/dev/null 2>&1 || true
@@ -233,8 +253,18 @@ cleanup() {
   if [[ "$STARTED_EMULATOR" -eq 1 ]]; then
     "$ADB" -s "$DEVICE" emu kill >/dev/null 2>&1 || true
   fi
+  if [[ "$cleanup_status" -eq 0 ]]; then
+    zmr_evidence_event cleanup passed
+  else
+    zmr_evidence_event cleanup failed runner.cleanup_failed "Pilot cleanup failed"
+  fi
+  return "$cleanup_status"
 }
-trap cleanup EXIT
+if _zmr_evidence_enabled; then
+  zmr_evidence_register_cleanup cleanup
+else
+  trap cleanup EXIT
+fi
 
 start_screen_recording() {
   if [[ "$SCREEN_RECORD" -ne 1 ]]; then
@@ -279,6 +309,10 @@ preflight_android_device() {
   echo "errorCode: setup.android.no_devices" >&2
   echo "hint: run zmr doctor --json --adb $(printf '%q' "$ADB") and start/connect the requested device." >&2
   "$ZMR_BIN" doctor --json --adb "$ADB" >&2 || true
+  zmr_evidence_finalize_failure infrastructure_failure device.preflight \
+    infra.device_unavailable \
+    "The requested Android device is unavailable" \
+    "Start or connect the requested device, then retry." 2
   exit 2
 }
 
@@ -405,7 +439,13 @@ fi
 if [[ -z "$APK" ]]; then
   APK="$APP_ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
 fi
-[[ -f "$APK" ]] || die "APK not found: $APK"
+if [[ ! -f "$APK" ]]; then
+  zmr_evidence_finalize_failure configuration_failure app.install \
+    config.app_artifact_missing \
+    "The Android app artifact is missing" \
+    "Build the debug APK or pass --apk with an existing artifact." 2
+  die "APK not found: $APK"
+fi
 
 echo "Android pilot output: $TRACE_ROOT"
 echo "App test env: $APP_ROOT/.env.test"
@@ -413,37 +453,48 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "DRY RUN: commands will be printed but not executed"
 fi
 
-run mkdir -p "$TRACE_ROOT" "$(dirname "$ZMR_BIN")"
+run_evidence evidence.init prepare-output runner.unclassified mkdir -p "$TRACE_ROOT" "$(dirname "$ZMR_BIN")"
 
 if [[ ! -x "$ZMR_BIN" ]]; then
   target_args=()
   if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     target_args=(-target aarch64-macos.15.0)
   fi
-  run zig build-exe src/main.zig "${target_args[@]}" -O Debug -femit-bin="$ZMR_BIN"
+  run_evidence app.build build-zmr runner.unclassified zig build-exe src/main.zig "${target_args[@]}" -O Debug -femit-bin="$ZMR_BIN"
 fi
 
-run "$ZMR_BIN" version
+run_evidence invocation zmr-version runner.unclassified "$ZMR_BIN" version
 if [[ -n "$SCENARIO" ]]; then
-  run "$ZMR_BIN" validate "$SCENARIO"
+  run_evidence scenario.validate validate-scenario config.invalid "$ZMR_BIN" validate "$SCENARIO"
 else
-  run "$ZMR_BIN" validate examples/android-app-auth-probe.json
-  run "$ZMR_BIN" validate examples/android-app-login-smoke.json
+  run_evidence scenario.validate validate-auth-scenario config.invalid "$ZMR_BIN" validate examples/android-app-auth-probe.json
+  run_evidence scenario.validate validate-login-scenario config.invalid "$ZMR_BIN" validate examples/android-app-login-smoke.json
 fi
 
 run_zmr_android_scenario() {
+  local command
   if [[ "$ADB" == "adb" ]]; then
-    run "$ZMR_BIN" run "$@"
+    command=("$ZMR_BIN" run "$@")
   else
-    run "$ZMR_BIN" run "$@" --adb "$ADB"
+    command=("$ZMR_BIN" run "$@" --adb "$ADB")
+  fi
+  echo "+ $(quote_cmd "${command[@]}")"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    zmr_evidence_run_outcome scenario.execute zmr-run none -- "${command[@]}"
   fi
 }
 
 run_android_benchmark() {
+  local command
   if [[ "$ADB" == "adb" ]]; then
-    ZMR_BIN="$ZMR_BIN" run "$ROOT/scripts/benchmark.sh" "$@"
+    command=("$ROOT/scripts/benchmark.sh" "$@")
   else
-    ZMR_BIN="$ZMR_BIN" run "$ROOT/scripts/benchmark.sh" "$@" --adb "$ADB"
+    command=("$ROOT/scripts/benchmark.sh" "$@" --adb "$ADB")
+  fi
+  echo "+ $(quote_cmd "${command[@]}")"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    zmr_evidence_delegate scenario.execute android-benchmark runner.unclassified -- \
+      env ZMR_BIN="$ZMR_BIN" "${command[@]}"
   fi
 }
 
@@ -480,11 +531,11 @@ fi
 wait_for_device
 wait_for_boot
 
-run "$ADB" -s "$DEVICE" install -r "$APK"
-run "$ADB" -s "$DEVICE" reverse tcp:8081 tcp:8081
-run "$ADB" -s "$DEVICE" shell settings put global window_animation_scale 0
-run "$ADB" -s "$DEVICE" shell settings put global transition_animation_scale 0
-run "$ADB" -s "$DEVICE" shell settings put global animator_duration_scale 0
+run_evidence app.install install-app runner.unclassified "$ADB" -s "$DEVICE" install -r "$APK"
+run_evidence device.preflight reverse-metro-port runner.unclassified "$ADB" -s "$DEVICE" reverse tcp:8081 tcp:8081
+run_evidence device.preflight disable-window-animations runner.unclassified "$ADB" -s "$DEVICE" shell settings put global window_animation_scale 0
+run_evidence device.preflight disable-transition-animations runner.unclassified "$ADB" -s "$DEVICE" shell settings put global transition_animation_scale 0
+run_evidence device.preflight disable-animator-duration runner.unclassified "$ADB" -s "$DEVICE" shell settings put global animator_duration_scale 0
 
 if [[ "$SKIP_METRO" -eq 0 ]]; then
   command -v bun >/dev/null 2>&1 || die "bun is required to start Metro"

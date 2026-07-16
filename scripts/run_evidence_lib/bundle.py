@@ -825,10 +825,9 @@ def _validate_invalid_summary_diagnostic_pair(
         return
 
     if (
-        summary.get("phase") != "evidence.finalize"
-        or summary.get("summary") != "Run evidence validation failed"
-        or summary.get("hint")
-        != "Inspect the sanitized invalid-summary diagnostics"
+        summary.get("phase") != EVIDENCE_INVALID_PHASE
+        or summary.get("summary") != EVIDENCE_INVALID_SUMMARY
+        or summary.get("hint") != EVIDENCE_INVALID_HINT
     ):
         errors.append(
             "invalid-summary diagnostic pair: evidence-invalid fallback text "

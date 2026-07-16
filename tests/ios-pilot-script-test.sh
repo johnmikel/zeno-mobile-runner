@@ -6,7 +6,7 @@ TMPDIR="$(mktemp -d)"
 TMPDIR="$(cd "$TMPDIR" && pwd -P)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-for args in "--app-root" "--app-path" "--device" "--ios-device-type" "--app-id" "--trace-root" "--zmr-bin" "--xcrun" "--ios-shim" "--runs" "--min-pass-rate" "--max-failures" "--max-mean-ms" "--max-p95-ms"; do
+for args in "--app-root" "--app-path" "--device" "--ios-device-type" "--app-id" "--trace-root" "--zmr-bin" "--xcrun" "--ios-shim" "--ios-shim-mode" "--runs" "--min-pass-rate" "--max-failures" "--max-mean-ms" "--max-p95-ms"; do
   set +e
   missing_value_output="$("$ROOT/scripts/run-ios-pilot.sh" $args 2>&1)"
   missing_value_status=$?
@@ -292,4 +292,128 @@ assert f"--ios-shim {ios_shim}" in output
 assert f"--trace-dir {trace_root}/ios-smoke" in output
 assert f"zmr report {trace_root}/ios-smoke --out {trace_root}/ios-smoke/report.html --junit {trace_root}/ios-smoke/junit.xml" in output
 assert f"zmr report {trace_root}/ios-shim-smoke --out {trace_root}/ios-shim-smoke/report.html --junit {trace_root}/ios-shim-smoke/junit.xml" in output
+PY
+
+EVIDENCE_ZMR="$TMPDIR/evidence-ios-zmr.sh"
+cat > "$EVIDENCE_ZMR" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+action=${1:-}
+shift || true
+case "$action" in
+  version) printf 'zmr 1.0.0\n' ;;
+  validate) ;;
+  devices) printf '%s\n' '{"count":1,"devices":[{"serial":"fake-ios-1","state":"booted"}]}' ;;
+  run)
+    trace_dir=
+    outcome_file=
+    shim_mode=
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --trace-dir) trace_dir=${2:-}; shift 2 ;;
+        --outcome-file) outcome_file=${2:-}; shift 2 ;;
+        --ios-shim-mode) shim_mode=${2:-}; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    [[ -n "$trace_dir" && -n "$outcome_file" && "$shim_mode" == provided ]]
+    trace_relative=${trace_dir#"$ZMR_RUN_EVIDENCE_ROOT"/}
+    [[ "$trace_relative" != "$trace_dir" ]]
+    mkdir -p "$trace_dir"
+    printf '%s\n' '{"event":"scenario-start"}' > "$trace_dir/trace.jsonl"
+    printf '%s\n' "{\"schemaVersion\":1,\"status\":\"passed\",\"failureOwner\":\"none\",\"errorCode\":null,\"phase\":\"complete\",\"summary\":null,\"hint\":null,\"trace\":\"$trace_relative\",\"report\":null,\"childStatus\":0,\"iosShim\":{\"targetKind\":\"simulator\",\"mode\":\"provided\",\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}" > "$ZMR_RUN_EVIDENCE_ROOT/$outcome_file"
+    ;;
+  report)
+    shift
+    report=
+    junit=
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --out) report=${2:-}; shift 2 ;;
+        --junit) junit=${2:-}; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf 'report\n' > "$report"
+    printf '<testsuite/>\n' > "$junit"
+    ;;
+  export)
+    shift
+    while [[ $# -gt 0 ]]; do
+      if [[ "$1" == --out ]]; then
+        printf 'bundle\n' > "${2:?}"
+        exit 0
+      fi
+      shift
+    done
+    exit 2
+    ;;
+  *) exit 2 ;;
+esac
+SH
+chmod +x "$EVIDENCE_ZMR"
+
+EVIDENCE_XCRUN="$TMPDIR/evidence-xcrun.sh"
+cat > "$EVIDENCE_XCRUN" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == --version ]]; then
+  printf 'xcrun version 70\n'
+fi
+exit 0
+SH
+chmod +x "$EVIDENCE_XCRUN"
+
+EVIDENCE_SHIM="$TMPDIR/evidence-ios-shim.sh"
+cat > "$EVIDENCE_SHIM" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+read -r request
+[[ "$request" == '{"cmd":"appState"}' ]]
+printf '%s\n' '{"ok":true,"state":"running"}'
+SH
+chmod +x "$EVIDENCE_SHIM"
+
+EVIDENCE_PUBLICATION="$TMPDIR/evidence-ios-pilot"
+EVIDENCE_ATTEMPT="$EVIDENCE_PUBLICATION/attempts/ios-pilot-run"
+EVIDENCE_INDEX="$EVIDENCE_PUBLICATION/attempt-index.json"
+mkdir -p "$EVIDENCE_PUBLICATION/attempts"
+python3 "$ROOT/scripts/run_evidence.py" init \
+  --root "$EVIDENCE_ATTEMPT" \
+  --index "$EVIDENCE_INDEX" \
+  --context-json '{"runId":"ios-pilot-run","executionId":"ios-pilot-logical","fixtureId":"ios-pilot","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","appBuildDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":"ios","deviceClass":"ios-simulator","runtimeVersion":"18.5","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"fake-ios-1","resolved":"fake-ios-1"},"toolchain":{"xcode":"16.4","zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
+
+ZMR_RUN_EVIDENCE_ROOT="$EVIDENCE_ATTEMPT" \
+ZMR_RUN_EVIDENCE_INDEX="$EVIDENCE_INDEX" \
+  "$ROOT/scripts/run-ios-pilot.sh" \
+  --app-root "$APP_ROOT" \
+  --app-path "$APP_PATH" \
+  --device fake-ios-1 \
+  --ios-device-type simulator \
+  --ios-shim "$EVIDENCE_SHIM" \
+  --ios-shim-mode provided \
+  --zmr-bin "$EVIDENCE_ZMR" \
+  --xcrun "$EVIDENCE_XCRUN" \
+  --trace-root "$EVIDENCE_ATTEMPT/traces/ios-pilot" >/dev/null
+
+python3 "$ROOT/scripts/run_evidence.py" validate-bundle --root "$EVIDENCE_ATTEMPT" >/dev/null
+python3 - "$EVIDENCE_ATTEMPT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+events = [json.loads(line) for line in (root / "bootstrap-events.jsonl").read_text().splitlines()]
+phases = [event["phase"] for event in events]
+expected = ["scenario.validate", "app.install", "shim.build", "shim.start", "shim.prewarm", "scenario.execute", "report.generate", "cleanup"]
+position = -1
+for phase in expected:
+    position = phases.index(phase, position + 1)
+summary = json.loads((root / "run-summary.json").read_text())
+assert summary["status"] == "passed"
+assert summary["artifacts"]["trace"] == "traces/ios-pilot/ios-shim-smoke"
+assert summary["artifacts"]["report"] == "traces/ios-pilot/ios-shim-smoke/report.html"
+sidecars = list((root / "run-outcomes").glob("*.json"))
+assert len(sidecars) == 2
+assert all(json.loads(path.read_text())["iosShim"]["mode"] == "provided" for path in sidecars)
 PY

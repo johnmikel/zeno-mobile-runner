@@ -304,6 +304,21 @@
     },
     {
       "if": {
+        "properties": {
+          "errorCode": { "const": "runner.evidence_invalid" }
+        },
+        "required": ["errorCode"]
+      },
+      "then": {
+        "properties": {
+          "phase": { "const": "evidence.finalize" },
+          "summary": { "const": "Run evidence validation failed" },
+          "hint": { "const": "Inspect the sanitized invalid-summary diagnostics" }
+        }
+      }
+    },
+    {
+      "if": {
         "required": [
           "candidateRevision",
           "fixtureId",

@@ -121,6 +121,10 @@ SUPERVISOR_ONLY_FAILURE_CODES = (
     "runner.capture_failed",
 )
 
+EVIDENCE_INVALID_PHASE = "evidence.finalize"
+EVIDENCE_INVALID_SUMMARY = "Run evidence validation failed"
+EVIDENCE_INVALID_HINT = "Inspect the sanitized invalid-summary diagnostics"
+
 _ERROR_GROUPS = {
     "runner_failure": (
         "runner.unclassified",
@@ -281,6 +285,9 @@ __all__ = (
     "COMPARABILITY_FIELDS",
     "SUPERVISOR_FAILURE_CODES",
     "SUPERVISOR_ONLY_FAILURE_CODES",
+    "EVIDENCE_INVALID_PHASE",
+    "EVIDENCE_INVALID_SUMMARY",
+    "EVIDENCE_INVALID_HINT",
     "_ERROR_GROUPS",
     "ERROR_CLASSIFICATION",
     "_CLASSIFICATION_PRECEDENCE",

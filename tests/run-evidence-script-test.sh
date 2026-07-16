@@ -28,7 +28,7 @@ assert_eq() {
 }
 
 assert_file_contains() {
-  grep -F "$2" "$1" >/dev/null 2>&1 || fail "$1 does not contain [$2]"
+  grep -F -- "$2" "$1" >/dev/null 2>&1 || fail "$1 does not contain [$2]"
 }
 
 context_json() {
@@ -134,9 +134,73 @@ test_borrower_defers_without_finalizing() {
   pass
 }
 
+test_structured_run_outcome_is_supervised_consumed_and_finalized() {
+  paths=$(new_attempt outcome outcome-run) || fail "could not initialize outcome attempt"
+  attempt=$(printf '%s\n' "$paths" | sed -n '1p')
+  index=$(printf '%s\n' "$paths" | sed -n '2p')
+  owner="$ROOT/tests/fixtures/run-evidence-outcome-owner.sh"
+  fake_zmr="$ROOT/tests/fixtures/fake-zmr-outcome.sh"
+  argv_log="$TMP_ROOT/outcome-argv.log"
+
+  /bin/bash "$owner" "$attempt" "$index" "$ADAPTER" "$fake_zmr" "$argv_log" || \
+    fail "structured outcome owner failed"
+  assert_file_contains "$argv_log" "--outcome-file run-outcomes/"
+  assert_file_contains "$argv_log" "--ios-shim-mode generated"
+  assert_eq passed "$(summary_field "$attempt/run-summary.json" status)" "outcome summary"
+  assert_eq traces/outcome "$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifacts"]["trace"])' "$attempt/run-context.json")" "outcome trace"
+  outcome_count=$(find "$attempt/run-outcomes" -type f -name '*.json' | wc -l | tr -d ' ')
+  assert_eq 1 "$outcome_count" "retained outcome count"
+  "$PYTHON" "$EVIDENCE" validate-bundle --root "$attempt" >/dev/null || fail "outcome bundle invalid"
+  pass
+}
+
+test_invalid_run_outcome_has_one_stable_owner_and_publishable_bundle() {
+  paths=$(new_attempt outcome-invalid outcome-invalid-run) || fail "could not initialize invalid outcome attempt"
+  attempt=$(printf '%s\n' "$paths" | sed -n '1p')
+  index=$(printf '%s\n' "$paths" | sed -n '2p')
+  owner="$ROOT/tests/fixtures/run-evidence-outcome-owner.sh"
+  fake_zmr="$ROOT/tests/fixtures/fake-zmr-outcome.sh"
+  argv_log="$TMP_ROOT/outcome-invalid-argv.log"
+
+  if FAKE_ZMR_OUTCOME_MODE=invalid /bin/bash "$owner" "$attempt" "$index" "$ADAPTER" "$fake_zmr" "$argv_log"; then
+    fail "invalid structured outcome returned success"
+  else
+    status=$?
+  fi
+  assert_eq 125 "$status" "invalid outcome shell status"
+  assert_eq failed "$(summary_field "$attempt/run-summary.json" status)" "invalid outcome summary status"
+  assert_eq runner.evidence_invalid "$(summary_field "$attempt/run-summary.json" errorCode)" "invalid outcome summary code"
+  outcome_count=$(find "$attempt/run-outcomes" -type f -name '*.json' | wc -l | tr -d ' ')
+  assert_eq 0 "$outcome_count" "invalid sidecar quarantine"
+  "$PYTHON" "$EVIDENCE" validate-bundle --root "$attempt" >/dev/null || fail "invalid outcome fallback bundle invalid"
+  pass
+}
+
+test_delegate_preserves_borrower_terminal_owner() {
+  paths=$(new_attempt delegate delegate-run) || fail "could not initialize delegate attempt"
+  attempt=$(printf '%s\n' "$paths" | sed -n '1p')
+  index=$(printf '%s\n' "$paths" | sed -n '2p')
+  owner="$ROOT/tests/fixtures/run-evidence-delegate-owner.sh"
+  borrower="$ROOT/tests/fixtures/run-evidence-exact-borrower.sh"
+
+  if /bin/bash "$owner" "$attempt" "$index" "$ADAPTER" "$borrower"; then
+    fail "failing delegate returned success"
+  else
+    status=$?
+  fi
+  assert_eq 1 "$status" "delegate shell status"
+  assert_eq app_failure "$(summary_field "$attempt/run-summary.json" classification)" "delegate classification"
+  assert_eq app.assertion_failed "$(summary_field "$attempt/run-summary.json" errorCode)" "delegate error code"
+  "$PYTHON" "$EVIDENCE" validate-bundle --root "$attempt" >/dev/null || fail "delegate bundle invalid"
+  pass
+}
+
 test_bash_32_syntax
 test_wrapper_success_and_failure
 test_sourced_commands_capture_background_and_cleanup
 test_borrower_defers_without_finalizing
+test_structured_run_outcome_is_supervised_consumed_and_finalized
+test_invalid_run_outcome_has_one_stable_owner_and_publishable_bundle
+test_delegate_preserves_borrower_terminal_owner
 
 echo "PASS: $PASS_COUNT run-evidence Bash adapter groups"

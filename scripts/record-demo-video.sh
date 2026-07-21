@@ -195,7 +195,17 @@ xcrun simctl terminate "$DEVICE" com.example.mobiletest 2>/dev/null || true
 # launch and breaks selector waits; mark onboarding finished before launching.
 xcrun simctl spawn "$DEVICE" defaults write com.example.mobiletest EXDevMenuIsOnboardingFinished -bool true 2>/dev/null || true
 xcrun simctl launch "$DEVICE" com.example.mobiletest
-sleep 15
+sleep 6
+# A dev client boots to the Expo dev launcher ("DEVELOPMENT SERVERS"), not to
+# the app: nothing loads the JS bundle until we point it at Metro explicitly.
+# Without this the first scenario step deep-links into a launcher that has no
+# bundle to route to, and the run dies on a wait timeout at step 1.
+DEMO_SCHEME="$(sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([a-z0-9][a-z0-9+.-]*\):\/\/.*/\1/p' \
+  .zmr/react-native-expo-ios-workflow.json | head -1)"
+[[ -n "$DEMO_SCHEME" ]] || die "could not derive the demo deep-link scheme from the iOS scenario"
+xcrun simctl openurl "$DEVICE" \
+  "$DEMO_SCHEME://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A$METRO_PORT"
+sleep 20
 
 log_step "Warm the ZMR shim (first use pays xcodebuild build-for-testing)"
 printf '{"cmd":"appState"}\n' | ./.zmr/ios-shim > /dev/null

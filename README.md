@@ -1,24 +1,25 @@
 # Zeno Mobile Runner
 
-> Mobile UI automation built for AI coding agents: one Zig binary that drives real
-> Android and iOS devices via MCP, JSON-RPC, or committed JSON scenarios, and
-> emits replayable trace evidence.
+> Did your AI agent's last change break the app? ZMR gives you a deterministic
+> yes or no — on a real iOS or Android device, with replayable evidence, and no
+> LLM in the loop.
 
 [![CI](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/johnmikel/zeno-mobile-runner/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/zeno-mobile-runner)](https://www.npmjs.com/package/zeno-mobile-runner)
 [![Release](https://img.shields.io/github/v/release/johnmikel/zeno-mobile-runner?include_prereleases)](https://github.com/johnmikel/zeno-mobile-runner/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-AI coding agents can change mobile apps quickly, but they have no reliable way to
-*see* the screen, *act* on native UI, and *prove* the result. Zeno Mobile Runner
-(ZMR) is that missing control plane: one local binary that installs and launches
-apps, captures semantic UI state, performs typed actions, waits and asserts, and
-writes a replayable trace.
+AI coding agents change mobile apps fast, but nothing tells them whether the UI
+still works. Zeno Mobile Runner (ZMR) is that check: one small Zig binary that
+installs and launches your app on a real device or simulator, runs a saved
+scenario, and returns a typed pass/fail plus a replayable trace — screenshots,
+UI trees, timings, assertion results.
 
-ZMR deliberately does **not** embed an LLM. External agents, scripts, and CI
-systems stay in charge of planning; ZMR is the device-facing engine they observe
-and act through — over MCP, JSON-RPC, a JSON-output CLI, or deterministic
-committed JSON scenarios.
+Because there is **no LLM inside ZMR**, the same check costs nothing per run and
+gives the same answer every time. Run it in your agent's loop and in CI. ZMR
+drives native UI beneath the JavaScript and Dart layers, so React Native, Expo,
+Flutter, and fully native apps share one runner — over MCP, JSON-RPC, a
+JSON-output CLI, or committed JSON scenarios.
 
 ![ZMR trace viewer showing a passed iOS run with timeline, device screenshot, UI tree, and selector payload](docs/assets/viewer-hero.png)
 

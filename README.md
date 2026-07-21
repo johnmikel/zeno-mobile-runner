@@ -9,6 +9,8 @@
 [![Release](https://img.shields.io/github/v/release/johnmikel/zeno-mobile-runner?include_prereleases)](https://github.com/johnmikel/zeno-mobile-runner/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+**Mobile UI automation built for AI coding agents.**
+
 AI coding agents change mobile apps fast, but nothing tells them whether the UI
 still works. Zeno Mobile Runner (ZMR) is that check: one small Zig binary that
 installs and launches your app on a real device or simulator, runs a saved

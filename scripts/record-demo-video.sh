@@ -178,6 +178,25 @@ fi
 
 cd "$APP_DIR"
 
+# The run below deliberately breaks App.tsx (Profile -> Your details) and then
+# repairs the scenario selector to match, and neither is reverted at the end.
+# Re-running against a reused --app-dir therefore starts from the *repaired*
+# state, where the "break" step is a no-op and segment B passes when it must
+# fail. Restore both to pristine first so the recorder is re-runnable.
+log_step "Restore pristine demo state"
+perl -0pi -e 's/(testID="profile_title"[^>]*>\s*\n\s*)Your details/${1}Profile/' App.tsx
+grep -q "Profile" App.tsx || die "failed to restore the Profile heading in App.tsx"
+python3 - "$PWD/.zmr/react-native-expo-ios-workflow.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+scenario = json.load(open(path))
+for step in scenario["steps"]:
+    selector = step.get("selector") or {}
+    if selector.get("text") == "Your details":
+        selector["text"] = "Profile"
+json.dump(scenario, open(path, "w"), indent=2)
+PY
+
 log_step "Start Metro on port $METRO_PORT"
 if lsof -nP -iTCP:"$METRO_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   die "port $METRO_PORT is already in use; stop the other bundler first"
@@ -189,13 +208,6 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
-log_step "Warm the app (first bundle load)"
-xcrun simctl terminate "$DEVICE" com.example.mobiletest 2>/dev/null || true
-# The Expo dev-menu onboarding sheet covers the app on the first dev-build
-# launch and breaks selector waits; mark onboarding finished before launching.
-xcrun simctl spawn "$DEVICE" defaults write com.example.mobiletest EXDevMenuIsOnboardingFinished -bool true 2>/dev/null || true
-xcrun simctl launch "$DEVICE" com.example.mobiletest
-sleep 6
 # A dev client boots to the Expo dev launcher ("DEVELOPMENT SERVERS"), not to
 # the app: nothing loads the JS bundle until we point it at Metro explicitly.
 # Without this the first scenario step deep-links into a launcher that has no
@@ -203,9 +215,28 @@ sleep 6
 DEMO_SCHEME="$(sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([a-z0-9][a-z0-9+.-]*\):\/\/.*/\1/p' \
   .zmr/react-native-expo-ios-workflow.json | head -1)"
 [[ -n "$DEMO_SCHEME" ]] || die "could not derive the demo deep-link scheme from the iOS scenario"
-xcrun simctl openurl "$DEVICE" \
-  "$DEMO_SCHEME://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A$METRO_PORT"
-sleep 20
+
+# Relaunch the app from scratch and re-point it at Metro. Run before every
+# segment, not just the first: the scenario types into the profile form on each
+# passing run and React keeps that text in component state, so recording A and C
+# against one live app appends the second run's input to the first
+# ("RileyRiley saved North Ridge Pack"). That is the cosmetic defect the
+# storyboard's production notes call out, and it made the 21 Jul segment C
+# unusable for the cut.
+boot_app() {
+  xcrun simctl terminate "$DEVICE" com.example.mobiletest 2>/dev/null || true
+  # The Expo dev-menu onboarding sheet covers the app on the first dev-build
+  # launch and breaks selector waits; mark onboarding finished before launching.
+  xcrun simctl spawn "$DEVICE" defaults write com.example.mobiletest EXDevMenuIsOnboardingFinished -bool true 2>/dev/null || true
+  xcrun simctl launch "$DEVICE" com.example.mobiletest
+  sleep 6
+  xcrun simctl openurl "$DEVICE" \
+    "$DEMO_SCHEME://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A$METRO_PORT"
+  sleep 20
+}
+
+log_step "Warm the app (first bundle load)"
+boot_app
 
 log_step "Warm the ZMR shim (first use pays xcodebuild build-for-testing)"
 printf '{"cmd":"appState"}\n' | ./.zmr/ios-shim > /dev/null
@@ -219,6 +250,7 @@ log_step "Break the app: rename the Profile heading"
 perl -0pi -e 's/(testID="profile_title"[^>]*>\s*\n\s*)Profile/${1}Your details/' App.tsx
 grep -q "Your details" App.tsx || die "failed to apply the demo copy change"
 sleep 6  # let Metro hot-reload the change
+boot_app  # fresh state, and picks up the renamed heading from a clean bundle
 
 log_step "Segment B: failing run + diagnosis"
 record_start "$OUT/segment-b-fail.mp4"
@@ -239,6 +271,7 @@ for step in scenario["steps"]:
 json.dump(scenario, open(path, "w"), indent=2)
 PY
 "$ZMR_BIN" validate .zmr/react-native-expo-ios-workflow.json
+boot_app  # critical: without this C types over A's input and reads "RileyRiley"
 
 log_step "Segment C: green again"
 record_start "$OUT/segment-c-pass.mp4"

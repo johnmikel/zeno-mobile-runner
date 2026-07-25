@@ -11,6 +11,11 @@
 
 **Mobile UI automation built for AI coding agents.**
 
+![A ZMR scenario failing on a real iOS simulator after a copy change, and zmr explain reporting the failed step index, the WaitTimeout error, and the text now on screen](docs/assets/demo-fail-explain.gif)
+
+<p align="center"><em>A teammate renames a heading. The scenario fails, and the
+trace says exactly why — no screenshots to squint at.</em></p>
+
 AI coding agents change mobile apps fast, but nothing tells them whether the UI
 still works. Zeno Mobile Runner (ZMR) is that check: one small Zig binary that
 installs and launches your app on a real device or simulator, runs a saved
@@ -261,7 +266,7 @@ build, what passed or failed, and which business journey it supports. See the
 Slow CI hardware can extend the generated iOS shim build timeout with
 `ZMR_IOS_SHIM_BUILD_TIMEOUT_SECONDS`; `ZMR_IOS_SHIM_RESPONSE_TIMEOUT_SECONDS`
 bounds each in-flight request, and `ZMR_IOS_SHIM_TIMEOUT_MS` remains the outer
-process ceiling. Current release: `0.2.17` developer preview.
+process ceiling. Current release: `0.2.18` developer preview.
 
 End-to-end device runs require a configured mobile toolchain (Android SDK / ADB,
 Xcode / `simctl`) and, for iOS native selector actions, building the generated
@@ -271,7 +276,7 @@ throughout the test suite and the `zmr validate examples/demo-fake.json` demo.
 
 ## Project status
 
-ZMR is a **0.2.x developer preview** (runner version `0.2.17`, protocol version
+ZMR is a **0.2.x developer preview** (runner version `0.2.18`, protocol version
 `2026-04-28`), [published to npm](https://www.npmjs.com/package/zeno-mobile-runner)
 with curl / npm / Homebrew install paths. There is no 1.0 stability guarantee
 yet, and surfaces may change between minor versions.

@@ -478,7 +478,7 @@ test("directory and archive adaptation are source-digest equivalent and package 
   });
   assert.deepEqual(directoryResult.manifest.producer, {
     name: "zeno-mobile-runner",
-    version: "0.2.17",
+    version: "0.2.18",
     adapterVersion: "1.0.0",
     provenanceClass: "zeno_runner",
     attestationState: "unattested",

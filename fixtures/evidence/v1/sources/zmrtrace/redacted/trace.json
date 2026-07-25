@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runnerVersion": "0.2.17",
+  "runnerVersion": "0.2.18",
   "protocolVersion": "2026-04-28",
   "scenarioName": "redacted fixture",
   "appId": "dev.zmr.fixture",

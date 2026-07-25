@@ -141,7 +141,10 @@ test "app scaffold writes config smoke scenarios and gitignore without overwriti
     try std.testing.expect(std.mem.indexOf(u8, agent, "traces/zmr-ios-reliability/report.html") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "traces/zmr-ios-reliability/junit.xml") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-device-matrix --matrix .zmr/device-matrix.json --trace-root traces/zmr-matrix --min-pass-rate 100 --max-failures 0") != null);
-    try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-pilot-gate --android --ios --android-app-root . --android-app-id com.example.mobiletest --android-device emulator-5554 --ios-app-root . --ios-app-path ./build/Debug-iphonesimulator/Sample.app --ios-app-id com.example.mobiletest --ios-device booted --runs 20 --min-pass-rate 100 --max-failures 0 --evidence-out traces/zmr-pilots/evidence.jsonl") != null);
+    // Anchor on the preceding newline: a bare substring check still passes when
+    // the device-matrix line and this one are emitted with no separator between
+    // them ("--max-failures 0zmr-pilot-gate ..."), which is what shipped in 0.2.17.
+    try std.testing.expect(std.mem.indexOf(u8, agent, "--trace-root traces/zmr-matrix --min-pass-rate 100 --max-failures 0\nzmr-pilot-gate --android --ios --android-app-root . --android-app-id com.example.mobiletest --android-device emulator-5554 --ios-app-root . --ios-app-path ./build/Debug-iphonesimulator/Sample.app --ios-app-id com.example.mobiletest --ios-device booted --runs 20 --min-pass-rate 100 --max-failures 0 --evidence-out traces/zmr-pilots/evidence.jsonl") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "zmr-release-readiness --evidence traces/zmr-pilots/evidence.jsonl --target production --json") != null);
     try std.testing.expect(std.mem.indexOf(u8, agent, "npm run zmr:") == null);
 

@@ -26,7 +26,7 @@ The installer defaults to the latest GitHub release. It downloads
 to install when the archive checksum entry is missing or mismatched:
 
 ```bash
-./install.sh --version 0.2.17 --dry-run
+./install.sh --version 0.2.18 --dry-run
 ```
 
 Dry-run output includes `checksum-verification: required`, the selected

@@ -94,7 +94,16 @@ fn writeTopLevelError(err: anyerror) void {
     defer stderr_io.deinit();
     const stderr = stderr_io.writer();
     stderr.print("error[{s}]: {s}\n", .{ public.code, public.message }) catch {};
-    if (err == error.CommandFailed or err == error.CommandTimedOut or
+    if (err == error.CommandFailed) {
+        // CommandFailed is a catch-all for a non-zero exit from simctl/adb, and the
+        // underlying stderr is not plumbed this far. Do not send the user to doctor
+        // here: doctor only inspects the host toolchain, so on a first run it passes
+        // and then points back at the run command that just failed — a loop with no
+        // exit. Name the cause that actually explains almost every first-run failure.
+        stderr.writeAll("hint: on a first run this usually means the app under test is not installed on the target device.\n") catch {};
+        stderr.writeAll("hint: check with `xcrun simctl listapps booted` (iOS) or `adb shell pm list packages` (Android), install the app, then re-run.\n") catch {};
+    }
+    if (err == error.CommandTimedOut or
         err == error.IosXCTestShimResponseTimedOut or err == error.IosXCTestShimStartTimedOut or
         err == error.IosXCTestShimBuildTimedOut or err == error.IosXCTestShimServerExited)
     {

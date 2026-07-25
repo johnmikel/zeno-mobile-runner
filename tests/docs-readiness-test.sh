@@ -148,7 +148,7 @@ require_grep 'iPhone physical device' README.md
 require_grep 'iPad simulator' README.md
 require_grep 'Apple TV / Apple Watch' README.md
 require_grep 'devicectl' README.md
-require_grep 'Current release: `0.2.17` developer preview' README.md
+require_grep 'Current release: `0.2.18` developer preview' README.md
 require_grep 'docs/frameworks.md' README.md
 require_grep 'docs/expo-smoke.md' README.md
 require_grep 'docs/production-readiness.md' README.md
@@ -232,7 +232,7 @@ require_grep 'Benchmark directories can be rendered as both HTML and JUnit XML a
 require_grep 'CI workflow retains run traces, coverage output, and built runner artifacts' FEATURES.md
 require_grep 'agent workflow smoke' FEATURES.md
 require_grep 'Current Limitations' FEATURES.md
-require_grep 'Current release status is `0.2.17`' FEATURES.md
+require_grep 'Current release status is `0.2.18`' FEATURES.md
 require_grep 'Physical iPhone and iPad devices through `xcrun devicectl`' FEATURES.md
 require_grep '^## Evidence Contract (shipped)$' FEATURES.md
 require_grep 'Open Evidence Contract v1' FEATURES.md
@@ -274,7 +274,7 @@ require_grep 'timeout context to native selector wait trace events' CHANGELOG.md
 require_grep 'replay metadata for successful `assertNoneVisible`' CHANGELOG.md
 require_grep 'selector and timeout preserving `assertVisible` and `assertNotVisible`' CHANGELOG.md
 require_grep 'assertion intent distinct from waits' CHANGELOG.md
-require_grep '0.2.17' CHANGELOG.md
+require_grep '0.2.18' CHANGELOG.md
 
 require_grep 'React Native' docs/frameworks.md
 require_grep 'Expo' docs/frameworks.md

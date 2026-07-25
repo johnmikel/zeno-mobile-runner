@@ -318,6 +318,30 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\
         \\Start from the app checkout. Keep generated scenarios and config under `.zmr/`, and write run output under `traces/`.
         \\
+        \\## Start Here
+        \\
+        \\Run these three, in order. Everything below this section is reference — do not run it until the smoke scenario passes.
+        \\
+        \\```bash
+        \\zmr doctor --strict --config .zmr/config.json
+        \\zmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device
+        \\zmr explain traces/zmr-ios
+        \\```
+        \\
+        \\On Android, substitute `.zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android` and drop `--platform ios`.
+        \\
+        \\The smoke scenario launches the app, asserts it is healthy, and captures one snapshot. It needs the app already installed on the target device. If it fails, `zmr explain` names the failed step, the error, and the text actually on screen — start there rather than editing the scenario blind.
+        \\
+        \\### Before writing a scenario that taps or types on iOS
+        \\
+        \\Install the XCTest shim first:
+        \\
+        \\```bash
+        \\npx zmr-install-ios-shim
+        \\```
+        \\
+        \\`zmr init` does not install it, and the smoke scenario above passes without it, because launch and snapshot do not need it. Selector actions do. Until the shim is installed ZMR cannot read the iOS UI tree at all, so every `tap`, `type`, and text assertion fails as `selector not found` with an empty `visibleTexts` list — which looks like a wrong selector when the real cause is that nothing can be seen. Android needs no equivalent step.
+        \\
         \\## Setup Checks
         \\
         \\```bash
@@ -396,6 +420,8 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\
         \\## App Commands
         \\
+        \\A flat index of every command above, for lookup. Nothing here is new, and none of it is a starting point — see Start Here.
+        \\
         \\```bash
         \\zmr inspect --json --dir .
         \\zmr doctor --strict --json --config .zmr/config.json
@@ -419,7 +445,7 @@ fn writeAgentInstructions(path: []const u8, app_id: []const u8, force: bool) !vo
         \\ --xcrun xcrun --runs 20 --trace-root traces/zmr-ios-reliability --min-pass-rate 100 --max-failures 0 --max-p95-ms 45000 && "$ZMR_BIN" report traces/zmr-ios-reliability --out traces/zmr-ios-reliability/report.html --junit traces/zmr-ios-reliability/junit.xml
         \\ZMR_BIN=${ZMR_BIN:-zmr} zmr-device-matrix --matrix .zmr/device-matrix.json --trace-root traces/zmr-matrix --min-pass-rate 100 --max-failures 0
     );
-    try writer.writeAll("zmr-pilot-gate --android --ios --android-app-root . --android-app-id ");
+    try writer.writeAll("\nzmr-pilot-gate --android --ios --android-app-root . --android-app-id ");
     try writeShellArg(writer, app_id);
     try writer.writeAll(" --android-device emulator-5554 --ios-app-root . --ios-app-path ./build/Debug-iphonesimulator/Sample.app --ios-app-id ");
     try writeShellArg(writer, app_id);

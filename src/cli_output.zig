@@ -180,6 +180,27 @@ pub fn writeDoctorText(writer: anytype, config_check: ?doctor.Check, checks: []c
         }
     }
     try writer.print("status\t{s}\n", .{if (healthy) "ok" else "needs-attention"});
+
+    // install.sh points at `zmr init`, and `zmr init` points at `zmr doctor`.
+    // Without a next command here the onboarding chain dead-ends on a status line,
+    // before the user has run a single scenario. Name the platform that actually
+    // has a device ready rather than making them work it out from the table.
+    const ios_ready = doctorCheckStatus(checks, "ios-simulators") == .ok;
+    const android_ready = doctorCheckStatus(checks, "android-devices") == .ok;
+    if (ios_ready) {
+        try writer.writeAll("next\tzmr run .zmr/ios-smoke.json --platform ios --device booted --trace-dir traces/zmr-ios --ensure-device\n");
+    } else if (android_ready) {
+        try writer.writeAll("next\tzmr run .zmr/android-smoke.json --device emulator-5554 --trace-dir traces/zmr-android --ensure-device\n");
+    } else {
+        try writer.writeAll("next\tStart an iOS simulator or an Android emulator, then run zmr doctor again.\n");
+    }
+}
+
+fn doctorCheckStatus(checks: []const doctor.Check, name: []const u8) ?doctor.Status {
+    for (checks) |check| {
+        if (std.mem.eql(u8, check.name, name)) return check.status;
+    }
+    return null;
 }
 
 pub fn writeDoctorJson(writer: anytype, config_check: ?doctor.Check, checks: []const doctor.Check) !void {

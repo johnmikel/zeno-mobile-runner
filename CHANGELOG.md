@@ -4,6 +4,66 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+## 0.2.18 (2026-07-25)
+
+### Added
+
+- Published the Evidence Contract v1 schema, with conformance fixtures covering
+  passed, failed, partial, and redacted sources plus the invalid cases that must
+  be rejected.
+- Added the `zmr-evidence` CLI for validating and packaging release evidence
+  bundles. This ships the evidence workflow the docs already described but the
+  published 0.2.17 package did not contain.
+- Added a Playwright evidence reporter so Playwright runs emit Evidence Contract
+  v1 bundles through the same pipeline as ZMR traces.
+- Added an adapter that turns hardened ZMR traces into evidence bundles, and
+  deterministic evidence fingerprints so the same run always produces the same
+  bundle identity.
+
+### Changed
+
+- README now leads with the regression-check value proposition: whether an
+  agent's last change broke the app, answered deterministically.
+- `zmr doctor` now ends with a `next` line naming the exact run command for
+  whichever platform has a device ready, instead of stopping at a bare status.
+  `install.sh` points at `zmr init` and `zmr init` points at `zmr doctor`, so the
+  onboarding chain previously dead-ended before the first scenario ever ran.
+- Generated `.zmr/AGENTS.md` now opens with a `Start Here` section giving the
+  three commands to run in order, and calls out that the iOS XCTest shim must be
+  installed before any scenario that taps or types. `zmr init` does not install
+  it and the smoke scenario passes without it, so the omission stayed invisible
+  until the first real scenario, where it surfaces as `selector not found` with
+  an empty `visibleTexts` list — indistinguishable from a wrong selector. The
+  section also labels the flat `App Commands` list as a lookup index. Agents and first-time readers were previously handed roughly
+  forty commands — including 20-run benchmark suites and production
+  release-readiness gates — with no indication of which to run first.
+- Split the release gate into phases so failures identify the failing stage.
+
+### Fixed
+
+- A failed device command no longer sends the user back to `zmr doctor`. Doctor
+  only inspects the host toolchain, so on a first run it passes and then points
+  at the run command that just failed, with no way out of the loop. The hint now
+  names the cause that explains almost every first-run failure — the app under
+  test not being installed on the target device — and gives the command to check
+  it on each platform.
+- Generated `.zmr/AGENTS.md` no longer emits `zmr-device-matrix` and
+  `zmr-pilot-gate` concatenated into one unrunnable line
+  (`--max-failures 0zmr-pilot-gate --android ...`). Every `zmr init` since 0.2.x
+  produced this; the test that covered it used a bare substring match, which
+  passes regardless of what precedes the command, and is now anchored on the
+  preceding newline.
+- Evidence packaging is now fully deterministic, and evidence source bytes are
+  pinned so bundles cannot drift between validation and publication.
+- Hardened evidence validation boundaries: reject control characters in evidence
+  paths, reject malicious artifact paths, sanitize CLI validation errors, and
+  keep evidence CLI process boundaries contained.
+- Recover stale evidence publication locks instead of failing the run.
+- Corrected Playwright reporter boundaries and retry classification.
+- Handle Windows superscript device names.
+- The demo recorder now loads the JS bundle before recording, and restores
+  pristine demo state so it is re-runnable against a reused `--app-dir`.
+
 ## 0.2.17 (2026-06-29)
 
 ### Added

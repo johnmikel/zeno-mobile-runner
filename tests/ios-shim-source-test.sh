@@ -8,9 +8,9 @@ UITEST="$ROOT/shims/ios/ZMRShimUITestCase.swift"
 grep -q 'let value: String' "$SHIM"
 grep -q 'struct ZMRShimViewport' "$SHIM"
 grep -q 'static func viewport(app: XCUIApplication)' "$SHIM"
-grep -q 'value: elementValue(element)' "$SHIM"
-grep -q 'element.value' "$SHIM"
-grep -q 'guard element.exists else' "$SHIM"
+grep -q 'value: elementValue(snapshot)' "$SHIM"
+grep -q 'snapshot.value' "$SHIM"
+grep -q 'guard let captured = try? element.snapshot() else' "$SHIM"
 grep -q '"value": "Continue"' "$ROOT/shims/ios/protocol.md"
 grep -q '"viewport": { "width": 390, "height": 844 }' "$ROOT/shims/ios/protocol.md"
 grep -q 'hideKeyboard(app: app)' "$UITEST"
@@ -54,5 +54,16 @@ ruby -e 'source = File.read(ARGV.fetch(0)); body = source[/private func waitForE
 ruby -e 'source = File.read(ARGV.fetch(0)); abort "Expo fallback must still be gated by custom non-dev-client URLs" unless source.include?("isCustomSchemeURL(openedURL)") && source.include?("!isExpoDevClientURL(openedURL)")' "$UITEST"
 if grep -q 'app.staticTexts.allElementsBoundByIndex' "$UITEST"; then
   echo "Expo dev-client helpers must not enumerate staticTexts by index; it can crash XCTest when the screen mutates" >&2
+  exit 1
+fi
+# Same failure mode, other file. The snapshot walker binds element proxies with
+# allElementsBoundByIndex, so reading an attribute off the live XCUIElement
+# afterwards re-resolves the query; if the screen mutated in between, XCUITest
+# raises "Failed to get matching snapshot: No matches found for Element at
+# index N". That is an XCTest failure rather than a Swift error, so it cannot be
+# caught at the call site -- it fails the test case and takes the shim server
+# down mid-session. Read attributes from the atomic capture instead.
+if grep -vE '^[[:space:]]*//' "$SHIM" | grep -qE 'element\.(label|value|frame|identifier|isEnabled|isSelected|exists)\b'; then
+  echo "ZMRShim must read attributes from an atomic element snapshot, not a live XCUIElement; live reads re-resolve the query and crash XCTest when the screen mutates" >&2
   exit 1
 fi

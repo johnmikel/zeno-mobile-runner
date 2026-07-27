@@ -73,20 +73,33 @@ enum ZMRShim {
                 guard nodes.count < 256 else {
                     return nodes
                 }
-                guard element.exists else {
+                // Capture every attribute in one atomic snapshot. Reading .label /
+                // .frame / .isEnabled / .isSelected straight off a live XCUIElement
+                // re-resolves the underlying query once per property, and if the
+                // hierarchy shifted since allElementsBoundByIndex bound these
+                // proxies, XCUITest raises "Failed to get matching snapshot: No
+                // matches found for Element at index N". That is an XCTest failure
+                // rather than a Swift error, so it cannot be caught at the call
+                // site: it fails the whole test case, tears down the shim server
+                // mid-session, and reaches the runner as IosXCTestShimServerExited
+                // with an empty visibleTexts list. React Native re-renders
+                // constantly and Fast Refresh guarantees it, so this fires on
+                // ordinary apps. snapshot() throws instead, so an element that
+                // disappears mid-walk costs one skipped node, not the session.
+                guard let captured = try? element.snapshot() else {
                     continue
                 }
-                let key = elementKey(type: type, element: element)
+                let key = elementKey(type: type, snapshot: captured)
                 guard !seen.contains(key) else {
                     continue
                 }
                 seen.insert(key)
-                nodes.append(node(index: nodes.count, type: type, element: element))
+                nodes.append(node(index: nodes.count, type: type, snapshot: captured))
             }
         }
 
-        if nodes.isEmpty {
-            nodes.append(node(index: 0, type: .application, element: app))
+        if nodes.isEmpty, let captured = try? app.snapshot() {
+            nodes.append(node(index: 0, type: .application, snapshot: captured))
         }
         return nodes
     }
@@ -106,53 +119,55 @@ enum ZMRShim {
         ]
     }
 
-    private static func node(index: Int, type: XCUIElement.ElementType, element: XCUIElement) -> ZMRShimNode {
-        let frame = element.frame
+    private static func node(index: Int, type: XCUIElement.ElementType, snapshot: XCUIElementSnapshot) -> ZMRShimNode {
+        let frame = snapshot.frame
         return ZMRShimNode(
-            id: stableId(index: index, element: element),
+            id: stableId(index: index, snapshot: snapshot),
             type: String(describing: type),
-            label: element.label,
-            value: elementValue(element),
-            identifier: element.identifier,
+            label: snapshot.label,
+            value: elementValue(snapshot),
+            identifier: snapshot.identifier,
             bounds: ZMRShimBounds(
                 x: Int(frame.origin.x),
                 y: Int(frame.origin.y),
                 width: Int(frame.size.width),
                 height: Int(frame.size.height)
             ),
-            enabled: element.isEnabled,
-            visible: element.exists && !frame.isEmpty,
-            selected: element.isSelected
+            enabled: snapshot.isEnabled,
+            // A successful capture already means the element existed at capture
+            // time, so the old element.exists check is folded in here.
+            visible: !frame.isEmpty,
+            selected: snapshot.isSelected
         )
     }
 
-    private static func elementValue(_ element: XCUIElement) -> String {
-        if let value = element.value as? String {
+    private static func elementValue(_ snapshot: XCUIElementSnapshot) -> String {
+        if let value = snapshot.value as? String {
             return value
         }
-        if let value = element.value {
+        if let value = snapshot.value {
             return String(describing: value)
         }
         return ""
     }
 
-    private static func stableId(index: Int, element: XCUIElement) -> String {
-        if !element.identifier.isEmpty {
-            return "id:\(element.identifier)"
+    private static func stableId(index: Int, snapshot: XCUIElementSnapshot) -> String {
+        if !snapshot.identifier.isEmpty {
+            return "id:\(snapshot.identifier)"
         }
-        if !element.label.isEmpty {
-            return "label:\(element.label):\(index)"
+        if !snapshot.label.isEmpty {
+            return "label:\(snapshot.label):\(index)"
         }
         return "index:\(index)"
     }
 
-    private static func elementKey(type: XCUIElement.ElementType, element: XCUIElement) -> String {
-        let frame = element.frame
+    private static func elementKey(type: XCUIElement.ElementType, snapshot: XCUIElementSnapshot) -> String {
+        let frame = snapshot.frame
         return [
             String(describing: type),
-            element.identifier,
-            element.label,
-            elementValue(element),
+            snapshot.identifier,
+            snapshot.label,
+            elementValue(snapshot),
             String(Int(frame.origin.x)),
             String(Int(frame.origin.y)),
             String(Int(frame.size.width)),

@@ -105,6 +105,7 @@ mkdir -p "$OUT"
 
 METRO_PID=""
 RECORD_PID=""
+BOOT_CHECK_N=0
 cleanup() {
   if [[ -n "$RECORD_PID" ]] && kill -0 "$RECORD_PID" 2>/dev/null; then
     kill -INT "$RECORD_PID" 2>/dev/null || true
@@ -216,6 +217,28 @@ DEMO_SCHEME="$(sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([a-z0-9][a-z0-9+.-]*
   .zmr/react-native-expo-ios-workflow.json | head -1)"
 [[ -n "$DEMO_SCHEME" ]] || die "could not derive the demo deep-link scheme from the iOS scenario"
 
+# The scenario's own deep link uses the app scheme (zenoexpodemo://), but the
+# expo-dev-client launcher registers a *separate* scheme (exp+zenoexpodemo://)
+# and only routes ?url= re-points sent to that one. Sending the launcher URL to
+# the bare app scheme opens the app and is silently ignored, so the dev client
+# keeps whatever server it last knew — port 8081 from `expo run:ios`, which
+# makes --metro-port a no-op and loads a foreign bundle if anything else is
+# serving there. Derive the launcher scheme explicitly.
+case "$DEMO_SCHEME" in
+  exp+*) DEV_CLIENT_SCHEME="$DEMO_SCHEME" ;;
+  *) DEV_CLIENT_SCHEME="exp+$DEMO_SCHEME" ;;
+esac
+
+cat > "$OUT/.boot-check.json" <<'JSON'
+{
+  "name": "ZMR demo boot check",
+  "appId": "com.example.mobiletest",
+  "steps": [
+    { "action": "waitVisible", "selector": { "text": "Zeno Expo Demo" }, "timeoutMs": 30000 }
+  ]
+}
+JSON
+
 # Relaunch the app from scratch and re-point it at Metro. Run before every
 # segment, not just the first: the scenario types into the profile form on each
 # passing run and React keeps that text in component state, so recording A and C
@@ -231,8 +254,17 @@ boot_app() {
   xcrun simctl launch "$DEVICE" com.example.mobiletest
   sleep 6
   xcrun simctl openurl "$DEVICE" \
-    "$DEMO_SCHEME://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A$METRO_PORT"
+    "$DEV_CLIENT_SCHEME://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A$METRO_PORT"
   sleep 20
+  # Fail loudly rather than recording a redbox: if the re-point did not land,
+  # the app is showing the dev-launcher error or a foreign bundle, not the demo.
+  BOOT_CHECK_N=$((BOOT_CHECK_N + 1))
+  if ! "$ZMR_BIN" run "$OUT/.boot-check.json" \
+    --platform ios --device "$DEVICE" --app-id com.example.mobiletest \
+    --ios-shim ./.zmr/ios-shim --trace-dir "$OUT/trace-boot-check-$BOOT_CHECK_N" --json \
+    > "$OUT/terminal-boot-check-$BOOT_CHECK_N.json" 2>&1; then
+    die "app did not reach the welcome screen after re-pointing at 127.0.0.1:$METRO_PORT; see $OUT/terminal-boot-check-$BOOT_CHECK_N.json"
+  fi
 }
 
 log_step "Warm the app (first bundle load)"

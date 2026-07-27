@@ -26,7 +26,7 @@ phase_list = sys.argv[3].splitlines()
 
 required = [
     "zig fmt --check build.zig src",
-    "bash -n install.sh scripts/*.sh tests/*.sh",
+    "bash -n install.sh scripts/*.sh scripts/hooks/* tests/*.sh",
     "python3 -m py_compile scripts/*.py",
     "./scripts/verify-release-version.sh",
     "bash tests/benchmark-lab-test.sh",

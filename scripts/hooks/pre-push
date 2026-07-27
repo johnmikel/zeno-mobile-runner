@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Block a push that would put AI-assistant fingerprints on the public repo.
+#
+# Why a hook and not the required status check: the guard scans FULL history,
+# and CI only runs after the push has already landed on origin. By the time a
+# required check goes red the bad commit is public, and the only fix is a
+# history rewrite and a force-push of a public branch. This has to run before
+# the push, not after.
+#
+# Enable it once per clone -- git will not do this for you, because
+# core.hooksPath is local config and cannot be committed:
+#
+#   git config core.hooksPath scripts/hooks
+#
+# See AGENTS.md, "Public metadata policy".
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+GUARD="$ROOT/scripts/public-metadata-guard.sh"
+
+if [[ ! -f "$GUARD" ]]; then
+  echo "pre-push: $GUARD not found; refusing to push a public repo unchecked." >&2
+  echo "pre-push: if this revision genuinely predates the guard, re-run with --no-verify." >&2
+  exit 1
+fi
+
+GUARD_LOG="$(mktemp -t zmr-pre-push-guard)"
+trap 'rm -f "$GUARD_LOG"' EXIT
+
+if ! bash "$GUARD" --repo "$ROOT" >"$GUARD_LOG" 2>&1; then
+  echo >&2
+  echo "pre-push BLOCKED: public metadata guard failed." >&2
+  echo >&2
+  sed 's/^/  /' "$GUARD_LOG" >&2
+  echo >&2
+  echo "  Fix this BEFORE pushing. The guard scans full history, so a violation" >&2
+  echo "  that reaches origin cannot be undone by a follow-up commit -- it needs" >&2
+  echo "  a rebase and a force-push of a public branch." >&2
+  echo >&2
+  echo "  Most common cause: an AI-assistant co-author trailer on a commit." >&2
+  echo "  Inspect with:  git log --format='%H %s%n%b' @{upstream}..HEAD" >&2
+  echo >&2
+  exit 1
+fi
+
+exit 0

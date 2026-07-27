@@ -36,6 +36,20 @@ Denied strings are rejected in:
 The exact denylist lives in `scripts/public-metadata-guard.sh`. Read it there
 rather than duplicating it here — the guard is the source of truth.
 
+### Enable the pre-push hook — once per clone
+
+```sh
+git config core.hooksPath scripts/hooks
+```
+
+`scripts/hooks/pre-push` runs the guard and aborts the push on a violation.
+**Do this in every fresh clone.** The hook is version controlled but
+`core.hooksPath` is local config and cannot be committed, so git will not turn
+it on for you.
+
+A required status check cannot do this job: CI only runs once the push has
+already reached `origin`, and by then the bad commit is public.
+
 ### Check before you push
 
 ```sh

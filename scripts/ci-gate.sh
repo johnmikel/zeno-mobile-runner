@@ -66,7 +66,7 @@ done
 HOST_ZIG_TARGET="$(detect_host_zig_target)"
 
 run "zig fmt --check build.zig src"
-run "bash -n install.sh scripts/*.sh tests/*.sh"
+run "bash -n install.sh scripts/*.sh scripts/hooks/* tests/*.sh"
 run "python3 -m py_compile scripts/*.py"
 run "mkdir -p zig-out/bin"
 run "zig build-exe src/main.zig -target $HOST_ZIG_TARGET -O Debug -femit-bin=zig-out/bin/zmr"

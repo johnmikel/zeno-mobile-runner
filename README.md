@@ -41,15 +41,24 @@ driven on an iOS simulator and an Android emulator.</em></p>
 
 ## Why This Exists
 
-- **Agents need structured mobile state, not terminal scrapings.** ZMR returns
-  semantic UI trees, stable selectors, screenshots, and typed action results, so
-  an agent reasons from product state instead of guessing.
-- **Product claims need evidence.** Every traced session can produce events,
-  screenshots, UI hierarchies, timings, assertion results, HTML and JUnit
-  reports, and a redacted bundle safe to share.
+- **A verdict you can gate a merge on.** ZMR returns a typed pass/fail, not a
+  description of a screenshot. There is no LLM inside it, so the same scenario
+  costs nothing per run and answers the same way every time. Measured on the
+  generated Expo fixture: 20 consecutive runs of a 17-step iOS workflow, 20
+  passes, and the **same 45 events on every run** — the identical path, not just
+  the same verdict ([method and scope](docs/benchmarks/2026-07-27-ios-determinism.md)).
+- **Evidence a reviewer can verify instead of trust.** A run packages into a
+  content-addressed bundle whose manifest binds every screenshot, UI tree and
+  timing to a SHA-256 digest. Change one byte and validation exits non-zero. See
+  [docs/proof-artifact.md](docs/proof-artifact.md) for the whole chain, and
+  [docs/evidence-contract.md](docs/evidence-contract.md) for what it deliberately
+  does not claim.
 - **Exploration should become tests.** After a live agent session,
   `zmr discover` / `draft` turn trace evidence into reviewable JSON scenarios
   that replay in CI with no LLM in the loop — and no per-run LLM cost.
+- **Agents need structured mobile state, not terminal scrapings.** ZMR returns
+  semantic UI trees, stable selectors, screenshots, and typed action results, so
+  an agent reasons from product state instead of guessing.
 - **One model below the framework layer.** ZMR drives native UI beneath the
   JavaScript and Dart layers, so React Native, Expo, Flutter, and fully native
   apps share the same runner, selectors, and traces.
@@ -312,6 +321,8 @@ the support matrix; redaction is intentionally conservative. See
 ## Documentation
 
 - [docs/install.md](docs/install.md) — install paths and first setup checks
+- [docs/proof-artifact.md](docs/proof-artifact.md) — gate a pull request on a
+  verifiable evidence package, end to end
 - [docs/ai-agents.md](docs/ai-agents.md) — JSON-RPC and MCP agent workflows
 - [docs/agent-discovery.md](docs/agent-discovery.md) — `explore` / `discover` /
   `draft` and the trace-to-test loop

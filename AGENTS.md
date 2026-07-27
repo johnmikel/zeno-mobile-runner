@@ -49,13 +49,30 @@ branch, which is disruptive if anyone has already pulled.
 
 ## Other things worth knowing
 
-- **Zig version.** The codebase does not build with Zig 0.16. Use the pinned
-  0.15.2 in `~/.zig-versions/`, and on macOS build with an explicit target
-  (`-target aarch64-macos.15.0`); the repo scripts already do this.
+- **Zig version.** Build with **0.16**. CI pins `ZIG_VERSION: "0.16.0"` in
+  `.github/workflows/ci.yml` and `scripts/ci-gate.sh` builds against it; both
+  `zig build` and the gate's `zig build-exe src/main.zig` succeed on it. On
+  macOS pass an explicit target (`-target aarch64-macos.15.0`); the repo
+  scripts already do this via `$HOST_ZIG_TARGET`. The 0.15.2 tarball still
+  sitting in `~/.zig-versions/` is not what CI uses — building against it will
+  not reproduce a CI result.
 - **Release gate.** Run `scripts/release-gate.sh` locally before tagging.
   `ci-gate` is a strict subset of it. Check the exit status directly — a bare
   `grep` for a gate marker matches whether the gate passed or failed, which has
   shipped a broken tag before.
-- **Demo recording.** `scripts/record-demo-video.sh` needs a booted simulator
-  and a free port 8081. Pass `--app-dir <existing> --skip-build` to reuse a
-  built demo app and skip the ~15 minute native build.
+- **Demo recording.** `scripts/record-demo-video.sh` needs a booted iOS
+  simulator. Metro defaults to port 8081, and `--metro-port` now genuinely
+  re-points the dev client, so any free port works. Pass
+  `--app-dir <existing> --skip-build` to reuse a built demo app and skip the
+  ~15 minute native build. Two traps worth knowing before you burn an hour on
+  them:
+  - **Give the run a simulator of its own.** XCTest allows one test session per
+    device, so a second ZMR run against the same simulator evicts the first.
+    Neither side is told: it surfaces as `IosXCTestShimServerExited`, or as a
+    bare `WaitTimeout` whose `visibleTexts` is empty. An empty `visibleTexts`
+    on a screen that plainly has text is the tell.
+  - **A freshly created simulator prompts before it deep-links.** The first
+    `simctl openurl` to a custom scheme raises an "Open in …?" confirmation,
+    which blocks the Metro re-point until it is accepted once by hand. The
+    recorder's boot check catches this in ~30s rather than at the first
+    segment, but it cannot answer the prompt for you.

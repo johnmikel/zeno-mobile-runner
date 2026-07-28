@@ -17,6 +17,7 @@ pub fn classify(err: anyerror) PublicError {
         error.MissingJUnitOutput => .{ .code = "cli.missing_junit_output", .message = "missing JUnit output path" },
         error.MissingTraceBundleOutput => .{ .code = "cli.missing_trace_bundle_output", .message = "missing trace bundle output path" },
         error.MissingAppId => .{ .code = "cli.missing_app_id", .message = "missing app id" },
+        error.AppIdRequired => .{ .code = "init.app_id_required", .message = "app id is required and could not be derived" },
         error.MissingAdbPath => .{ .code = "cli.missing_adb_path", .message = "missing adb path" },
         error.MissingXcrunPath => .{ .code = "cli.missing_xcrun_path", .message = "missing xcrun path" },
         error.MissingZigPath => .{ .code = "cli.missing_zig_path", .message = "missing zig path" },

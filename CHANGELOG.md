@@ -4,6 +4,20 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Fixed
+
+- `zmr init --app` no longer falls back to the example bundle id
+  `com.example.mobiletest` when `--app-id` is omitted. It now reads
+  `expo.ios.bundleIdentifier` (then `expo.android.package`) from `app.json`, and
+  fails with `init.app_id_required` when neither is present, naming the flag to
+  pass and the commands that list what is installed. The old fallback wrote the
+  example id into `config.json` and both generated smoke scenarios, so a new
+  project that omitted the flag would drive the example app instead of its own —
+  and report `status: passed` with a trace full of evidence from that app
+  whenever it happened to be installed, which is the case for anyone who tried
+  the generated demo first. Found by walking a first run against a fresh
+  `create-expo-app` project.
+
 ## 0.2.18 (2026-07-25)
 
 ### Added

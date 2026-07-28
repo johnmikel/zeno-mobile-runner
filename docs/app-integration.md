@@ -13,6 +13,16 @@ export PATH="$HOME/.local/bin:$PATH"
 zmr init --app --app-id com.example.mobiletest
 ```
 
+`--app-id` must be the bundle id your app is actually **installed** under on the
+target device — ZMR drives an installed native build, not Expo Go. On an Expo
+project you can omit the flag and `init --app` reads `expo.ios.bundleIdentifier`
+(then `expo.android.package`) from `app.json`; a fresh `create-expo-app` project
+has neither until `npx expo prebuild` runs, and `init --app` then fails with
+`init.app_id_required` rather than guessing. It does not fall back to an example
+id: that id goes into `config.json` and both smoke scenarios, so a wrong guess
+would make every later run target an app you never asked about — and report a
+pass if that app happened to be installed.
+
 That keeps scenarios and traces in the app repo while the runner stays outside
 the app process. JavaScript teams can use
 `npm install --save-dev zeno-mobile-runner` plus

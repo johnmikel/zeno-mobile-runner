@@ -112,6 +112,12 @@ fn writeTopLevelError(err: anyerror) void {
     if (err == error.unknownFlag) {
         stderr.writeAll("hint: run `zmr help` for each command's flags and arguments.\n") catch {};
     }
+    if (err == error.AppIdRequired) {
+        stderr.writeAll("hint: no expo.ios.bundleIdentifier or expo.android.package was found in app.json, so the bundle id has to be given.\n") catch {};
+        stderr.writeAll("hint: pass the id your app is installed under, e.g. `zmr init --app --app-id com.acme.myapp`.\n") catch {};
+        stderr.writeAll("hint: list what is installed with `xcrun simctl listapps booted` (iOS) or `adb shell pm list packages` (Android).\n") catch {};
+        stderr.writeAll("hint: a fresh Expo project has no bundle id until `npx expo prebuild` runs — ZMR drives an installed native build, not Expo Go.\n") catch {};
+    }
 }
 
 fn exitCodeForError(err: anyerror) u8 {
@@ -128,6 +134,7 @@ fn exitCodeForError(err: anyerror) u8 {
         error.MissingJUnitOutput,
         error.MissingTraceBundleOutput,
         error.MissingAppId,
+        error.AppIdRequired,
         error.MissingAdbPath,
         error.MissingXcrunPath,
         error.MissingZigPath,

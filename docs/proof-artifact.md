@@ -87,15 +87,20 @@ by content, so identical bytes are stored once.
 
 ### Four things that will stop you here
 
-All four were hit while writing this page, and none of them announce themselves
-clearly, so check them first.
+All four were hit while writing this page. The two source-path rules now name
+themselves in the error, but the reasons are worth knowing before you start.
 
 | Symptom | Cause |
 |---|---|
+| `symlink_source_rejected` on any path under `/tmp` on macOS | Source paths may not contain a symbolic link, and `/tmp` is a symlink to `/private/tmp`. Use the resolved path. |
+| `source_not_regular_file` on an iOS `.app` | `--app-artifact` must be a regular file. Zip the bundle, or pass the `.ipa`. |
 | `Evidence command failed`, no detail | An underlying validation code outside the CLI's public message allowlist. The CLI deliberately does not leak internals, so unrecognized causes collapse to this string with an empty `issues` array. |
-| Fails on any path under `/tmp` on macOS | Source paths may not contain a symbolic link, and `/tmp` is a symlink to `/private/tmp`. Use the resolved path. |
-| Fails on an iOS `.app` | `--app-artifact` must be a regular file. Zip the bundle, or pass the `.ipa`. |
 | Rejected before anything runs | All nineteen listed flags are required, and exactly one of `--scenario` or `--scenario-hash`. `--submitter-type` accepts only `user` or `automation`. |
+
+Source-path failures — symbolic links, non-regular files, a source that is too
+large or that changed mid-read — report their own code and name the flag to fix.
+Anything still reporting `Evidence command failed` is a cause the CLI has no
+path-free wording for yet, not a cause it is hiding from you.
 
 ## 3. Validate — this is the gate
 

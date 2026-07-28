@@ -17,6 +17,15 @@ All notable changes to Zeno Mobile Runner are tracked here.
   whenever it happened to be installed, which is the case for anyone who tried
   the generated demo first. Found by walking a first run against a fresh
   `create-expo-app` project.
+- `zmr-evidence from-zmr` now names source-path failures instead of collapsing
+  them to `Evidence command failed` with an empty `issues` array. A trace or
+  scenario under `/tmp` on macOS reports `symlink_source_rejected` and says to
+  pass the resolved path, and an iOS `.app` bundle passed to `--app-artifact`
+  reports `source_not_regular_file` and says to zip it or pass the `.ipa`.
+  Non-regular, oversized, and mid-read-modified sources report their own codes
+  the same way. The messages stay fixed strings that name only the flag, so the
+  CLI still never echoes a caller-supplied path, and unrecognized codes still
+  collapse to the generic error.
 
 ## 0.2.18 (2026-07-25)
 

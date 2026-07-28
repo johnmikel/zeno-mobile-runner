@@ -4,6 +4,7 @@ import {
   closeSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
@@ -441,7 +442,12 @@ test("unknown validation fields and codes keep generic no-leak errors", {
   const traceManifest = JSON.parse(readFileSync(traceManifestPath, "utf8"));
   traceManifest.runnerVersion = ` ${secret}/Users/attacker/.ssh/id_rsa`;
   writeFileSync(traceManifestPath, `${JSON.stringify(traceManifest, null, 2)}\n`);
-  symlinkSync(join(directory, "trace"), join(directory, secret), "dir");
+  // unsupported_trace_source stays outside SAFE_EVIDENCE_MESSAGES, so a trace
+  // file that misses the .zmrtrace extension still exercises the unknown-code
+  // collapse with an attacker-controlled path in the flag value.
+  const unknownCodeSource = `${secret}/Users/attacker/.ssh/id_rsa`;
+  mkdirSync(join(directory, secret, "Users", "attacker", ".ssh"), { recursive: true });
+  writeFileSync(join(directory, unknownCodeSource), "not a .zmrtrace archive\n");
 
   const cases = [
     [fromZmrArgs({ overrides: { "--out": "unknown-field-evidence" } }), {
@@ -450,7 +456,7 @@ test("unknown validation fields and codes keep generic no-leak errors", {
       issues: [],
     }],
     [fromZmrArgs({ overrides: {
-      "--trace": secret,
+      "--trace": unknownCodeSource,
       "--out": "unknown-code-evidence",
     } }), {
       code: "evidence_validation_error",
@@ -474,6 +480,96 @@ test("unknown validation fields and codes keep generic no-leak errors", {
       assert.equal(result.stderr.includes(root), false);
     }
   }
+});
+
+test("symlinked and non-file sources name their flag and fix without leaking the path", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = makeFixture(t);
+  const secret = "SUPER_SECRET_SOURCE_PATH_DETAIL";
+  const symlinkHint = "; on macOS /tmp is a symlink to /private/tmp, so pass the resolved path";
+  mkdirSync(join(directory, secret, "Users", "attacker"), { recursive: true });
+  symlinkSync(join(directory, "trace"), join(directory, secret, "Users", "attacker", "trace"), "dir");
+  symlinkSync(
+    join(directory, "trace", "scenario.json"),
+    join(directory, secret, "Users", "attacker", "scenario.json"),
+    "file",
+  );
+  symlinkSync(
+    join(directory, "fixture.appbin"),
+    join(directory, secret, "Users", "attacker", "app.appbin"),
+    "file",
+  );
+  mkdirSync(join(directory, secret, "Users", "attacker", "Fixture.app"), { recursive: true });
+  writeFileSync(join(directory, secret, "Users", "attacker", "Fixture.app", "Fixture"), "mach-o\n");
+
+  const cases = [
+    [
+      { "--trace": `${secret}/Users/attacker/trace` },
+      "symlink_source_rejected",
+      `--trace must not contain a symbolic link${symlinkHint}`,
+    ],
+    [
+      { "--app-artifact": `${secret}/Users/attacker/app.appbin` },
+      "symlink_source_rejected",
+      `--app-artifact must not contain a symbolic link${symlinkHint}`,
+    ],
+    [
+      { "--app-artifact": `${secret}/Users/attacker/Fixture.app` },
+      "source_not_regular_file",
+      "--app-artifact must be a regular file; zip an .app bundle or pass an .ipa",
+    ],
+  ];
+  let index = 0;
+  for (const [overrides, code, message] of cases) {
+    index += 1;
+    const label = JSON.stringify(overrides);
+    for (const debug of [false, true]) {
+      const result = runCli(fromZmrArgs({
+        overrides: { ...overrides, "--out": `source-path-evidence-${index}` },
+      }), {
+        cwd: directory,
+        env: { ZENO_EVIDENCE_DEBUG: debug ? "1" : "0" },
+      });
+      assert.equal(result.status, 1, label);
+      assert.equal(result.stdout, "", label);
+      const [jsonLine] = result.stderr.split("\n");
+      assert.deepEqual(JSON.parse(jsonLine).error, { code, message, issues: [] }, label);
+      assert.equal(result.stderr.includes(secret), false, label);
+      assert.equal(result.stderr.includes("/Users/attacker"), false, label);
+      assert.equal(result.stderr.includes(directory), false, label);
+      assert.equal(result.stderr.includes(root), false, label);
+    }
+  }
+});
+
+test("a symlinked --scenario names its flag with the same fixed hint", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = makeFixture(t);
+  const secret = "SUPER_SECRET_SCENARIO_PATH_DETAIL";
+  mkdirSync(join(directory, secret), { recursive: true });
+  symlinkSync(
+    join(directory, "trace", "scenario.json"),
+    join(directory, secret, "scenario.json"),
+    "file",
+  );
+  const args = withOptionValue(
+    fromZmrArgs(),
+    "--scenario",
+    `${secret}/scenario.json`,
+  );
+  const result = runCli(args, { cwd: directory });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.deepEqual(parseJsonLine(result.stderr).error, {
+    code: "symlink_source_rejected",
+    message: "--scenario must not contain a symbolic link"
+      + "; on macOS /tmp is a symlink to /private/tmp, so pass the resolved path",
+    issues: [],
+  });
+  assert.equal(result.stderr.includes(secret), false);
 });
 
 test("strict option parsing rejects unknown, duplicate, missing-value, and positional arguments", (t) => {

@@ -112,7 +112,16 @@ const SAFE_EVIDENCE_MESSAGES = new Map([
   ["invalid_identity", "Evidence identity is invalid"],
   ["invalid_scenario_identity", "Evidence scenario identity is invalid"],
   ["invalid_source_path", "Evidence source is unavailable or unreadable"],
+  ["source_changed_during_read", "Evidence source changed while it was read"],
+  ["source_file_too_large", "Evidence source exceeds its size limit"],
+  ["source_not_directory", "Evidence source must be a directory"],
+  ["source_not_regular_file", "Evidence source must be a regular file"],
+  ["symlink_source_rejected", "Evidence source path contains a symbolic link"],
 ]);
+
+// Fixed hint, never interpolated with a user path: on macOS /tmp is a symlink to
+// /private/tmp, so the default scratch location fails the no-symlink rule.
+const SYMLINK_HINT = "; on macOS /tmp is a symlink to /private/tmp, so pass the resolved path";
 
 const SAFE_ADAPTER_FIELD_MESSAGES = new Map([
   ["invalid_adapter_options", new Map([
@@ -145,6 +154,30 @@ const SAFE_ADAPTER_FIELD_MESSAGES = new Map([
     ["tracePath", "--trace is unavailable or unreadable"],
     ["appArtifactPath", "--app-artifact is unavailable or unreadable"],
     ["scenarioPath", "--scenario is unavailable or unreadable"],
+  ])],
+  ["symlink_source_rejected", new Map([
+    ["tracePath", `--trace must not contain a symbolic link${SYMLINK_HINT}`],
+    ["appArtifactPath", `--app-artifact must not contain a symbolic link${SYMLINK_HINT}`],
+    ["scenarioPath", `--scenario must not contain a symbolic link${SYMLINK_HINT}`],
+    ["trace.artifactsDir", "trace.artifactsDir must not contain a symbolic link"],
+  ])],
+  ["source_not_regular_file", new Map([
+    ["tracePath", "--trace must be a trace directory or a regular .zmrtrace file"],
+    ["appArtifactPath", "--app-artifact must be a regular file; zip an .app bundle or pass an .ipa"],
+    ["scenarioPath", "--scenario must be a regular JSON file"],
+  ])],
+  ["source_not_directory", new Map([
+    ["tracePath", "--trace must be a trace directory or a regular .zmrtrace file"],
+    ["trace.artifactsDir", "trace.artifactsDir must be a directory"],
+  ])],
+  ["source_file_too_large", new Map([
+    ["tracePath", "--trace exceeds the trace size limit"],
+    ["scenarioPath", "--scenario exceeds the file-size limit"],
+  ])],
+  ["source_changed_during_read", new Map([
+    ["tracePath", "--trace changed while it was read; keep it unmodified during packaging"],
+    ["appArtifactPath", "--app-artifact changed while it was hashed; keep it unmodified during packaging"],
+    ["scenarioPath", "--scenario changed while it was read; keep it unmodified during packaging"],
   ])],
 ]);
 

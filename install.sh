@@ -125,12 +125,46 @@ ARCHIVE_NAME="zmr-$VERSION-$TARGET.tar.gz"
 ARCHIVE_URL="$BASE_URL/$ARCHIVE_NAME"
 CHECKSUMS_URL="$BASE_URL/SHA256SUMS"
 
+# The default install dir (~/.local/bin) is not on PATH on a stock macOS or many
+# Linux setups, so printing "next: zmr init" without checking is how a first-time
+# user gets "zmr: command not found" one command after a successful install.
+# Name the exact line to add, for the shell they are actually using.
+print_path_help() {
+  case ":${PATH}:" in
+    *":${INSTALL_DIR}:"*)
+      return 0
+      ;;
+  esac
+
+  shell_profile=""
+  case "${SHELL:-}" in
+    */zsh) shell_profile="~/.zshrc" ;;
+    */bash) shell_profile="~/.bashrc" ;;
+    */fish) shell_profile="~/.config/fish/config.fish" ;;
+  esac
+
+  printf '\n'
+  printf 'WARNING: %s is not on your PATH, so `zmr` will not be found yet.\n' "$INSTALL_DIR"
+  if [ "${SHELL:-}" != "${SHELL#*fish}" ] && [ -n "${SHELL:-}" ]; then
+    printf '  fish_add_path %s\n' "$INSTALL_DIR"
+  else
+    printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+  fi
+  if [ -n "$shell_profile" ]; then
+    printf 'Add that line to %s to make it permanent, then restart your shell.\n' "$shell_profile"
+  else
+    printf 'Add that line to your shell profile to make it permanent.\n'
+  fi
+}
+
 print_next_steps() {
   cat <<'NEXT'
+
 Next steps:
   zmr init --app --app-id <bundle-id>
-  zmr doctor --strict --json --config .zmr/config.json
+  zmr doctor --strict --config .zmr/config.json
 NEXT
+  print_path_help
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then

@@ -16,17 +16,66 @@
 <p align="center"><em>A teammate renames a heading. The scenario fails, and the
 trace says exactly why — no screenshots to squint at.</em></p>
 
-AI coding agents change mobile apps fast, but nothing tells them whether the UI
-still works. Zeno Mobile Runner (ZMR) is that check: one small Zig binary that
-installs and launches your app on a real device or simulator, runs a saved
-scenario, and returns a typed pass/fail plus a replayable trace — screenshots,
-UI trees, timings, assertion results.
+## TL;DR
+
+From nothing to a passing run against your own app. **Two minutes, five commands.**
+
+```bash
+# 1. Install the binary (checksum-verified against the release SHA256SUMS)
+curl -fsSL https://raw.githubusercontent.com/johnmikel/zeno-mobile-runner/main/install.sh | sh
+
+# 2. If the installer warns about PATH, add the line it printed, then restart your shell
+export PATH="$HOME/.local/bin:$PATH"
+
+# 3. From your mobile app repo — scaffolds .zmr/ config + starter scenarios
+zmr init --app --app-id com.your.bundleid
+
+# 4. Check your toolchain. Ends with the exact command to run next
+zmr doctor --strict --config .zmr/config.json
+
+# 5. Run it. Your app must already be installed on the target device
+zmr run .zmr/ios-smoke.json --platform ios --device booted \
+  --trace-dir traces/first --ensure-device
+```
+
+Passing looks like `"status": "passed"`. Failing looks like a named step and the
+text that was actually on screen:
+
+```bash
+zmr explain traces/first
+```
+
+**Two things that will otherwise bite you:**
+
+- **Your app must already be installed on the device.** ZMR drives an app, it
+  does not build one. If it isn't installed, step 5 fails on a device command.
+- **iOS taps and typing need the XCTest shim** — `npx zmr-install-ios-shim` in
+  your app repo. `zmr init` does not install it, and the smoke scenario above
+  passes without it, because launch and snapshot don't need it. Selector actions
+  do. Android needs no equivalent step.
+
+Android is the same flow with `.zmr/android-smoke.json --device emulator-5554`
+and no `--platform` flag.
+
+Full detail: [docs/install.md](docs/install.md) ·
+[docs/app-integration.md](docs/app-integration.md) ·
+[docs/troubleshooting.md](docs/troubleshooting.md)
+
+---
+
+Your agent can already screenshot a simulator and describe what it sees. What it
+cannot do is give you the same answer twice, for nothing, with proof. Zeno Mobile
+Runner (ZMR) is that check: one small Zig binary that installs and launches your
+app on a real device or simulator, runs a saved scenario, and returns a typed
+pass/fail plus a replayable trace — screenshots, UI trees, timings, assertion
+results.
 
 Because there is **no LLM inside ZMR**, the same check costs nothing per run and
-gives the same answer every time. Run it in your agent's loop and in CI. ZMR
-drives native UI beneath the JavaScript and Dart layers, so React Native, Expo,
-Flutter, and fully native apps share one runner — over MCP, JSON-RPC, a
-JSON-output CLI, or committed JSON scenarios.
+returns the same answer every time. A model reading a screenshot is making a
+judgment, and judgments drift between runs; a gate you merge on cannot. Run ZMR
+in your agent's loop and in CI. It drives native UI beneath the JavaScript and
+Dart layers, so React Native, Expo, Flutter, and fully native apps share one
+runner — over MCP, JSON-RPC, a JSON-output CLI, or committed JSON scenarios.
 
 ![ZMR trace viewer showing a passed iOS run with timeline, device screenshot, UI tree, and selector payload](docs/assets/viewer-hero.png)
 
@@ -334,7 +383,9 @@ the support matrix; redaction is intentionally conservative. See
 - [docs/protocol.md](docs/protocol.md) — JSON-RPC methods and schemas
 - [docs/trace-privacy.md](docs/trace-privacy.md) — safe trace export
 - [docs/troubleshooting.md](docs/troubleshooting.md) — common setup and runtime
-  issues
+  issues, starting with the five that account for most failed first attempts
+- [docs/npm.md](docs/npm.md) — pinning ZMR in a JavaScript app repo
+- [docs/releasing.md](docs/releasing.md) — maintainer release runbook
 - [skills/zmr-mobile-testing/SKILL.md](skills/zmr-mobile-testing/SKILL.md) — reusable agent testing workflow
 - [FEATURES.md](FEATURES.md) — complete feature list and limitations
 

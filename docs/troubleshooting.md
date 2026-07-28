@@ -1,5 +1,78 @@
 # Troubleshooting
 
+## First-run failures
+
+These five account for almost every failed first attempt. Each was hit in real
+use, and the error ZMR prints does not always name the cause.
+
+### `zmr: command not found`, immediately after a successful install
+
+The curl installer writes to `~/.local/bin`, which is **not** on `PATH` on a
+stock macOS install or many Linux setups. The install succeeded; your shell just
+cannot see it.
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"        # this shell only
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh   # permanent
+```
+
+Recent installers detect this and print the line for your shell. See
+[install.md](install.md#put-zmr-on-your-path).
+
+### `error[device.command_failed]` on the very first run
+
+Almost always: **the app under test is not installed on the device.** ZMR drives
+an app, it does not build or install one. Verify, then install your app:
+
+```bash
+xcrun simctl listapps booted | grep <your.bundle.id>   # iOS
+adb shell pm list packages | grep <your.bundle.id>     # Android
+```
+
+Do not re-run `zmr doctor` for this — doctor inspects the *host toolchain* and
+will pass while the app is still missing.
+
+### Every iOS `tap` or `typeText` fails as `selector not found`
+
+Your selectors are probably fine. Without the XCTest shim ZMR cannot read the
+iOS UI tree at all, so nothing matches and `visibleTexts` comes back empty.
+
+```bash
+npx zmr-install-ios-shim --app-root . --scheme <YourUITests> --bundle-id <your.bundle.id>
+```
+
+`zmr init` does not install the shim, and launch/snapshot smoke scenarios pass
+without it — which is why this stays invisible until your first real scenario.
+Android needs no equivalent step.
+
+### A run takes ~60s and ends in `IosShimResponseNotOk`
+
+Check whether the app is crashing at launch. `simctl launch` returns a process
+id before a dyld failure lands, so the trace records `app.launch status = ok`
+and the shim then fails against an app that is already gone.
+
+```bash
+xcrun simctl launch booted <your.bundle.id> && sleep 8 && xcrun simctl io booted screenshot /tmp/state.png
+ls -t ~/Library/Logs/DiagnosticReports | head -5
+```
+
+A crash report naming `Symbol not found` means a native module ABI mismatch in
+your app — rebuild it, and ZMR will drive it once it stays running.
+
+### A scenario that used to work is now `scenario is invalid`
+
+Unknown root, step, and selector fields are rejected. Comment-style keys such as
+`_comment` or `_scope` — a common workaround for JSON having no comments — were
+tolerated by older versions and now fail. The diagnostic reports `fieldPath: "$"`
+and does not yet name the offending key, so compare against
+[scenario-authoring.md](scenario-authoring.md) and remove non-schema keys.
+
+```bash
+zmr validate --json .zmr/your-scenario.json
+```
+
+## Structured diagnostics
+
 Start with structured diagnostics. They give humans, agents, and CI scripts the
 same setup state, error codes, field paths, and remediation hints:
 

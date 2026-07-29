@@ -39,7 +39,11 @@ grep -q 'archive: https://example.test/zmr/v0.2.8/zmr-0.2.8-aarch64-macos.15.0.t
 grep -q 'checksums: https://example.test/zmr/v0.2.8/SHA256SUMS' <<< "$dry_run"
 grep -q 'checksum-verification: required' <<< "$dry_run"
 grep -q 'zmr init --app --app-id <bundle-id>' <<< "$dry_run"
-grep -q 'zmr doctor --strict --json --config .zmr/config.json' <<< "$dry_run"
+# Human-facing next-steps, so no --json: a first-time reader wants doctor's
+# readable table and its trailing `next` line, not a JSON blob. The --json form
+# is still correct for the generated package.json scripts and config.scripts,
+# which npm-cli/npm-scaffold-helpers assert separately.
+grep -q 'zmr doctor --strict --config .zmr/config.json' <<< "$dry_run"
 
 linux_dry_run="$(
   ZMR_INSTALL_UNAME_S=Linux \

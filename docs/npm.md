@@ -1,5 +1,16 @@
 # npm Package
 
+> **Most people do not need this page.** The supported install path is the curl
+> installer — see [install.md](install.md). It is framework-neutral and installs
+> the same native binary this package wraps.
+>
+> Read this page if you are **a JavaScript team** pinning ZMR in `package.json`
+> so it versions with the app, and wanting the helper bins in
+> `node_modules/.bin`.
+>
+> Publishing a release is a maintainer task — see [releasing.md](releasing.md).
+> Demo apps are documented in [demo.md](demo.md).
+
 Install the npm package inside a mobile app repo when you want the `zmr` binary,
 setup wizard, app-local scripts, schemas, examples, clients, and agent skill to
 version with the app:
@@ -213,148 +224,19 @@ Omit `--android-shim` or `--ios-shim` for shell/screenshot-only smoke runs.
 Include them when the app repo provides native shim commands for faster
 hierarchy and selector actions.
 
-## Android Demo App
+## Demo apps
 
-For a clean public Android demo APK that does not depend on a private app:
+Demo app generation is documented in [demo.md](demo.md), which is the canonical
+reference. The npm package exposes the generators as bins:
 
 ```bash
 npx zmr-demo-android --out /tmp/zmr-android-demo --device emulator-5554 --avd <avd-name>
-```
-
-That command uses Android SDK command-line tools directly, so it does not need
-Gradle or network access. It creates the demo APK, boots the named AVD when
-the requested device is not already ready, installs the app, runs the smoke
-scenario, and writes traces under `<out>/traces/pilot`.
-
-To inspect or customize the generated app before running manually:
-
-```bash
-npx zmr-create-android-demo-app --out /tmp/zmr-android-demo
-adb install -r /tmp/zmr-android-demo/build/app-debug.apk
-zmr run /tmp/zmr-android-demo/.zmr/android-smoke.json \
-  --device emulator-5554 \
-  --app-id com.example.mobiletest \
-  --trace-dir /tmp/zmr-android-demo/traces/android-demo
-```
-
-## React Native And Expo Demo Fixture
-
-Generate a public React Native and Expo app when you need a framework-level
-benchmark fixture before collecting timing rows:
-
-```bash
-npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo
-cd /tmp/zmr-rn-expo-demo
-bun install
-bunx expo start
-```
-
-The generated app includes `expo-dev-client`, stable `testID` values,
-accessibility labels, an Expo deep-link scheme, and platform-specific ZMR
-workflow scenarios under `.zmr/`. After installing a development build on the
-target device, run the generated Android or iOS workflow scenario from the app
-directory.
-
-## iOS Demo App
-
-For a clean public iOS demo that does not depend on a private app:
-
-```bash
 npx zmr-demo-ios --out /tmp/zmr-ios-demo --device booted --cleanup-build-products
+npx zmr-create-react-native-expo-demo-app --out /tmp/zmr-rn-expo-demo
 ```
 
-That command creates the demo app, boots an available simulator when needed,
-builds it with Xcode, runs the iOS pilot, and writes trace reports plus
-redacted bundles. `--cleanup-build-products` removes generated Xcode
-`DerivedData` after the trace reports are written, which keeps repeated demo
-runs from filling local disk. To inspect or customize the app before running
-the pilot manually:
-
-```bash
-npx zmr-create-ios-demo-app --out /tmp/zmr-ios-demo
-cd /tmp/zmr-ios-demo
-xcodebuild -project ios/ZMRDemo.xcodeproj -scheme ZMRDemo -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData build
-```
-
-Then boot a simulator and run the pilot wrapper:
-
-```bash
-zmr-pilot-gate \
-  --ios \
-  --ios-app-root /tmp/zmr-ios-demo \
-  --ios-app-path /tmp/zmr-ios-demo/DerivedData/Build/Products/Debug-iphonesimulator/ZMRDemo.app \
-  --ios-app-id com.example.mobiletest \
-  --ios-device booted \
-  --ios-shim /tmp/zmr-ios-demo/.zmr/ios-shim \
-  --zmr-bin ./node_modules/.bin/zmr
-```
-
-When `--ios-shim` is set, the pilot prewarms the XCTest shim before scenario
-timing with an `appState` command. Pass `--skip-shim-prewarm` only when
-intentionally measuring cold shim startup.
-
-To scaffold the Android shim command into an app repo:
-
-```bash
-npx zmr-install-android-shim \
-  --app-root . \
-  --test-package com.example.mobiletest.test \
-  --runner androidx.test.runner.AndroidJUnitRunner \
-  --android-module android/app \
-  --gradle-file android/app/build.gradle
-```
-
-`--android-module` copies the shim into
-`android/app/src/androidTest/java/dev/zmr/shim/ZMRShimInstrumentedTest.java`.
-`--gradle-file` appends guarded Gradle blocks for `testInstrumentationRunner`,
-AndroidX Test runner, JUnit extension, and UI Automator. If the Gradle file
-already has a custom `testInstrumentationRunner` and `--runner` is omitted, the
-generated `.zmr/android-shim` command uses that runner. Run ZMR with
-`--android-shim ./.zmr/android-shim`.
-
-To scaffold the iOS shim command into an app repo:
-
-```bash
-npx zmr-install-ios-shim \
-  --app-root . \
-  --scheme SampleUITests \
-  --test-target SampleUITests \
-  --workspace ios/Sample.xcworkspace \
-  --app-target SampleApp \
-  --derived-data-path ios/build/ZMRDerivedData \
-  --bundle-id com.example.mobiletest \
-  --patch-xcodeproj
-```
-
-The installer writes:
-
-- `.zmr/ios-shim`
-- `.zmr/ensure-ios-shim-target.sh`
-- `.zmr/ensure-ios-shim-target.rb`
-- `.zmr/ZMRShimUITestCase.swift`
-- `.zmr/shims/ios/ZMRShim.swift`
-- `.zmr/ZMRShimUITests-Info.plist`
-- `.zmr/config.json` `tools.iosShimPath`, creating the config file when needed
-
-Run `.zmr/ensure-ios-shim-target.sh` to create/update the UI test target, add
-the Swift files, configure the generated Info.plist, and write a shared scheme.
-The helper uses the Ruby `xcodeproj` gem. With `--workspace`, it resolves the
-referenced `.xcodeproj` automatically when there is one project, or when exactly
-one project contains `--app-target`, or when `--bundle-id` disambiguates
-matching app targets. Pass `--project ios/Sample.xcodeproj` explicitly for
-still-ambiguous multi-project workspaces or project-only apps.
-
-Run ZMR with `--ios-shim ./.zmr/ios-shim`, or rely on the generated
-`tools.iosShimPath` in `.zmr/config.json`.
-The generated command caches `build-for-testing` output under
-`.zmr/ios-shim-state/`, uses `test-without-building` for selector commands, and
-prints the last Xcode log lines when XCTest fails. Set
-`ZMR_IOS_SHIM_FORCE_REBUILD=1` after app-side target changes, or
-`ZMR_IOS_SHIM_ONESHOT=1` for a cold-start fallback while debugging app-side Xcode
-wiring. When `--derived-data-path` points at a ZMR-owned path ending in
-`ZMRDerivedData`, the generated command removes that directory before each
-`build-for-testing` refresh so copied app checkouts do not reuse stale absolute
-Xcode paths. It refuses to delete arbitrary shared DerivedData locations.
+See [demo.md](demo.md) for what each generates, the Expo dev-client scenario it
+writes, and how to run them end to end.
 
 ## Native Binary Resolution
 
@@ -385,86 +267,9 @@ npm run pack:npm
 
 That command builds release binaries, copies them into `prebuilds/`, and runs `npm pack`.
 
-Tagged GitHub releases publish through npm trusted publishing, not a long-lived
-`NPM_TOKEN` secret. Configure the npm package trusted publisher before relying
-on the tag workflow:
-
-- Package: `zeno-mobile-runner`
-- Provider: GitHub Actions
-- Organization or user: `johnmikel`
-- Repository: `zeno-mobile-runner`
-- Workflow filename: `release.yml`
-- Environment name: leave blank unless the release job also declares a GitHub
-  deployment environment.
-- Allowed actions: `npm publish`
-
-The release workflow already requests `id-token: write`, builds the npm tarball
-from the tag, attests the generated release artifacts, uploads the GitHub
-release assets, verifies exactly one local npm tarball exists under `./dist/`,
-and then publishes that tarball with public access.
-
-Trusted publishing requires a current npm runtime. The tag workflow uses Node
-24 so the npm CLI can exchange the GitHub Actions OIDC identity for publish
-authorization.
-
-With `npm@11.10.0` or newer, maintainers can also configure the same trust
-relationship from an authenticated local shell:
-
-```bash
-npm trust list zeno-mobile-runner
-npm trust github zeno-mobile-runner \
-  --repo johnmikel/zeno-mobile-runner \
-  --file release.yml \
-  --allow-publish
-```
-
-If `npm trust` is not available, update npm or use the package settings page on
-npmjs.com. A failed publish with `E404` for an existing package usually means
-the trusted-publisher configuration is missing, points at a different GitHub
-owner/repository/workflow filename, names an environment that the workflow does
-not use, or does not allow `npm publish`.
-
-### Manual publish with passkey or 2FA
-
-Use trusted publishing for normal tagged releases. If you need to publish a
-verified local tarball manually, authenticate first:
-
-```bash
-npm login --auth-type=web
-npm whoami
-```
-
-The browser/passkey step must finish before publishing. If `npm whoami` returns
-`E401 Unauthorized`, the local machine is not authenticated and `npm publish`
-will fail.
-
-Build and verify the package before publishing:
-
-```bash
-./scripts/ci-gate.sh
-npm pack --dry-run --json
-npm run pack:npm
-```
-
-Publish the generated tarball from `dist/`:
-
-```bash
-npm publish ./dist/zeno-mobile-runner-<version>.tgz --access public
-```
-
-If npm returns `EOTP`, the account or organization requires a TOTP-style
-one-time password for this publish command. The browser/passkey login flow can
-authenticate the local CLI session, but `npm publish` itself only accepts the
-publish-time second factor through `--otp`. Prefer the tagged trusted-publishing
-workflow for normal releases; otherwise enter the TOTP locally or use a granular
-automation token configured to bypass 2FA. Do not send OTPs or tokens through
-issue comments, chat, or commit history.
-
-If npm returns `E403` with a two-factor authentication message, the account or
-organization requires either a current interactive 2FA challenge or a granular
-automation token configured to bypass 2FA. For local passkey accounts, rerun
-`npm login --auth-type=web`, complete the passkey challenge in the browser, and
-confirm `npm whoami` before retrying the same `npm publish` command.
+Publishing a release is a maintainer task and lives in
+[releasing.md](releasing.md): the pre-tag gate, trusted publishing configuration,
+manual publish with passkey or 2FA, and post-publish verification.
 
 ## Node API
 

@@ -6,7 +6,7 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Added
 
-- Canonical scenario actions for Maestro-parity flows: `killApp` (alias
+- Canonical scenario actions covering the common mobile-flow vocabulary: `killApp` (alias
   `forceStop`), `clearKeychain`, `grantPermissions`, `setOrientation`,
   `setClipboard` (alias `copyText`), `longPress`/`longPressOn`,
   `doubleTap`/`doubleTapOn`, `pressKey`, `whenNotVisible`, `retry`, `runFlow`,

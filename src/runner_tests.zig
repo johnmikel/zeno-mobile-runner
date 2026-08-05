@@ -124,7 +124,7 @@ test "runner applies permissions orientation and clipboard state" {
     defer allocator.free(snapshots);
     var fake = fake_device.FakeDevice.init(allocator, snapshots);
     defer fake.deinit();
-    var permissions = [_][]const u8{"android.permission.CAMERA", "android.permission.ACCESS_FINE_LOCATION"};
+    var permissions = [_][]const u8{ "android.permission.CAMERA", "android.permission.ACCESS_FINE_LOCATION" };
     try runner.executeStep(allocator, &fake, .{ .grant_permissions = permissions[0..] }, null, .{ .settle_ms = 0 });
     try runner.executeStep(allocator, &fake, .{ .set_orientation = .landscape }, null, .{ .settle_ms = 0 });
     try runner.executeStep(allocator, &fake, .{ .set_clipboard = "copied" }, null, .{ .settle_ms = 0 });

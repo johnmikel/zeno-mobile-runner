@@ -51,6 +51,21 @@ test "parse hierarchy handles desc ids selection invisibility and fallback ids" 
     try std.testing.expect(std.mem.startsWith(u8, nodes[2].stable_id, "node:android.view.View:5:6:2:2:2"));
 }
 
+test "parse hierarchy preserves checked and focused state" {
+    const xml =
+        \\<hierarchy>
+        \\  <node index="0" text="Ready" class="android.widget.CheckBox" enabled="true" checked="true" focused="true" selected="false" bounds="[0,0][80,40]" />
+        \\</hierarchy>
+    ;
+    const nodes = try uiautomator.parseHierarchy(std.testing.allocator, xml);
+    defer {
+        for (nodes) |node| node.deinit(std.testing.allocator);
+        std.testing.allocator.free(nodes);
+    }
+    try std.testing.expect(nodes[0].checked);
+    try std.testing.expect(nodes[0].focused);
+}
+
 test "parse bounds rejects malformed input and clamps negative size" {
     try std.testing.expectError(error.MalformedBounds, uiautomator.parseBounds("bad"));
     const bounds = try uiautomator.parseBounds("[10,20][5,15]");

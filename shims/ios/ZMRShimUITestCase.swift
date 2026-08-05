@@ -182,10 +182,24 @@ final class ZMRShimUITestCase: XCTestCase {
                 .withOffset(CGVector(dx: x1, dy: y1))
             let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
                 .withOffset(CGVector(dx: x2, dy: y2))
-            start.press(forDuration: 0.01, thenDragTo: end)
+            let duration = TimeInterval(command.durationMs ?? 10) / 1000.0
+            start.press(forDuration: max(duration, 0.01), thenDragTo: end)
             return ok()
         case "pressBack":
             XCUIDevice.shared.press(.home)
+            return ok()
+        case "setClipboard":
+            UIPasteboard.general.string = command.text ?? ""
+            return ok()
+        case "setOrientation":
+            switch (command.text ?? "").lowercased() {
+            case "portrait":
+                XCUIDevice.shared.orientation = .portrait
+            case "landscape":
+                XCUIDevice.shared.orientation = .landscapeLeft
+            default:
+                return error("invalid.orientation", "orientation must be portrait or landscape")
+            }
             return ok()
         case "settle":
             let timeout = TimeInterval(command.durationMs ?? 1000) / 1000.0

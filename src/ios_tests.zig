@@ -210,6 +210,29 @@ test "ios clear state treats an already uninstalled app as clean" {
     try device.clearState();
 }
 
+test "ios simulator clearKeychain resets the simulator keychain" {
+    const allocator = std.testing.allocator;
+    const xcrun_path = "zig-cache/test-ios-keychain-xcrun.sh";
+    defer test_io.cwd().deleteFile(xcrun_path) catch {};
+    try test_io.cwd().makePath("zig-cache");
+    var file = try test_io.cwd().createFile(xcrun_path, .{ .truncate = true });
+    try file.writeAll(
+        \\#!/usr/bin/env bash
+        \\set -euo pipefail
+        \\if [[ "${1:-}" == "simctl" && "${2:-}" == "keychain" && "${3:-}" == "fake-ios-1" && "${4:-}" == "reset" ]]; then
+        \\  exit 0
+        \\fi
+        \\exec ./tests/fake-xcrun.sh "$@"
+        \\
+    );
+    try file.chmod(0o755);
+    file.close();
+
+    var device = try IosDevice.init(allocator, xcrun_path, "fake-ios-1", "com.example.mobiletest");
+    defer device.deinit();
+    try device.clearKeychain();
+}
+
 test "ios simctl parser filters unavailable and shutdown devices" {
     const allocator = std.testing.allocator;
     const devices = try parseDevicesJson(allocator,

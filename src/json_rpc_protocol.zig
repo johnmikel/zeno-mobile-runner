@@ -1,4 +1,5 @@
 const std = @import("std");
+const action_registry = @import("action_registry.zig");
 const device_registry = @import("device_registry.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
@@ -11,10 +12,19 @@ pub const capabilities_json =
     "\",\"minimumCompatibleVersion\":\"" ++ version.protocol_min_compatible_version ++
     "\",\"stability\":\"" ++ version.protocol_stability ++
     "\",\"breakingChangePolicy\":\"" ++ version.protocol_breaking_change_policy ++
-    "\"},\"platforms\":[\"android\",\"ios\"],\"platformSupport\":{\"android\":{\"status\":\"supported\",\"deviceTypes\":[\"emulator\",\"physical\"],\"automation\":[\"adb\",\"uiautomator\",\"android-shim\"]},\"ios\":{\"status\":\"supported\",\"deviceTypes\":[\"simulator\",\"physical\"],\"automation\":[\"simctl\",\"devicectl\",\"xctest-shim\"],\"physicalDevices\":true}},\"iosPreview\":false,\"transports\":[\"stdio\",\"tcp\"],\"methods\":[\"runner.capabilities\",\"device.list\",\"session.create\",\"session.close\",\"app.install\",\"app.launch\",\"app.stop\",\"app.openLink\",\"app.clearState\",\"observe.snapshot\",\"observe.semanticSnapshot\",\"ui.tap\",\"ui.type\",\"ui.eraseText\",\"ui.hideKeyboard\",\"ui.swipe\",\"ui.pressBack\",\"ui.scrollUntilVisible\",\"wait.until\",\"wait.any\",\"wait.gone\",\"assert.visible\",\"assert.notVisible\",\"assert.healthy\",\"scenario.validate\",\"trace.events\",\"trace.explore\",\"trace.discover\",\"trace.explain\",\"trace.export\"]}";
+    "\"},\"platforms\":[\"android\",\"ios\"],\"platformSupport\":{\"android\":{\"status\":\"supported\",\"deviceTypes\":[\"emulator\",\"physical\"],\"automation\":[\"adb\",\"uiautomator\",\"android-shim\"]},\"ios\":{\"status\":\"supported\",\"deviceTypes\":[\"simulator\",\"physical\"],\"automation\":[\"simctl\",\"devicectl\",\"xctest-shim\"],\"physicalDevices\":true}},\"iosPreview\":false,\"transports\":[\"stdio\",\"tcp\"],\"methods\":[\"runner.capabilities\",\"device.list\",\"session.create\",\"session.close\",\"app.install\",\"app.launch\",\"app.stop\",\"app.openLink\",\"app.clearState\",\"app.clearKeychain\",\"observe.snapshot\",\"observe.semanticSnapshot\",\"ui.tap\",\"ui.type\",\"ui.eraseText\",\"ui.hideKeyboard\",\"ui.swipe\",\"ui.pressBack\",\"ui.scrollUntilVisible\",\"wait.until\",\"wait.any\",\"wait.gone\",\"assert.visible\",\"assert.notVisible\",\"assert.healthy\",\"scenario.validate\",\"trace.events\",\"trace.explore\",\"trace.discover\",\"trace.explain\",\"trace.export\"]}";
 
 pub fn writeCapabilitiesResult(writer: anytype, id: ?std.json.Value) !void {
-    try writeResultRaw(writer, id, capabilities_json);
+    try writer.writeAll("{\"jsonrpc\":\"2.0\",\"id\":");
+    try writeId(writer, id);
+    try writer.writeAll(",\"result\":");
+    // Keep the legacy capability payload stable while appending the registry-owned
+    // action contract. Clients that only know the 0.2.x fields can continue to
+    // consume the same protocol and ignore the additive actions field.
+    try writer.writeAll(capabilities_json[0 .. capabilities_json.len - 1]);
+    try writer.writeAll(",\"actions\":");
+    try action_registry.writeJson(writer);
+    try writer.writeAll("}}\n");
 }
 
 pub fn writeDevicesResult(writer: anytype, id: ?std.json.Value, devices: []const types.DeviceInfo) !void {

@@ -25,24 +25,50 @@ pub fn runScenario(
         defer tw.allocator.free(payload);
         try tw.recordEvent("scenario.start", payload);
     }
+
+    var failure_error: ?anyerror = null;
+    var failure_index: ?usize = null;
+    for (script.on_start) |step| {
+        executeStep(allocator, device, step, writer, options) catch |err| {
+            failure_error = err;
+            if (writer) |tw| try tw.recordEvent("hook.onStart.failed", "{\"status\":\"failed\"}");
+            break;
+        };
+    }
     for (script.steps, 0..) |step, index| {
+        if (failure_error != null) break;
         executeStep(allocator, device, step, writer, options) catch |err| {
             if (writer) |tw| {
                 try runner_events.recordStepError(tw, index, err);
-                try runner_events.recordScenarioEnd(tw, script.name, "failed", index, err);
-                try tw.finishManifest(.{
-                    .status = "failed",
-                    .failed_step_index = index,
-                    .error_name = @errorName(err),
-                });
             }
-            return err;
+            failure_error = err;
+            failure_index = index;
+            break;
         };
         if (writer) |tw| {
             const payload = try std.fmt.allocPrint(tw.allocator, "{{\"index\":{d}}}", .{index});
             defer tw.allocator.free(payload);
             try tw.recordEvent("step.done", payload);
         }
+    }
+
+    for (script.on_complete) |step| {
+        executeStep(allocator, device, step, writer, options) catch |err| {
+            if (writer) |tw| try tw.recordEvent("hook.onComplete.failed", "{\"status\":\"failed\"}");
+            if (failure_error == null) failure_error = err;
+        };
+    }
+
+    if (failure_error) |err| {
+        if (writer) |tw| {
+            try runner_events.recordScenarioEnd(tw, script.name, "failed", failure_index, err);
+            try tw.finishManifest(.{
+                .status = "failed",
+                .failed_step_index = failure_index,
+                .error_name = @errorName(err),
+            });
+        }
+        return err;
     }
     if (writer) |tw| {
         try runner_events.recordScenarioEnd(tw, script.name, "passed", null, null);
@@ -56,7 +82,7 @@ pub fn executeStep(
     step: scenario.Step,
     writer: ?*trace.TraceWriter,
     options: RunOptions,
-) !void {
+) anyerror!void {
     switch (step) {
         .launch => {
             device.launch() catch |err| {
@@ -66,8 +92,30 @@ pub fn executeStep(
             if (writer) |tw| try runner_events.recordActionStatus(tw, "app.launch", "ok", null, null);
             try settleDevice(device, options);
         },
+        .launch_app => |launch| {
+            if (launch.stop_app) try device.stop();
+            if (launch.clear_state) try device.clearState();
+            if (launch.clear_keychain) try clearKeychain(device);
+            launchWithOptions(device, launch) catch |err| {
+                if (writer) |tw| try runner_events.recordActionStatus(tw, "app.launch", "failed", err, launch.app_id);
+                return err;
+            };
+            if (writer) |tw| {
+                const payload = try std.fmt.allocPrint(tw.allocator, "{{\"status\":\"ok\",\"stopApp\":{s},\"clearState\":{s},\"clearKeychain\":{s},\"argumentCount\":{d}}}", .{
+                    if (launch.stop_app) "true" else "false",
+                    if (launch.clear_state) "true" else "false",
+                    if (launch.clear_keychain) "true" else "false",
+                    launch.arguments.len,
+                });
+                defer tw.allocator.free(payload);
+                try tw.recordEvent("app.launch", payload);
+            }
+            try settleDevice(device, options);
+        },
         .stop => try device.stop(),
+        .kill_app => try killApp(device),
         .clear_state => try device.clearState(),
+        .clear_keychain => try clearKeychain(device),
         .snapshot => {
             var snap = try device.snapshot(writer);
             defer snap.deinit(device.allocator);
@@ -95,7 +143,32 @@ pub fn executeStep(
             if (writer) |tw| try runner_events.recordSetLocation(tw, "ok", null, location.latitude, location.longitude);
             try settleDevice(device, options);
         },
+        .grant_permissions => |permissions| {
+            try grantPermissions(device, permissions);
+            if (writer) |tw| try tw.recordEvent("device.grantPermissions", "{\"status\":\"ok\"}");
+            try settleDevice(device, options);
+        },
+        .set_orientation => |orientation| {
+            try setOrientation(device, orientation);
+            if (writer) |tw| {
+                const payload = try std.fmt.allocPrint(tw.allocator, "{{\"orientation\":\"{s}\"}}", .{@tagName(orientation)});
+                defer tw.allocator.free(payload);
+                try tw.recordEvent("device.setOrientation", payload);
+            }
+            try settleDevice(device, options);
+        },
+        .set_clipboard => |text| {
+            try setClipboard(device, text);
+            if (writer) |tw| {
+                const payload = try std.fmt.allocPrint(tw.allocator, "{{\"textLength\":{d}}}", .{text.len});
+                defer tw.allocator.free(payload);
+                try tw.recordEvent("device.setClipboard", payload);
+            }
+            try settleDevice(device, options);
+        },
         .tap => |wanted| try tapSelector(device, wanted, writer, options),
+        .long_press => |gesture| try runner_actions.longPressSelector(device, gesture.selector, gesture.duration_ms, writer, options),
+        .double_tap => |wanted| try runner_actions.doubleTapSelector(device, wanted, writer, options),
         .type_text => |input| {
             if (input.selector) |wanted| return try typeTextSelector(device, wanted, input.text, writer, options);
             try device.typeText(input.text);
@@ -114,6 +187,18 @@ pub fn executeStep(
         .press_back => {
             try device.pressBack();
             if (writer) |tw| try tw.recordEvent("ui.pressBack", "{\"status\":\"ok\"}");
+            try settleDevice(device, options);
+        },
+        .press_key => |key| {
+            try pressKey(device, key);
+            if (writer) |tw| {
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                try payload.writer.writeAll("{\"key\":");
+                try trace.writeJsonString(&payload.writer, key);
+                try payload.writer.writeAll("}");
+                try tw.recordEvent("ui.pressKey", payload.writer.buffered());
+            }
             try settleDevice(device, options);
         },
         .hide_keyboard => {
@@ -173,6 +258,23 @@ pub fn executeStep(
                 try runner_events.recordSelectorEvent(tw, "step.whenVisible.skipped", block.selector);
             }
         },
+        .when_not_visible => |block| {
+            const visible = if (block.timeout_ms == 0)
+                isVisibleNow(device, block.selector, writer) catch |err| {
+                    if (writer) |tw| try runner_events.recordSelectorEventWithError(tw, "step.whenNotVisible.skipped", block.selector, err);
+                    return;
+                }
+            else
+                waitUntilNotVisible(device, block.selector, block.timeout_ms, writer, options) catch |err| {
+                    if (writer) |tw| try runner_events.recordSelectorEventWithError(tw, "step.whenNotVisible.skipped", block.selector, err);
+                    return;
+                };
+            if (!visible) {
+                for (block.steps) |inner| try executeStep(allocator, device, inner, writer, options);
+            } else if (writer) |tw| {
+                try runner_events.recordSelectorEvent(tw, "step.whenNotVisible.skipped", block.selector);
+            }
+        },
         .repeat => |block| {
             var iteration: u32 = 0;
             while (iteration < block.times) : (iteration += 1) {
@@ -184,11 +286,50 @@ pub fn executeStep(
                 for (block.steps) |inner| try executeStep(allocator, device, inner, writer, options);
             }
         },
+        .retry => |block| {
+            var attempt: u32 = 0;
+            var last_error: ?anyerror = null;
+            while (attempt < block.attempts) : (attempt += 1) {
+                executeStepBlock(allocator, device, block.steps, writer, options) catch |err| {
+                    last_error = err;
+                    if (!isRetryableInfrastructureError(err) or attempt + 1 >= block.attempts) break;
+                    if (writer) |tw| {
+                        const payload = try std.fmt.allocPrint(tw.allocator, "{{\"attempt\":{d},\"attempts\":{d},\"reason\":\"{s}\"}}", .{ attempt + 1, block.attempts, @errorName(err) });
+                        defer tw.allocator.free(payload);
+                        try tw.recordEvent("step.retry", payload);
+                    }
+                    continue;
+                };
+                last_error = null;
+                break;
+            }
+            if (last_error) |err| return err;
+        },
+        .run_flow => |block| try executeStepBlock(allocator, device, block.steps, writer, options),
         .scroll_until_visible => |scroll| {
             if (!try scrollUntilVisible(device, scroll.selector, scroll.timeout_ms, scroll.direction, writer, options)) return error.WaitTimeout;
         },
         .sleep_ms => |ms| try sleepMs(ms),
     }
+}
+
+fn executeStepBlock(
+    allocator: std.mem.Allocator,
+    device: anytype,
+    steps: []const scenario.Step,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+) anyerror!void {
+    for (steps) |inner| try executeStep(allocator, device, inner, writer, options);
+}
+
+fn isRetryableInfrastructureError(err: anyerror) bool {
+    return err == error.CommandFailed or
+        err == error.CommandTimedOut or
+        err == error.IosXCTestShimResponseTimedOut or
+        err == error.IosXCTestShimStartTimedOut or
+        err == error.IosXCTestShimBuildTimedOut or
+        err == error.IosXCTestShimServerExited;
 }
 
 pub fn tapSelector(
@@ -312,6 +453,59 @@ fn isVisibleNow(
 
 fn sleepMs(ms: u64) !void {
     stdio.sleepNs(ms * std.time.ns_per_ms);
+}
+
+fn killApp(device: anytype) !void {
+    if (@hasDecl(@TypeOf(device.*), "killApp")) {
+        return device.killApp();
+    }
+    return device.stop();
+}
+
+fn clearKeychain(device: anytype) !void {
+    if (@hasDecl(@TypeOf(device.*), "clearKeychain")) {
+        return device.clearKeychain();
+    }
+    return error.UnsupportedDeviceCapability;
+}
+
+fn launchWithOptions(device: anytype, options: scenario.LaunchOptions) !void {
+    if (options.app_id != null or options.arguments.len > 0) {
+        if (@hasDecl(@TypeOf(device.*), "launchWithArguments")) {
+            return device.launchWithArguments(options.app_id, options.arguments);
+        }
+        return error.UnsupportedDeviceCapability;
+    }
+    return device.launch();
+}
+
+fn pressKey(device: anytype, key: []const u8) !void {
+    if (@hasDecl(@TypeOf(device.*), "pressKey")) {
+        return device.pressKey(key);
+    }
+    if (std.ascii.eqlIgnoreCase(key, "BACK")) return device.pressBack();
+    return error.UnsupportedDeviceCapability;
+}
+
+fn grantPermissions(device: anytype, permissions: [][]const u8) !void {
+    if (@hasDecl(@TypeOf(device.*), "grantPermissions")) {
+        return device.grantPermissions(permissions);
+    }
+    return error.UnsupportedDeviceCapability;
+}
+
+fn setOrientation(device: anytype, orientation: scenario.Orientation) !void {
+    if (@hasDecl(@TypeOf(device.*), "setOrientation")) {
+        return device.setOrientation(orientation);
+    }
+    return error.UnsupportedDeviceCapability;
+}
+
+fn setClipboard(device: anytype, text: []const u8) !void {
+    if (@hasDecl(@TypeOf(device.*), "setClipboard")) {
+        return device.setClipboard(text);
+    }
+    return error.UnsupportedDeviceCapability;
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {

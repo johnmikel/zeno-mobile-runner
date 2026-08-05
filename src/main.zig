@@ -10,7 +10,9 @@ const cli_init = @import("cli_init.zig");
 const cli_import = @import("cli_import.zig");
 const cli_inspect = @import("cli_inspect.zig");
 const cli_run = @import("cli_run.zig");
+const cli_record = @import("cli_record.zig");
 const cli_serve = @import("cli_serve.zig");
+const cli_test = @import("cli_test.zig");
 const cli_trace = @import("cli_trace.zig");
 const cli_validate = @import("cli_validate.zig");
 const errors = @import("errors.zig");
@@ -66,6 +68,10 @@ fn mainInner(init: std.process.Init.Minimal) !void {
         try cli_inspect.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "run")) {
         try cli_run.run(allocator, &args);
+    } else if (std.mem.eql(u8, command_name, "record")) {
+        try cli_record.run(allocator, &args);
+    } else if (std.mem.eql(u8, command_name, "test")) {
+        try cli_test.run(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "report")) {
         try cli_trace.runReport(allocator, &args);
     } else if (std.mem.eql(u8, command_name, "explain")) {
@@ -133,6 +139,25 @@ fn exitCodeForError(err: anyerror) u8 {
         error.MissingDiscoverOut,
         error.MissingJUnitOutput,
         error.MissingTraceBundleOutput,
+        error.MissingImportFormat,
+        error.MissingImportPath,
+        error.MissingImportOut,
+        error.MissingImportName,
+        error.MissingImportReport,
+        error.MissingTestWorkspace,
+        error.MissingTestWorkers,
+        error.MissingTestRetries,
+        error.MissingTestOutputDir,
+        error.MissingTestPlatform,
+        error.MissingTestDevice,
+        error.MissingTestAppId,
+        error.MissingTestAdb,
+        error.MissingTestXcrun,
+        error.MissingTestAndroidShim,
+        error.MissingTestIosShim,
+        error.MissingRecordTraceDir,
+        error.MissingRecordTransport,
+        error.MissingRecordPort,
         error.MissingAppId,
         error.AppIdRequired,
         error.MissingAdbPath,
@@ -144,6 +169,14 @@ fn exitCodeForError(err: anyerror) u8 {
         error.UnsupportedPlatform,
         error.UnsupportedIosDeviceType,
         error.UnsupportedTransport,
+        error.UnsupportedImportFormat,
+        error.UnsupportedImportCommand,
+        error.InvalidTestWorkers,
+        error.InvalidTestRetries,
+        error.InvalidTestPlatform,
+        error.ConflictingShardModes,
+        error.InvalidRecordTransport,
+        error.InvalidRecordPort,
         => 2,
         else => 1,
     };
@@ -168,9 +201,11 @@ fn usage() !void {
         \\  zmr validate <scenario.json> [--json]
         \\  zmr init [scenario.json] [--app-id <id>] [--force] [--json]
         \\  zmr init --app [--dir <app-root>] [--app-id <id>] [--force] [--json]
-        \\  zmr import flow-yaml <flow.yaml> --out <scenario.json> [--name <name>] [--app-id <id>] [--force] [--json]
+        \\  zmr import flow-yaml <flow.yaml> --out <scenario.json> [--name <name>] [--app-id <id>] [--report <compatibility.json>] [--strict] [--force] [--json]
         \\  zmr inspect [--json] [--dir <app-root>] [--config <path>]
+        \\  zmr record [--trace-dir <path>] [--transport stdio|tcp] [--port <n>] [--json]
         \\  zmr run [scenario.json] [--json] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--discover-out <scenario.json>] [--android-avd <name>] [--create-avd-if-missing] [--avd-system-image <pkg>] [--avd-device <profile>] [--restore-snapshot <name>] [--reset-emulator] [--wait-emulator] [--ensure-device] [--no-ensure-device] [--screen-record] [--no-screen-record] [--adb <path>] [--emulator <path>] [--avdmanager <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
+        \\  zmr test <workspace> [--workers <n>] [--shard-all|--shard-split] [--retry <n>] [--output-dir <path>] [--platform android|ios] [--device <serial>] [--app-id <id>] [--dry-run] [--screen-record] [--json]
         \\  zmr report <trace-or-benchmark-dir> --out <report.html> [--junit <report.xml>]
         \\  zmr explain <trace-dir> [--json]
         \\  zmr export <trace-dir> --out <bundle.zmrtrace> [--redact] [--omit-screenshots]
@@ -178,7 +213,9 @@ fn usage() !void {
         \\  zmr serve --transport tcp [--port <port>] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
         \\  zmr mcp [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
         \\
-        \\Scenario actions: launch, stop, clearState, openLink, tap, typeText,
+        \\Scenario actions: launch, stop, killApp, clearState, openLink, tap, longPressOn,
+        \\doubleTapOn, pressKey, typeText, grantPermissions, setOrientation,
+        \\setClipboard,
         \\eraseText, hideKeyboard, swipe, pressBack, waitVisible, waitNotVisible,
         \\waitAny, whenVisible, repeat, scrollUntilVisible, assertVisible,
         \\assertNotVisible, assertNoneVisible, assertHealthy, snapshot, sleep. Any step may use "optional": true.

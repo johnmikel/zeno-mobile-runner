@@ -15,12 +15,14 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `doctor-output.schema.json`: machine-readable `zmr doctor --json` setup diagnostics, including remediation hints for actionable checks
 - `init-output.schema.json`: machine-readable `zmr init --json` bootstrap output for scenario and app-local `.zmr/` initialization
 - `import-output.schema.json`: machine-readable `zmr import --json` output for one-time scenario migration helpers
+- `import-compatibility-report.schema.json`: per-command migration status, diagnostics, and source locations emitted by `zmr import`
 - `devices-output.schema.json`: machine-readable `zmr devices --json` output for Android, iOS/iPadOS simulator, and physical iOS/iPadOS discovery
 - `validate-output.schema.json`: machine-readable `zmr validate --json` scenario preflight output
 - `version-output.schema.json`: machine-readable `zmr version --json` output for runner and protocol compatibility discovery
 - `capabilities-output.schema.json`: machine-readable `runner.capabilities` JSON-RPC result for protocol, platform support, transport, and method discovery
 - `explain-output.schema.json`: machine-readable `zmr explain --json` failure triage output for agents and CI
 - `run-output.schema.json`: machine-readable `zmr run --json` terminal run summary output
+- `test-report.schema.json`: machine-readable `zmr test` aggregate report with worker, shard, retry, and attempt metadata
 - `inspect-output.schema.json`: machine-readable `zmr inspect --json` app and agent handoff output
 - `discover-output.schema.json`: machine-readable `zmr discover --json` trace-backed scenario discovery output with replay coverage metadata
 - `explore-output.schema.json`: machine-readable `zmr explore --json` review-first trace exploration output with goal and guardrail metadata

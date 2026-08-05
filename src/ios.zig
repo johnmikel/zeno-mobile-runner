@@ -5,6 +5,7 @@ const ios_devices = @import("ios_devices.zig");
 const ios_lifecycle = @import("ios_lifecycle.zig");
 const ios_snapshot = @import("ios_snapshot.zig");
 const ios_shim = @import("ios_shim.zig");
+const scenario = @import("scenario.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
@@ -111,6 +112,38 @@ pub const IosDevice = struct {
         };
     }
 
+    pub fn launchWithArguments(self: *IosDevice, requested_app_id: ?[]const u8, arguments: []const scenario.LaunchArgument) !void {
+        if (self.target_kind == .physical) return error.UnsupportedDeviceCapability;
+        const app_id = requested_app_id orelse self.app_id;
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(self.allocator);
+        var owned = std.ArrayList([]const u8).empty;
+        defer {
+            for (owned.items) |value| self.allocator.free(value);
+            owned.deinit(self.allocator);
+        }
+        try argv.appendSlice(self.allocator, &.{ "launch", self.target(), app_id });
+        for (arguments) |argument| {
+            const name = try std.fmt.allocPrint(self.allocator, "--{s}", .{argument.name});
+            try owned.append(self.allocator, name);
+            try argv.append(self.allocator, name);
+            const value = switch (argument.value) {
+                .string => |actual| try self.allocator.dupe(u8, actual),
+                .boolean => |actual| try self.allocator.dupe(u8, if (actual) "true" else "false"),
+                .integer => |actual| try std.fmt.allocPrint(self.allocator, "{d}", .{actual}),
+                .double => |actual| try std.fmt.allocPrint(self.allocator, "{d}", .{actual}),
+            };
+            try owned.append(self.allocator, value);
+            try argv.append(self.allocator, value);
+        }
+        const result = try self.runSimctl(argv.items, default_max_output);
+        defer result.deinit(self.allocator);
+        result.ensureSuccess() catch |err| {
+            if (self.appIsRunningFromShimBestEffort()) return;
+            return err;
+        };
+    }
+
     pub fn stop(self: *IosDevice) !void {
         if (self.target_kind == .physical) return try self.stopPhysicalBestEffort();
         const result = try self.runSimctl(&.{ "terminate", self.target(), self.app_id }, default_max_output);
@@ -119,11 +152,22 @@ pub const IosDevice = struct {
         try result.ensureSuccess();
     }
 
+    pub fn killApp(self: *IosDevice) !void {
+        return self.stop();
+    }
+
     pub fn clearState(self: *IosDevice) !void {
         if (self.target_kind == .physical) return try self.uninstallPhysicalBestEffort();
         const result = try self.runSimctl(&.{ "uninstall", self.target(), self.app_id }, default_max_output);
         defer result.deinit(self.allocator);
         if (ios_lifecycle.isMissingInstalledApp(result)) return;
+        try result.ensureSuccess();
+    }
+
+    pub fn clearKeychain(self: *IosDevice) !void {
+        if (self.target_kind == .physical) return error.UnsupportedDeviceCapability;
+        const result = try self.runSimctl(&.{ "keychain", self.target(), "reset" }, default_max_output);
+        defer result.deinit(self.allocator);
         try result.ensureSuccess();
     }
 
@@ -157,6 +201,23 @@ pub const IosDevice = struct {
         const result = try self.runSimctl(&.{ "location", self.target(), "set", coordinate }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
+    }
+
+    pub fn grantPermissions(self: *IosDevice, permissions: [][]const u8) !void {
+        if (self.target_kind == .physical) return error.UnsupportedDeviceCapability;
+        for (permissions) |permission| {
+            const result = try self.runSimctl(&.{ "privacy", self.target(), "grant", permission, self.app_id }, default_max_output);
+            defer result.deinit(self.allocator);
+            try result.ensureSuccess();
+        }
+    }
+
+    pub fn setClipboard(self: *IosDevice, text: []const u8) !void {
+        try self.runShimAction(.{ .kind = .set_clipboard, .text = text });
+    }
+
+    pub fn setOrientation(self: *IosDevice, orientation: scenario.Orientation) !void {
+        try self.runShimAction(.{ .kind = .set_orientation, .text = @tagName(orientation) });
     }
 
     pub fn tap(self: *IosDevice, x: i32, y: i32) !void {
@@ -216,6 +277,14 @@ pub const IosDevice = struct {
 
     pub fn pressBack(self: *IosDevice) !void {
         try self.runShimAction(.{ .kind = .press_back });
+    }
+
+    pub fn pressKey(self: *IosDevice, key: []const u8) !void {
+        if (std.ascii.eqlIgnoreCase(key, "BACK")) return self.pressBack();
+        if (std.ascii.eqlIgnoreCase(key, "ENTER") or std.ascii.eqlIgnoreCase(key, "RETURN")) {
+            return self.typeText("\n");
+        }
+        return error.UnsupportedDeviceCapability;
     }
 
     pub fn settle(self: *IosDevice, timeout_ms: u64) !void {

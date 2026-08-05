@@ -213,12 +213,12 @@ Or wire it into an `.mcp.json` / MCP client config:
 
 Then ask the agent to verify its own work: *"launch the app, walk through
 onboarding, and show me the trace."* The MCP server exposes the full loop as
-26 mobile-native tools:
+27 mobile-native tools:
 
 | Group | Tools |
 | --- | --- |
 | Observe | `snapshot`, `semantic_snapshot` |
-| App lifecycle | `install_app`, `launch_app`, `stop_app`, `clear_state`, `open_link` |
+| App lifecycle | `install_app`, `launch_app`, `stop_app`, `clear_state`, `clear_keychain`, `open_link` |
 | Act | `tap`, `type`, `erase_text`, `hide_keyboard`, `swipe`, `press_back` |
 | Wait | `wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible` |
 | Assert | `assert_visible`, `assert_not_visible`, `assert_healthy` |

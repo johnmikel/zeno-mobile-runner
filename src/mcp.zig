@@ -8,6 +8,7 @@ const params_parser = @import("json_rpc_params.zig");
 const rpc_trace = @import("json_rpc_trace.zig");
 const runner = @import("runner.zig");
 const runner_events = @import("runner_events.zig");
+const scenario = @import("scenario.zig");
 const selector = @import("selector.zig");
 const semantic = @import("semantic.zig");
 const trace = @import("trace.zig");
@@ -151,8 +152,9 @@ fn callTool(
     }
 
     if (std.mem.eql(u8, tool_name, "launch_app")) {
-        try device.launch();
-        if (live_trace) |tw| try tw.recordEvent("app.launch", "{\"status\":\"ok\"}");
+        var launch = try parseMcpLaunchOptions(allocator, arguments);
+        defer launch.deinit(allocator);
+        try runner.executeStep(allocator, device, .{ .launch_app = launch }, live_trace, .{});
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
         return;
     }
@@ -167,6 +169,13 @@ fn callTool(
     if (std.mem.eql(u8, tool_name, "clear_state")) {
         try device.clearState();
         if (live_trace) |tw| try tw.recordEvent("app.clearState", "{\"status\":\"ok\"}");
+        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+        return;
+    }
+
+    if (std.mem.eql(u8, tool_name, "clear_keychain")) {
+        try device.clearKeychain();
+        if (live_trace) |tw| try tw.recordEvent("app.clearKeychain", "{\"status\":\"ok\"}");
         try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
         return;
     }
@@ -407,6 +416,54 @@ fn parseArgumentsSelector(allocator: std.mem.Allocator, arguments: ?std.json.Val
     return try selector.parseFromJson(allocator, selector_value);
 }
 
+fn parseMcpLaunchOptions(allocator: std.mem.Allocator, arguments: ?std.json.Value) !scenario.LaunchOptions {
+    var options = scenario.LaunchOptions{};
+    errdefer options.deinit(allocator);
+
+    if (try params_parser.optionalString(arguments, "appId")) |app_id| {
+        options.app_id = try allocator.dupe(u8, app_id);
+    }
+    options.stop_app = try params_parser.optionalBool(arguments, "stopApp", true);
+    options.clear_state = try params_parser.optionalBool(arguments, "clearState", false);
+    options.clear_keychain = try params_parser.optionalBool(arguments, "clearKeychain", false);
+
+    const arguments_value = params_parser.field(arguments, "arguments") orelse return options;
+    if (arguments_value != .object) return error.StepLaunchArgumentsMustBeObject;
+
+    var launch_arguments = std.ArrayList(scenario.LaunchArgument).empty;
+    errdefer {
+        for (launch_arguments.items) |argument| argument.deinit(allocator);
+        launch_arguments.deinit(allocator);
+    }
+
+    var iterator = arguments_value.object.iterator();
+    while (iterator.next()) |entry| {
+        if (entry.key_ptr.*.len == 0) return error.StepLaunchArgumentNameEmpty;
+        const name = try allocator.dupe(u8, entry.key_ptr.*);
+        const value = parseMcpLaunchArgumentValue(allocator, entry.value_ptr.*) catch |err| {
+            allocator.free(name);
+            return err;
+        };
+        launch_arguments.append(allocator, .{ .name = name, .value = value }) catch |err| {
+            allocator.free(name);
+            value.deinit(allocator);
+            return err;
+        };
+    }
+    options.arguments = try launch_arguments.toOwnedSlice(allocator);
+    return options;
+}
+
+fn parseMcpLaunchArgumentValue(allocator: std.mem.Allocator, value: std.json.Value) !scenario.LaunchArgumentValue {
+    return switch (value) {
+        .string => |actual| .{ .string = try allocator.dupe(u8, actual) },
+        .bool => |actual| .{ .boolean = actual },
+        .integer => |actual| .{ .integer = actual },
+        .float => |actual| .{ .double = actual },
+        else => error.StepLaunchArgumentValueUnsupported,
+    };
+}
+
 fn paramField(params: ?std.json.Value, key: []const u8) ?std.json.Value {
     const value = params orelse return null;
     if (value != .object) return null;
@@ -443,4 +500,31 @@ fn optionalParamBool(params: ?std.json.Value, key: []const u8, default_value: bo
         .bool => |actual| actual,
         else => error.ParamMustBeBool,
     };
+}
+
+test "mcp launch_app accepts typed options and preserves trace metadata" {
+    const fake_device = @import("fake_device.zig");
+    const allocator = std.testing.allocator;
+    var device = fake_device.FakeDevice.init(allocator, &.{});
+    defer device.deinit();
+
+    const parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        "{\"appId\":\"com.example.other\",\"stopApp\":false,\"clearState\":true,\"clearKeychain\":true,\"arguments\":{\"flag\":true,\"count\":3,\"ratio\":1.5,\"name\":\"demo\"}}",
+        .{},
+    );
+    defer parsed.deinit();
+
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    try callTool(allocator, &device, "launch_app", parsed.value, .{ .integer = 1 }, &output.writer, null);
+
+    try std.testing.expect(device.launched);
+    try std.testing.expect(!device.stopped);
+    try std.testing.expect(device.cleared);
+    try std.testing.expect(device.cleared_keychain);
+    try std.testing.expectEqual(@as(usize, 4), device.launch_argument_count);
+    try std.testing.expectEqualStrings("com.example.other", device.launch_app_id.?);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\\\"ok\\\":true") != null);
 }

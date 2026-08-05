@@ -61,17 +61,26 @@ pub fn writeId(writer: anytype, id: ?std.json.Value) !void {
     }
 }
 
+const selector_relation_schema_json =
+    "{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1,\"properties\":{\"id\":{\"type\":\"string\"},\"resourceId\":{\"type\":\"string\"},\"stableId\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"textContains\":{\"type\":\"string\"},\"textRegex\":{\"type\":\"string\"},\"contentDesc\":{\"type\":\"string\"},\"contentDescContains\":{\"type\":\"string\"},\"contentDescRegex\":{\"type\":\"string\"},\"className\":{\"type\":\"string\"},\"enabled\":{\"type\":\"boolean\"},\"checked\":{\"type\":\"boolean\"},\"focused\":{\"type\":\"boolean\"},\"selected\":{\"type\":\"boolean\"}}}";
+
 const selector_schema_json =
-    "{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1,\"properties\":{\"id\":{\"type\":\"string\"},\"resourceId\":{\"type\":\"string\"},\"stableId\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"textContains\":{\"type\":\"string\"},\"contentDesc\":{\"type\":\"string\"},\"contentDescContains\":{\"type\":\"string\"},\"className\":{\"type\":\"string\"}}}";
+    "{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1,\"properties\":{" ++
+    "\"id\":{\"type\":\"string\"},\"resourceId\":{\"type\":\"string\"},\"stableId\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"textContains\":{\"type\":\"string\"},\"textRegex\":{\"type\":\"string\"},\"contentDesc\":{\"type\":\"string\"},\"contentDescContains\":{\"type\":\"string\"},\"contentDescRegex\":{\"type\":\"string\"},\"className\":{\"type\":\"string\"}," ++
+    "\"index\":{\"type\":\"integer\",\"minimum\":0},\"point\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"x\",\"y\"],\"properties\":{\"x\":{\"type\":\"integer\"},\"y\":{\"type\":\"integer\"}}}," ++
+    "\"enabled\":{\"type\":\"boolean\"},\"checked\":{\"type\":\"boolean\"},\"focused\":{\"type\":\"boolean\"},\"selected\":{\"type\":\"boolean\"}," ++
+    "\"above\":" ++ selector_relation_schema_json ++ ",\"below\":" ++ selector_relation_schema_json ++ ",\"left\":" ++ selector_relation_schema_json ++ ",\"leftOf\":" ++ selector_relation_schema_json ++ ",\"right\":" ++ selector_relation_schema_json ++ ",\"rightOf\":" ++ selector_relation_schema_json ++ ",\"child\":" ++ selector_relation_schema_json ++ ",\"descendant\":" ++ selector_relation_schema_json ++
+    "}}";
 
 const tool_list_json =
     "{\"tools\":[" ++
     "{\"name\":\"snapshot\",\"description\":\"Capture the current mobile observation snapshot as JSON.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++
     "{\"name\":\"semantic_snapshot\",\"description\":\"Capture an agent-optimized mobile semantic tree with roles, names, selectors, bounds, and recommended actions.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++
     "{\"name\":\"install_app\",\"description\":\"Install an app artifact on the selected device.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"path\"],\"properties\":{\"path\":{\"type\":\"string\"}}}}," ++
-    "{\"name\":\"launch_app\",\"description\":\"Launch the configured app on the selected device.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++
+    "{\"name\":\"launch_app\",\"description\":\"Launch the configured app on the selected device, optionally applying Maestro-compatible launch options.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"appId\":{\"type\":\"string\"},\"stopApp\":{\"type\":\"boolean\"},\"clearState\":{\"type\":\"boolean\"},\"clearKeychain\":{\"type\":\"boolean\"},\"arguments\":{\"type\":\"object\",\"additionalProperties\":{\"type\":[\"string\",\"boolean\",\"integer\",\"number\"]}}}}}," ++
     "{\"name\":\"stop_app\",\"description\":\"Stop the configured app on the selected device.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++
     "{\"name\":\"clear_state\",\"description\":\"Clear the configured app state where the platform supports it.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++
+    "{\"name\":\"clear_keychain\",\"description\":\"Reset the iOS simulator keychain; Android maps this to app-data clearing and physical devices report unsupported.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++
     "{\"name\":\"tap\",\"description\":\"Tap a visible element by selector.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"selector\"],\"properties\":{\"selector\":" ++ selector_schema_json ++ "}}}," ++
     "{\"name\":\"type\",\"description\":\"Type text, optionally after focusing an element by selector.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"text\"],\"properties\":{\"selector\":" ++ selector_schema_json ++ ",\"text\":{\"type\":\"string\"}}}}," ++
     "{\"name\":\"hide_keyboard\",\"description\":\"Dismiss the software keyboard when the platform can do so.\",\"inputSchema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}," ++

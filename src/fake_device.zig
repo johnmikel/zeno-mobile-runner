@@ -1,4 +1,5 @@
 const std = @import("std");
+const scenario = @import("scenario.zig");
 const types = @import("types.zig");
 
 pub const FakeDevice = struct {
@@ -10,32 +11,47 @@ pub const FakeDevice = struct {
     erases: usize = 0,
     hides_keyboard: usize = 0,
     presses_back: usize = 0,
+    pressed_keys: std.ArrayList([]const u8),
     stopped: bool = false,
     cleared: bool = false,
     last_swipe: ?SwipeRecord = null,
     last_erase_chars: u32 = 0,
     typed_text: std.ArrayList([]const u8),
     launched: bool = false,
+    launch_argument_count: usize = 0,
+    launch_app_id: ?[]const u8 = null,
+    cleared_keychain: bool = false,
     installed_path: ?[]const u8 = null,
     opened_link: ?[]const u8 = null,
     settles: usize = 0,
     last_settle_timeout_ms: u64 = 0,
     location_sets: usize = 0,
     last_location: ?LocationRecord = null,
+    granted_permissions: std.ArrayList([]const u8),
+    current_orientation: scenario.Orientation = .portrait,
+    clipboard: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, snapshots: []types.ObservationSnapshot) FakeDevice {
         return .{
             .allocator = allocator,
             .snapshots = snapshots,
             .typed_text = std.ArrayList([]const u8).empty,
+            .pressed_keys = std.ArrayList([]const u8).empty,
+            .granted_permissions = std.ArrayList([]const u8).empty,
         };
     }
 
     pub fn deinit(self: *FakeDevice) void {
         for (self.typed_text.items) |text| self.allocator.free(text);
         self.typed_text.deinit(self.allocator);
+        for (self.pressed_keys.items) |key| self.allocator.free(key);
+        self.pressed_keys.deinit(self.allocator);
+        for (self.granted_permissions.items) |permission| self.allocator.free(permission);
+        self.granted_permissions.deinit(self.allocator);
+        if (self.clipboard) |value| self.allocator.free(value);
         if (self.installed_path) |value| self.allocator.free(value);
         if (self.opened_link) |value| self.allocator.free(value);
+        if (self.launch_app_id) |value| self.allocator.free(value);
     }
 
     pub fn install(self: *FakeDevice, apk_path: []const u8) !void {
@@ -47,12 +63,27 @@ pub const FakeDevice = struct {
         self.launched = true;
     }
 
+    pub fn launchWithArguments(self: *FakeDevice, app_id: ?[]const u8, arguments: []const scenario.LaunchArgument) !void {
+        self.launched = true;
+        self.launch_argument_count = arguments.len;
+        if (self.launch_app_id) |value| self.allocator.free(value);
+        self.launch_app_id = if (app_id) |value| try self.allocator.dupe(u8, value) else null;
+    }
+
     pub fn stop(self: *FakeDevice) !void {
+        self.stopped = true;
+    }
+
+    pub fn killApp(self: *FakeDevice) !void {
         self.stopped = true;
     }
 
     pub fn clearState(self: *FakeDevice) !void {
         self.cleared = true;
+    }
+
+    pub fn clearKeychain(self: *FakeDevice) !void {
+        self.cleared_keychain = true;
     }
 
     pub fn listDevices(self: *FakeDevice) ![]types.DeviceInfo {
@@ -79,6 +110,19 @@ pub const FakeDevice = struct {
             .latitude = latitude,
             .longitude = longitude,
         };
+    }
+
+    pub fn grantPermissions(self: *FakeDevice, permissions: [][]const u8) !void {
+        for (permissions) |permission| try self.granted_permissions.append(self.allocator, try self.allocator.dupe(u8, permission));
+    }
+
+    pub fn setOrientation(self: *FakeDevice, orientation: scenario.Orientation) !void {
+        self.current_orientation = orientation;
+    }
+
+    pub fn setClipboard(self: *FakeDevice, text: []const u8) !void {
+        if (self.clipboard) |value| self.allocator.free(value);
+        self.clipboard = try self.allocator.dupe(u8, text);
     }
 
     pub fn tap(self: *FakeDevice, x: i32, y: i32) !void {
@@ -113,6 +157,10 @@ pub const FakeDevice = struct {
 
     pub fn pressBack(self: *FakeDevice) !void {
         self.presses_back += 1;
+    }
+
+    pub fn pressKey(self: *FakeDevice, key: []const u8) !void {
+        try self.pressed_keys.append(self.allocator, try self.allocator.dupe(u8, key));
     }
 
     pub fn settle(self: *FakeDevice, timeout_ms: u64) !void {

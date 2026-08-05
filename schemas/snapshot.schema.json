@@ -53,6 +53,9 @@
         },
         "enabled": { "type": "boolean" },
         "visible": { "type": "boolean" },
+        "checked": { "type": "boolean" },
+        "focused": { "type": "boolean" },
+        "parentStableId": { "type": ["string", "null"] },
         "selected": { "type": "boolean" }
       }
     }

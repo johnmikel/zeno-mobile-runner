@@ -3,6 +3,7 @@ const scenario = @import("scenario.zig");
 
 const parseSlice = scenario.parseSlice;
 const ScrollDirection = scenario.ScrollDirection;
+const Orientation = scenario.Orientation;
 const Step = scenario.Step;
 
 test "parse scenario with open link and wait" {
@@ -21,6 +22,29 @@ test "parse scenario with open link and wait" {
     try std.testing.expectEqualStrings("probe", parsed.name);
     try std.testing.expectEqual(@as(usize, 2), parsed.steps.len);
     try std.testing.expectEqualStrings("com.example.mobiletest", parsed.app_id.?);
+}
+
+test "parse launchApp options and clearKeychain" {
+    const json =
+        \\{
+        \\  "name": "launch options",
+        \\  "steps": [
+        \\    {"action":"launchApp","appId":"com.example.other","stopApp":false,"clearState":true,"clearKeychain":true,"arguments":{"foo":"bar","enabled":true,"count":3,"ratio":3.25}},
+        \\    {"action":"clearKeychain"}
+        \\  ]
+        \\}
+    ;
+    const parsed = try parseSlice(std.testing.allocator, json);
+    defer parsed.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(std.meta.Tag(Step).launch_app, std.meta.activeTag(parsed.steps[0]));
+    const launch = parsed.steps[0].launch_app;
+    try std.testing.expectEqualStrings("com.example.other", launch.app_id.?);
+    try std.testing.expect(!launch.stop_app);
+    try std.testing.expect(launch.clear_state);
+    try std.testing.expect(launch.clear_keychain);
+    try std.testing.expectEqual(@as(usize, 4), launch.arguments.len);
+    try std.testing.expectEqual(std.meta.Tag(Step).clear_keychain, std.meta.activeTag(parsed.steps[1]));
 }
 
 test "parse agent-grade flow primitives" {
@@ -93,6 +117,46 @@ test "parse all simple action variants" {
     try std.testing.expectEqual(ScrollDirection.up, parsed.steps[12].scroll_until_visible.direction);
 }
 
+test "parse Maestro gesture and lifecycle aliases" {
+    const json =
+        \\{
+        \\  "name": "maestro aliases",
+        \\  "steps": [
+        \\    {"action":"killApp"},
+        \\    {"action":"longPressOn","selector":{"text":"More"},"durationMs":1200},
+        \\    {"action":"doubleTapOn","selector":{"id":"card"}},
+        \\    {"action":"pressKey","key":"ENTER"}
+        \\  ]
+        \\}
+    ;
+    const parsed = try parseSlice(std.testing.allocator, json);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqual(std.meta.Tag(Step).kill_app, std.meta.activeTag(parsed.steps[0]));
+    try std.testing.expectEqual(std.meta.Tag(Step).long_press, std.meta.activeTag(parsed.steps[1]));
+    try std.testing.expectEqual(@as(u32, 1200), parsed.steps[1].long_press.duration_ms);
+    try std.testing.expectEqual(std.meta.Tag(Step).double_tap, std.meta.activeTag(parsed.steps[2]));
+    try std.testing.expectEqual(std.meta.Tag(Step).press_key, std.meta.activeTag(parsed.steps[3]));
+    try std.testing.expectEqualStrings("ENTER", parsed.steps[3].press_key);
+}
+
+test "parse device state primitives" {
+    const json =
+        \\{
+        \\  "name": "device state",
+        \\  "steps": [
+        \\    {"action":"grantPermissions","permissions":["android.permission.CAMERA"]},
+        \\    {"action":"setOrientation","orientation":"LANDSCAPE"},
+        \\    {"action":"setClipboard","text":"token"}
+        \\  ]
+        \\}
+    ;
+    const parsed = try parseSlice(std.testing.allocator, json);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), parsed.steps[0].grant_permissions.len);
+    try std.testing.expectEqual(Orientation.landscape, parsed.steps[1].set_orientation);
+    try std.testing.expectEqualStrings("token", parsed.steps[2].set_clipboard);
+}
+
 test "scenario parser rejects malformed input precisely" {
     const allocator = std.testing.allocator;
     try std.testing.expectError(error.ScenarioMustBeObject, parseSlice(allocator, "[]"));
@@ -132,4 +196,30 @@ test "scenario parser rejects malformed input precisely" {
     try std.testing.expectError(error.unknownScenarioAction, parseSlice(allocator,
         \\{"name":"unknown","steps":[{"action":"pinch"}]}
     ));
+}
+
+test "parse migration flow control, aliases, and hooks" {
+    const json =
+        \\{
+        \\  "name": "migration flow",
+        \\  "onStart": [{"action":"launchApp"}],
+        \\  "onComplete": [{"action":"takeScreenshot"}],
+        \\  "steps": [
+        \\    {"action":"whenNotVisible","selector":{"textRegex":"^Ready$"},"steps":[{"action":"tapOn","selector":{"text":"Open"}}]},
+        \\    {"action":"retry","attempts":2,"steps":[{"action":"inputText","text":"hello"}]},
+        \\    {"action":"runFlow","steps":[{"action":"back"}]}
+        \\  ]
+        \\}
+    ;
+    const parsed = try parseSlice(std.testing.allocator, json);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), parsed.on_start.len);
+    try std.testing.expectEqual(std.meta.Tag(Step).launch, std.meta.activeTag(parsed.on_start[0]));
+    try std.testing.expectEqual(@as(usize, 1), parsed.on_complete.len);
+    try std.testing.expectEqual(std.meta.Tag(Step).snapshot, std.meta.activeTag(parsed.on_complete[0]));
+    try std.testing.expectEqual(std.meta.Tag(Step).when_not_visible, std.meta.activeTag(parsed.steps[0]));
+    try std.testing.expectEqual(std.meta.Tag(Step).retry, std.meta.activeTag(parsed.steps[1]));
+    try std.testing.expectEqual(@as(u32, 2), parsed.steps[1].retry.attempts);
+    try std.testing.expectEqual(std.meta.Tag(Step).run_flow, std.meta.activeTag(parsed.steps[2]));
+    try std.testing.expectEqual(std.meta.Tag(Step).press_back, std.meta.activeTag(parsed.steps[2].run_flow.steps[0]));
 }

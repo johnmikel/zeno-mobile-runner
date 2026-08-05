@@ -6,10 +6,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/public-metadata-guard.sh [--repo <path>]
+  scripts/public-metadata-guard.sh [--repo <path>] [--scan-ref <ref-or-sha>]...
 
 Rejects unwanted public contributor/client strings in public docs, public branch
 commit metadata, and tag metadata. Local backup refs are intentionally ignored.
+--scan-ref adds a ref or sha to the metadata scan; the pre-push hook uses it to
+scan exactly the objects a push would publish, whatever branch is checked out.
 USAGE
 }
 
@@ -26,11 +28,18 @@ require_value() {
   fi
 }
 
+scan_refs=""
+
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --repo)
       require_value "$1" "${2-}"
       ROOT="$2"
+      shift 2
+      ;;
+    --scan-ref)
+      require_value "$1" "${2-}"
+      scan_refs="${scan_refs}${2}"$'\n'
       shift 2
       ;;
     -h|--help)
@@ -97,5 +106,26 @@ current_ref="$(git -C "$ROOT" symbolic-ref -q HEAD || true)"
     exit 1
   fi
 done
+
+while IFS= read -r rev; do
+  if [[ -z "$rev" ]]; then
+    continue
+  fi
+  if ! git -C "$ROOT" rev-parse --verify --quiet "${rev}^{commit}" >/dev/null; then
+    die "unknown ref for --scan-ref: $rev"
+  fi
+  if [[ "$(git -C "$ROOT" cat-file -t "$rev" 2>/dev/null)" == "tag" ]]; then
+    if git -C "$ROOT" cat-file tag "$rev" |
+      LC_ALL=C grep -i -E "$metadata_deny_regex" >/dev/null 2>&1; then
+      echo "denied public metadata string in tag metadata: $rev" >&2
+      exit 1
+    fi
+  fi
+  if git -C "$ROOT" log "$rev" --format='%H%n%an <%ae>%n%cn <%ce>%n%B' |
+    LC_ALL=C grep -i -E "$metadata_deny_regex" >/dev/null 2>&1; then
+    echo "denied public metadata string in commit metadata: $rev" >&2
+    exit 1
+  fi
+done <<< "$scan_refs"
 
 printf 'public metadata verified: %s\n' "$ROOT"

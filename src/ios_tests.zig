@@ -1,6 +1,7 @@
 const std = @import("std");
 const test_io = @import("test_io.zig");
 const ios = @import("ios.zig");
+const ios_devices = @import("ios_devices.zig");
 const trace = @import("trace.zig");
 
 const IosDevice = ios.IosDevice;
@@ -40,6 +41,8 @@ test "ios shim viewport overrides retina screenshot pixels with app frame points
     defer allocator.free(shim_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     var writer = try trace.TraceWriter.init(allocator, dir);
@@ -84,6 +87,8 @@ test "ios shim exposes lightweight viewport for native scroll coordinates" {
     defer allocator.free(shim_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     const viewport = try device.scrollViewport();
@@ -183,6 +188,8 @@ test "ios snapshot preserves screenshot when shim hierarchy extraction fails" {
     defer allocator.free(shim_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     var writer = try trace.TraceWriter.init(allocator, dir);
@@ -274,6 +281,10 @@ test "ios device listing retries transient CoreSimulator failures" {
 
     const script_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/fake-xcrun-flaky.sh", .{tmp.sub_path});
     defer allocator.free(script_path);
+
+    const saved_delay = ios_devices.simctl_retry_delay_ms;
+    ios_devices.simctl_retry_delay_ms = 0;
+    defer ios_devices.simctl_retry_delay_ms = saved_delay;
 
     const devices = try listDevices(allocator, script_path);
     defer {
@@ -456,6 +467,8 @@ test "ios xctest shim retries transient bootstrap command failure" {
     defer allocator.free(attempts_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     var snapshot = try device.snapshot(null);
@@ -527,6 +540,8 @@ test "ios simulator openLink asks XCTest shim to accept universal link confirmat
     defer allocator.free(log_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     try device.openLink("https://example.com/e2e-auth?probe=1");
@@ -565,6 +580,8 @@ test "ios simulator openLink asks XCTest shim to accept custom scheme open confi
     defer allocator.free(log_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     // SpringBoard raises an "Open in <App>?" confirmation for custom schemes
@@ -606,6 +623,8 @@ test "ios simulator marks later custom links eligible for Expo dev-client fallba
     defer allocator.free(log_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     try device.openLink("exp+exampleapp://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");
@@ -645,6 +664,8 @@ test "ios simulator preserves Expo dev-client fallback eligibility across app st
     defer allocator.free(log_path);
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
     defer device.deinit();
 
     try device.openLink("exp+exampleapp://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081");

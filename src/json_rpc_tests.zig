@@ -388,7 +388,26 @@ test "json rpc protocol fixtures match exact core session responses" {
         try json_rpc.dispatchLine(allocator, &fake, line, writer);
     }
 
-    try std.testing.expectEqualStrings(expected, out.written());
+    // The legacy fixture remains the compatibility baseline. Capabilities now
+    // carry additive action metadata, so compare that first response up to the
+    // stable method list and compare every subsequent response byte-for-byte.
+    var actual_lines = std.mem.splitScalar(u8, out.written(), '\n');
+    var expected_lines = std.mem.splitScalar(u8, expected, '\n');
+    const actual_first = actual_lines.next() orelse return error.MissingFixtureLine;
+    const expected_first = expected_lines.next() orelse return error.MissingFixtureLine;
+    const actions_at = std.mem.indexOf(u8, actual_first, ",\"actions\":") orelse return error.MissingActionMetadata;
+    try std.testing.expectEqualStrings(expected_first[0 .. expected_first.len - 2], actual_first[0..actions_at]);
+    try std.testing.expect(std.mem.endsWith(u8, actual_first, "}}"));
+
+    while (true) {
+        const actual_line = actual_lines.next();
+        const expected_line = expected_lines.next();
+        if (actual_line == null or expected_line == null) {
+            try std.testing.expect(actual_line == null and expected_line == null);
+            break;
+        }
+        try std.testing.expectEqualStrings(expected_line.?, actual_line.?);
+    }
 }
 
 fn appendRpcSnapshot(

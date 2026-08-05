@@ -13,7 +13,8 @@
     "platformSupport",
     "iosPreview",
     "transports",
-    "methods"
+    "methods",
+    "actions"
   ],
   "properties": {
     "name": { "const": "zmr" },
@@ -68,6 +69,11 @@
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/action" }
     }
   },
   "$defs": {
@@ -93,6 +99,52 @@
         },
         "physicalDevices": { "type": "boolean" }
       }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "jsonAliases",
+        "yamlAliases",
+        "rpcAliases",
+        "mcpAliases",
+        "parameterSchema",
+        "platforms",
+        "requiredCapability",
+        "mutability",
+        "riskClass",
+        "traceEvent",
+        "version",
+        "deprecated",
+        "replacement"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "jsonAliases": { "$ref": "#/$defs/aliases" },
+        "yamlAliases": { "$ref": "#/$defs/aliases" },
+        "rpcAliases": { "$ref": "#/$defs/aliases" },
+        "mcpAliases": { "$ref": "#/$defs/aliases" },
+        "parameterSchema": { "type": "string", "minLength": 1 },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["android", "ios"] },
+          "uniqueItems": true
+        },
+        "requiredCapability": { "type": "string", "minLength": 1 },
+        "mutability": { "enum": ["read_only", "mutating", "lifecycle", "control"] },
+        "riskClass": { "enum": ["low", "medium", "high"] },
+        "traceEvent": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "deprecated": { "type": "boolean" },
+        "replacement": { "type": ["string", "null"] }
+      }
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
     }
   }
 }

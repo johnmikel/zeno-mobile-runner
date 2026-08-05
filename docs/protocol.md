@@ -232,6 +232,16 @@ iOS simulator, or physical iOS workflows are available.
 {"name":"zmr","version":"0.2.18","protocolVersion":"2026-04-28","protocol":{"version":"2026-04-28","minimumCompatibleVersion":"2026-04-28","stability":"dev-preview","breakingChangePolicy":"version-and-changelog"},"platforms":["android","ios"],"platformSupport":{"android":{"status":"supported","deviceTypes":["emulator","physical"],"automation":["adb","uiautomator","android-shim"]},"ios":{"status":"supported","deviceTypes":["simulator","physical"],"automation":["simctl","devicectl","xctest-shim"],"physicalDevices":true}},"iosPreview":false,"transports":["stdio","tcp"],"methods":["runner.capabilities","device.list","session.create","session.close","app.install","app.launch","app.stop","app.openLink","app.clearState","app.clearKeychain","observe.snapshot","observe.semanticSnapshot","ui.tap","ui.type","ui.eraseText","ui.hideKeyboard","ui.swipe","ui.pressBack","ui.scrollUntilVisible","wait.until","wait.any","wait.gone","assert.visible","assert.notVisible","assert.healthy","scenario.validate","trace.events","trace.explore","trace.discover","trace.explain","trace.export"]}
 ```
 
+The live result additionally carries an additive `actions` array (omitted from
+the example above for brevity): the canonical action registry, covered by
+`schemas/action-registry.schema.json`. Each entry describes one runner action —
+its stable id, the aliases it answers to per surface (`jsonAliases`,
+`yamlAliases`, `rpcAliases`, `mcpAliases`), a parameter schema fragment,
+supported platforms, mutability, risk class, and the trace event it emits.
+Aliases are only listed for endpoints the corresponding surface actually
+serves, and a conformance test enforces that. Clients that only understand the
+0.2.x capability fields can ignore `actions` entirely.
+
 ## Doctor Output Contract
 
 `zmr doctor --json` returns setup diagnostics for local tooling. With

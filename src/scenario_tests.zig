@@ -117,10 +117,10 @@ test "parse all simple action variants" {
     try std.testing.expectEqual(ScrollDirection.up, parsed.steps[12].scroll_until_visible.direction);
 }
 
-test "parse Maestro gesture and lifecycle aliases" {
+test "parse imported-flow gesture and lifecycle aliases" {
     const json =
         \\{
-        \\  "name": "maestro aliases",
+        \\  "name": "imported-flow aliases",
         \\  "steps": [
         \\    {"action":"killApp"},
         \\    {"action":"longPressOn","selector":{"text":"More"},"durationMs":1200},

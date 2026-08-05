@@ -27,7 +27,28 @@ fi
 GUARD_LOG="$(mktemp -t zmr-pre-push-guard)"
 trap 'rm -f "$GUARD_LOG"' EXIT
 
-if ! bash "$GUARD" --repo "$ROOT" >"$GUARD_LOG" 2>&1; then
+# git feeds one "<local ref> <local sha> <remote ref> <remote sha>" line per
+# ref being pushed. The guard's default scan only covers the checked-out
+# branch, origin refs, and tags -- so scan exactly what this push publishes,
+# and refuse ref names that are themselves assistant fingerprints. Deletions
+# (all-zero local sha) are always allowed; deleting a bad ref is the cleanup.
+zeros=0000000000000000000000000000000000000000
+deny_ref_name_regex="^refs/(heads|tags)/(clau""de|co""dex)(/|$)"
+scan_args=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ -z "$local_sha" || "$local_sha" == "$zeros" ]]; then
+    continue
+  fi
+  if [[ "$remote_ref" =~ $deny_ref_name_regex ]]; then
+    echo "pre-push BLOCKED: assistant-fingerprint ref name: $remote_ref" >&2
+    echo "pre-push: rename the branch before pushing (deleting the remote ref is allowed)." >&2
+    exit 1
+  fi
+  scan_args="$scan_args --scan-ref $local_sha"
+done
+
+# shellcheck disable=SC2086  # scan_args is a flat list of shas, word-splitting is intended
+if ! bash "$GUARD" --repo "$ROOT" $scan_args >"$GUARD_LOG" 2>&1; then
   echo >&2
   echo "pre-push BLOCKED: public metadata guard failed." >&2
   echo >&2

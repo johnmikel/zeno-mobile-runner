@@ -262,7 +262,12 @@ run_evidence app.build build-ios-demo runner.unclassified xcodebuild \
   -derivedDataPath "$DERIVED_DATA" \
   build
 
+zmr_evidence_update_artifact_identity \
+  "$ROOT/examples/ios-smoke.json" "$APP_PATH" \
+  "$ROOT/examples/ios-shim-smoke.json"
+
 ensure_ios_simulator_ready
+zmr_evidence_update_device_identity "$DEVICE" ""
 
 echo "+ $(quote_cmd "$IOS_PILOT" \
   --app-root "$OUT" \

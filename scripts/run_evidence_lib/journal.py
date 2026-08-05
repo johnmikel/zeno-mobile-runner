@@ -57,6 +57,35 @@ _BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234567
 _BASE64_ALPHABET_SET = frozenset(_BASE64_ALPHABET)
 
 
+def _transaction_command_target_kind(path: Any) -> str | None:
+    """Recognize the narrow command triplet admitted by finalize WALs."""
+
+    if not isinstance(path, str):
+        return None
+    parts = path.split("/")
+    if (
+        len(parts) != 4
+        or parts[0] != "attempts"
+        or not _safe_run_segment(parts[1])
+        or parts[2] != "commands"
+    ):
+        return None
+    filename = parts[3]
+    for kind, suffix in (
+        ("stdout", ".stdout.log"),
+        ("stderr", ".stderr.log"),
+        ("metadata", ".json"),
+    ):
+        if not filename.endswith(suffix):
+            continue
+        stem = filename[: -len(suffix)]
+        match = re.fullmatch(r"([0-9]{6})-(.+)", stem)
+        if match is None or _COMMAND_SLUG_RE.fullmatch(match.group(2)) is None:
+            return None
+        return kind
+    return None
+
+
 def _atomic_write_bytes(path: Path, content: bytes, mode: int = 0o600) -> None:
     """Route atomic writes through their owning module for fault injection."""
 
@@ -139,6 +168,8 @@ def _transaction_directory(publication_root: Path, *, create: bool) -> Path:
 
 
 def _transaction_target_limit(path: str) -> int:
+    if _transaction_command_target_kind(path) in ("stdout", "stderr"):
+        return _LOG_LIMIT
     if path.endswith("/finalize-receipt.json"):
         return MAX_FINALIZE_RECEIPT_BYTES
     if path.endswith("/bootstrap-events.jsonl"):
@@ -228,7 +259,18 @@ def _validate_transaction_target_content(path: str, content: bytes) -> Any:
     maximum = _transaction_target_limit(path)
     if len(content) > maximum:
         raise _transaction_target_limit_error(path, maximum)
-    if path == "attempt-index.json":
+    command_target_kind = _transaction_command_target_kind(path)
+    if command_target_kind in ("stdout", "stderr"):
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("transaction command log must contain valid UTF-8") from exc
+        value = content
+    elif command_target_kind == "metadata":
+        value = _decode_transaction_json(path, content)
+        if not isinstance(value, dict):
+            raise ValueError("transaction command metadata must be an object")
+    elif path == "attempt-index.json":
         value = _decode_transaction_json(path, content)
         _validate_index(value)
     elif path.endswith("/run-context.json"):

@@ -158,6 +158,7 @@ run_static_phase() {
   run "bash tests/install-script-test.sh"
   run "bash tests/public-metadata-guard-test.sh"
   run "bash tests/docs-readiness-test.sh"
+  run "bash tests/workflow-evidence-finalizer-test.sh"
   run "bash tests/workflow-readiness-test.sh"
   run "bash tests/demo-script-test.sh"
   run "bash tests/mcp-server-test.sh"

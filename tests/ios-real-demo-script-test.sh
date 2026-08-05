@@ -118,7 +118,7 @@ mkdir -p "$PUBLICATION/attempts"
 python3 "$ROOT/scripts/run_evidence.py" init \
   --root "$ATTEMPT" \
   --index "$INDEX" \
-  --context-json '{"runId":"ios-demo-run","executionId":"ios-demo-logical","fixtureId":"ios-demo","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","appBuildDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":"ios","deviceClass":"ios-simulator","runtimeVersion":"18.5","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"fake-ios-1","resolved":"fake-ios-1"},"toolchain":{"xcode":"16.4","zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
+  --context-json '{"runId":"ios-demo-run","executionId":"ios-demo-logical","fixtureId":"ios-demo","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":null,"appBuildDigest":null,"platform":"ios","deviceClass":"ios-simulator","runtimeVersion":"18.5","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"fake-ios-1","resolved":null},"toolchain":{"xcode":"16.4","zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
 
 PATH="$TMPDIR/bin:$PATH" \
 CREATE_IOS_DEMO_APP="$FAKE_CREATE" \
@@ -146,6 +146,11 @@ for phase in expected:
     position = phases.index(phase, position + 1)
 summary = json.loads((root / "run-summary.json").read_text())
 assert summary["status"] == "passed"
+assert summary["scenarioDigest"].startswith("sha256:")
+assert summary["scenarioDigest"] != "sha256:" + "b" * 64
+assert summary["appBuildDigest"].startswith("sha256:")
+assert summary["appBuildDigest"] != "sha256:" + "c" * 64
+assert summary["device"]["resolved"] == "fake-ios-1"
 assert summary["artifacts"]["trace"] == "traces/ios-demo/ios-shim-smoke"
 assert summary["artifacts"]["report"] == "traces/ios-demo/ios-shim-smoke/report.html"
 sidecars = list((root / "run-outcomes").glob("*.json"))

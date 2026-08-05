@@ -195,6 +195,43 @@ test_delegate_preserves_borrower_terminal_owner() {
   pass
 }
 
+test_artifact_identity_covers_every_scenario() {
+  scenario_one="$TMP_ROOT/scenario-one.json"
+  scenario_two="$TMP_ROOT/scenario-two.json"
+  app="$TMP_ROOT/app.bin"
+  patch_file="$TMP_ROOT/artifact-identity-patch.json"
+  printf '%s' '{"flow":"one"}' >"$scenario_one"
+  printf '%s' '{"flow":"two"}' >"$scenario_two"
+  printf '%s' 'native-app' >"$app"
+
+  # Source without attaching a session, then replace the context writer so the
+  # test observes the exact identity patch produced by the public helper.
+  unset ZMR_RUN_EVIDENCE_ROOT
+  source "$ADAPTER"
+  ZMR_RUN_EVIDENCE_ROOT="$TMP_ROOT/identity-enabled"
+  zmr_evidence_update_context() {
+    printf '%s' "$1" >"$patch_file"
+  }
+
+  zmr_evidence_update_artifact_identity "$scenario_one" "$app" "$scenario_two" || \
+    fail "multi-scenario artifact identity failed"
+  baseline=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenarioDigest"])' "$patch_file")
+
+  printf '%s' '{"flow":"one-changed"}' >"$scenario_one"
+  zmr_evidence_update_artifact_identity "$scenario_one" "$app" "$scenario_two" || \
+    fail "first scenario identity update failed"
+  first_changed=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenarioDigest"])' "$patch_file")
+  [ "$baseline" != "$first_changed" ] || fail "first scenario did not affect identity"
+
+  printf '%s' '{"flow":"one"}' >"$scenario_one"
+  printf '%s' '{"flow":"two-changed"}' >"$scenario_two"
+  zmr_evidence_update_artifact_identity "$scenario_one" "$app" "$scenario_two" || \
+    fail "second scenario identity update failed"
+  second_changed=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenarioDigest"])' "$patch_file")
+  [ "$baseline" != "$second_changed" ] || fail "second scenario did not affect identity"
+  pass
+}
+
 test_bash_32_syntax
 test_wrapper_success_and_failure
 test_sourced_commands_capture_background_and_cleanup
@@ -202,5 +239,6 @@ test_borrower_defers_without_finalizing
 test_structured_run_outcome_is_supervised_consumed_and_finalized
 test_invalid_run_outcome_has_one_stable_owner_and_publishable_bundle
 test_delegate_preserves_borrower_terminal_owner
+test_artifact_identity_covers_every_scenario
 
 echo "PASS: $PASS_COUNT run-evidence Bash adapter groups"

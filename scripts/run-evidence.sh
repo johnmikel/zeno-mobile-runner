@@ -620,6 +620,118 @@ zmr_evidence_update_context() {
     --generation "$ZMR_EVIDENCE_SESSION_GENERATION" >/dev/null
 }
 
+zmr_evidence_update_artifact_identity() {
+  [ "$#" -ge 2 ] || return 2
+  _zmr_evidence_enabled || return 0
+  local scenario_path=$1 app_path=$2 patch
+  shift 2
+  if ! patch=$("$_ZMR_EVIDENCE_PYTHON" - "$app_path" "$scenario_path" "$@" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+
+
+def feed(handle, value):
+    encoded = value if isinstance(value, bytes) else value.encode("utf-8")
+    handle.update(str(len(encoded)).encode("ascii"))
+    handle.update(b":")
+    handle.update(encoded)
+
+
+def digest(path_text):
+    path = os.path.abspath(path_text)
+    metadata = os.lstat(path)
+    handle = hashlib.sha256()
+    if stat.S_ISREG(metadata.st_mode):
+        handle.update(b"zmr-file-v1\0")
+        with open(path, "rb") as source:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.update(chunk)
+        return "sha256:" + handle.hexdigest()
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("artifact identity input must be a file or directory")
+    handle.update(b"zmr-tree-v1\0")
+    for current, directories, files in os.walk(path, followlinks=False):
+        directories.sort()
+        files.sort()
+        for name in directories + files:
+            candidate = os.path.join(current, name)
+            relative = os.path.relpath(candidate, path).replace(os.sep, "/")
+            item = os.lstat(candidate)
+            if stat.S_ISLNK(item.st_mode):
+                handle.update(b"L")
+                feed(handle, relative)
+                feed(handle, os.readlink(candidate))
+            elif stat.S_ISDIR(item.st_mode):
+                handle.update(b"D")
+                feed(handle, relative)
+            elif stat.S_ISREG(item.st_mode):
+                handle.update(b"F")
+                feed(handle, relative)
+                feed(handle, str(item.st_size))
+                with open(candidate, "rb") as source:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        handle.update(chunk)
+            else:
+                raise ValueError("artifact tree contains an unsupported entry")
+    return "sha256:" + handle.hexdigest()
+
+
+def scenario_manifest(paths):
+    entries = []
+    labels = set()
+    for path in paths:
+        label = os.path.basename(os.path.normpath(path))
+        if not label or label in labels:
+            raise ValueError("scenario manifest labels must be unique basenames")
+        labels.add(label)
+        entries.append((label, digest(path)))
+    handle = hashlib.sha256()
+    handle.update(b"zmr-scenario-manifest-v1\0")
+    for label, value in sorted(entries):
+        feed(handle, label)
+        feed(handle, value)
+    return "sha256:" + handle.hexdigest()
+
+
+print(json.dumps({
+    "scenarioDigest": scenario_manifest(sys.argv[2:]),
+    "appBuildDigest": digest(sys.argv[1]),
+}, sort_keys=True, separators=(",", ":")))
+PY
+  ); then
+    return 125
+  fi
+  zmr_evidence_update_context "$patch"
+}
+
+zmr_evidence_update_device_identity() {
+  [ "$#" -eq 2 ] || return 2
+  _zmr_evidence_enabled || return 0
+  local resolved=$1 runtime_version=$2 patch
+  if ! patch=$("$_ZMR_EVIDENCE_PYTHON" -c '
+import json,sys
+resolved,runtime=sys.argv[1:]
+if not resolved:
+    raise SystemExit(2)
+patch={"device":{"resolved":resolved}}
+if runtime:
+    patch["runtimeVersion"]=runtime
+print(json.dumps(patch,sort_keys=True,separators=(",",":")))
+' "$resolved" "$runtime_version"); then
+    return 125
+  fi
+  zmr_evidence_update_context "$patch"
+}
+
 zmr_evidence_register_artifact() {
   [ "$#" -eq 2 ] || return 2
   local field=$1 absolute_path=$2 relative patch

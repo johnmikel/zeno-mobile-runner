@@ -4,11 +4,193 @@ from __future__ import annotations
 
 import re
 
+from .constants import (
+    ERROR_CLASSIFICATION,
+    MAX_EXTERNAL_REMEDIATION_BYTES,
+    PHASES,
+    _COMMAND_SLUG_RE,
+)
 from .contracts import _comparability_tuple, _valid_datetime
 from .receipts import (
     _finalize_receipt_relative,
     _validate_finalize_receipt_binding,
 )
+
+
+_EXTERNAL_COMMAND_KEYS = {
+    "schemaVersion",
+    "source",
+    "argv",
+    "phase",
+    "name",
+    "failureCode",
+    "outcome",
+    "remediation",
+    "exitStatus",
+    "signal",
+    "stdout",
+    "stderr",
+    "limitation",
+}
+_STREAM_KEYS = {
+    "path",
+    "originalBytes",
+    "sanitizedBytes",
+    "storedBytes",
+    "truncated",
+}
+
+
+def _is_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_finalize_external_command(
+    attempt_relative: str,
+    paths: list[str],
+    values: dict[str, object],
+    events: list[dict],
+    terminal: dict,
+) -> None:
+    """Bind one synthetic hosted-action triplet to its lifecycle events."""
+
+    if len(paths) != 3:
+        raise ValueError("finalize external command target set is invalid")
+    prefix = re.escape(attempt_relative) + r"/commands/"
+    stdout_match = re.fullmatch(
+        prefix + r"(?P<sequence>[0-9]{6})-(?P<name>.+)[.]stdout[.]log",
+        paths[0],
+    )
+    if stdout_match is None or _COMMAND_SLUG_RE.fullmatch(
+        stdout_match.group("name")
+    ) is None:
+        raise ValueError("finalize external stdout target is invalid")
+    stem = f'{stdout_match.group("sequence")}-{stdout_match.group("name")}'
+    expected_paths = [
+        f"{attempt_relative}/commands/{stem}.stdout.log",
+        f"{attempt_relative}/commands/{stem}.stderr.log",
+        f"{attempt_relative}/commands/{stem}.json",
+    ]
+    if paths != expected_paths:
+        raise ValueError("finalize external command targets disagree")
+
+    stdout = values[paths[0]]
+    stderr = values[paths[1]]
+    metadata = values[paths[2]]
+    if not isinstance(stdout, bytes) or not isinstance(stderr, bytes):
+        raise ValueError("finalize external command logs are invalid")
+    if not isinstance(metadata, dict) or set(metadata) != _EXTERNAL_COMMAND_KEYS:
+        raise ValueError("finalize external command metadata shape is invalid")
+    remediation = metadata.get("remediation")
+    try:
+        remediation_size = len(remediation.encode("utf-8"))
+    except (AttributeError, UnicodeEncodeError):
+        remediation_size = -1
+    if (
+        not _is_integer(metadata.get("schemaVersion"))
+        or metadata.get("schemaVersion") != 1
+        or metadata.get("source") != "github-action"
+        or metadata.get("argv") != []
+        or metadata.get("phase") not in PHASES
+        or metadata.get("name") != stdout_match.group("name")
+        or metadata.get("failureCode") not in ERROR_CLASSIFICATION
+        or metadata.get("outcome") not in ("failure", "cancelled")
+        or not isinstance(remediation, str)
+        or not remediation.strip()
+        or remediation_size < 0
+        or remediation_size > MAX_EXTERNAL_REMEDIATION_BYTES
+        or metadata.get("exitStatus") is not None
+        or metadata.get("signal") is not None
+        or metadata.get("limitation")
+        != "Synthetic metadata only; hosted log content was not captured."
+    ):
+        raise ValueError("finalize external command metadata is invalid")
+    if (
+        metadata["outcome"] == "cancelled"
+        and metadata["failureCode"] != "run.cancelled"
+    ) or (
+        metadata["outcome"] == "failure"
+        and metadata["failureCode"] == "run.cancelled"
+    ):
+        raise ValueError("finalize external command outcome is invalid")
+
+    relative_stem = f"commands/{stem}"
+    for stream_name, content in (("stdout", stdout), ("stderr", stderr)):
+        stream = metadata.get(stream_name)
+        if (
+            not isinstance(stream, dict)
+            or set(stream) != _STREAM_KEYS
+            or stream.get("path") != f"{relative_stem}.{stream_name}.log"
+            or not _is_integer(stream.get("originalBytes"))
+            or not _is_integer(stream.get("sanitizedBytes"))
+            or not _is_integer(stream.get("storedBytes"))
+            or stream.get("originalBytes") != len(content)
+            or stream.get("sanitizedBytes") != len(content)
+            or stream.get("storedBytes") != len(content)
+            or stream.get("truncated") is not False
+        ):
+            raise ValueError("finalize external command stream metadata is invalid")
+    expected_stdout = (
+        "synthetic external command record. Hosted log content was not captured; "
+        "consult the workflow provider for authoritative output.\n"
+    ).encode("utf-8")
+    expected_stderr = (
+        f"synthetic outcome: {metadata['outcome']}. This record does not claim "
+        f"hosted log capture.\nremediation: {remediation}\n"
+    ).encode("utf-8")
+    if stdout != expected_stdout or stderr != expected_stderr:
+        raise ValueError("finalize external command log content is invalid")
+
+    if len(events) < 3:
+        raise ValueError("finalize external command events are missing")
+    started, command_terminal = events[-3:-1]
+    metadata_reference = f"{relative_stem}.json"
+    expected_status = {
+        "failure": "failed",
+        "cancelled": "cancelled",
+    }[metadata["outcome"]]
+    expected_summary = {
+        "failure": f"Hosted workflow step {metadata['name']} failed",
+        "cancelled": f"Hosted workflow step {metadata['name']} was cancelled",
+    }[metadata["outcome"]]
+    if (
+        terminal.get("phase") != metadata["phase"]
+        or terminal.get("errorCode") != metadata["failureCode"]
+        or terminal.get("status") != expected_status
+        or terminal.get("summary") != expected_summary
+    ):
+        raise ValueError(
+            "finalize external command disagrees with superseding terminal"
+        )
+    expected_terminal_keys = {
+        "schemaVersion",
+        "seq",
+        "timestamp",
+        "phase",
+        "status",
+        "command",
+        "artifact",
+        "errorCode",
+        "summary",
+    }
+    if (
+        set(started) != {"schemaVersion", "seq", "timestamp", "phase", "status"}
+        or started.get("status") != "started"
+        or started.get("phase") != metadata["phase"]
+        or started.get("seq") != int(stdout_match.group("sequence"))
+    ):
+        raise ValueError("finalize external command start event is invalid")
+    if (
+        set(command_terminal) != expected_terminal_keys
+        or command_terminal.get("seq") != started["seq"] + 1
+        or command_terminal.get("phase") != metadata["phase"]
+        or command_terminal.get("status") != expected_status
+        or command_terminal.get("command") != metadata_reference
+        or command_terminal.get("artifact") != metadata_reference
+        or command_terminal.get("errorCode") != metadata["failureCode"]
+        or command_terminal.get("summary") != remediation
+    ):
+        raise ValueError("finalize external command terminal event is invalid")
 
 
 def _registrations_for_run(index: dict, run_id: str) -> list[tuple[dict, dict]]:
@@ -139,6 +321,12 @@ def _validate_transaction_operation(
     ]
     has_context_target = bool(ordered_paths and ordered_paths[0] == context_path)
     terminal_paths = ordered_paths[1:] if has_context_target else ordered_paths
+    external_paths: list[str] = []
+    if terminal_paths and terminal_paths[0].startswith(
+        attempt_relative + "/commands/"
+    ):
+        external_paths = terminal_paths[:3]
+        terminal_paths = terminal_paths[3:]
     has_receipt_target = bool(
         terminal_paths and terminal_paths[-1] == receipt_path
     )
@@ -198,6 +386,10 @@ def _validate_transaction_operation(
     events = values[event_path]
     if not events:
         raise ValueError("finalize transaction event stream is empty")
+    if external_paths:
+        _validate_finalize_external_command(
+            attempt_relative, external_paths, values, events, terminal
+        )
     final_event = events[-1]
     if (
         has_receipt_target

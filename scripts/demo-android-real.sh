@@ -256,7 +256,10 @@ run_evidence app.build create-android-demo config.required_tool_missing "$CREATE
   --build-tools "$BUILD_TOOLS" \
   --android-sdk "$ANDROID_SDK"
 
+zmr_evidence_update_artifact_identity "$SCENARIO" "$APK"
+
 ensure_android_device_ready
+zmr_evidence_update_device_identity "$DEVICE" "$API"
 
 run_allow_fail "$ADB" -s "$DEVICE" uninstall "$APP_ID"
 run_evidence app.install install-android-demo runner.unclassified "$ADB" -s "$DEVICE" install -r "$APK"

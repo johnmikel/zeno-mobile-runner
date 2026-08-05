@@ -13,7 +13,7 @@ output = sys.argv[1]
 required = [
     "zig fmt --check build.zig src",
     "bash -n install.sh scripts/*.sh tests/*.sh",
-    "python3 -m compileall -q scripts/run_evidence_lib scripts/run_evidence.py",
+    "python3 -m compileall -q scripts/run_evidence_lib scripts/run_evidence.py scripts/finalize_workflow_evidence.py",
     "python3 -W error -m unittest tests/run_evidence_test.py",
     "/bin/bash tests/run-evidence-script-test.sh",
     "/bin/bash tests/run-evidence-acceptance-test.sh",
@@ -45,6 +45,7 @@ required = [
     "bash tests/install-script-test.sh",
     "bash tests/public-metadata-guard-test.sh",
     "bash tests/docs-readiness-test.sh",
+    "bash tests/workflow-evidence-finalizer-test.sh",
     "bash tests/workflow-readiness-test.sh",
     "bash tests/demo-script-test.sh",
     "bash tests/mcp-server-test.sh",

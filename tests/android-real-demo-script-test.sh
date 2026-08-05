@@ -103,7 +103,7 @@ mkdir -p "$PUBLICATION/attempts"
 python3 "$ROOT/scripts/run_evidence.py" init \
   --root "$ATTEMPT" \
   --index "$INDEX" \
-  --context-json '{"runId":"android-demo-run","executionId":"android-demo-logical","fixtureId":"android-demo","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","appBuildDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":"android","deviceClass":"android-emulator","runtimeVersion":"35","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"emulator-5554","resolved":"emulator-5554"},"toolchain":{"xcode":null,"zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
+  --context-json '{"runId":"android-demo-run","executionId":"android-demo-logical","fixtureId":"android-demo","fixtureVersion":"1","candidateRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","scenarioDigest":null,"appBuildDigest":null,"platform":"android","deviceClass":"android-emulator","runtimeVersion":"35","timingMode":"cold-command","runnerVersion":"1.0.0","protocolVersion":"2026-04-28","attempt":1,"host":{"os":"macos","arch":"arm64","class":"local-test","ci":false},"device":{"requested":"emulator-5554","resolved":null},"toolchain":{"xcode":null,"zig":"0.16.0"},"artifacts":{"trace":null,"report":null}}' >/dev/null
 
 CREATE_ANDROID_DEMO_APP="$FAKE_CREATE" \
 ZMR_BIN="$ROOT/tests/fixtures/fake-zmr-evidence-success.sh" \
@@ -131,6 +131,11 @@ for phase in expected:
     position = phases.index(phase, position + 1)
 summary = json.loads((root / "run-summary.json").read_text())
 assert summary["status"] == "passed"
+assert summary["scenarioDigest"].startswith("sha256:")
+assert summary["scenarioDigest"] != "sha256:" + "b" * 64
+assert summary["appBuildDigest"].startswith("sha256:")
+assert summary["appBuildDigest"] != "sha256:" + "c" * 64
+assert summary["device"]["resolved"] == "emulator-5554"
 assert summary["artifacts"]["trace"] == "traces/android-demo/scenario"
 assert summary["artifacts"]["report"] == "traces/android-demo/scenario/report.html"
 assert len(list((root / "run-outcomes").glob("*.json"))) == 1

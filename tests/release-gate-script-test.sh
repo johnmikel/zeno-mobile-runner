@@ -62,6 +62,7 @@ required = [
     "bash tests/install-script-test.sh",
     "bash tests/public-metadata-guard-test.sh",
     "bash tests/docs-readiness-test.sh",
+    "bash tests/workflow-evidence-finalizer-test.sh",
     "bash tests/workflow-readiness-test.sh",
     "bash tests/demo-script-test.sh",
     "bash tests/mcp-server-test.sh",

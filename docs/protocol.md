@@ -314,10 +314,14 @@ Single-scenario mode reports the created scenario and next validation command:
 `zmr import flow-yaml <flow.yaml> --out .zmr/imported.json --json` converts a
 supported subset of mobile-flow YAML into native ZMR scenario JSON. Keep the
 generated JSON as the reviewed, deterministic scenario that agents and CI run.
-The response is covered by `schemas/import-output.schema.json`:
+Every import reports per-command compatibility totals; `--report <path>` also
+writes a per-command diagnostics file with source locations (covered by
+`schemas/import-compatibility-report.schema.json`), and `--strict` exits
+non-zero when any command is unsupported. The response is covered by
+`schemas/import-output.schema.json`:
 
 ```json
-{"ok":true,"format":"flow-yaml","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported login smoke","appId":"com.example.mobiletest","stepCount":10,"next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
+{"ok":true,"format":"flow-yaml","source":"flows/login.yaml","out":".zmr/login-smoke.json","name":"Imported mobile flow","appId":"com.example.app","stepCount":4,"supportedCount":1,"rewrittenCount":3,"unsupportedCount":1,"compatibilityReport":".zmr/login-smoke.compatibility.json","next":"zmr validate .zmr/login-smoke.json","nextCommands":["zmr validate --json .zmr/login-smoke.json","zmr run .zmr/login-smoke.json --json --trace-dir traces/zmr-run"]}
 ```
 
 The importer is intentionally a migration helper, not a runtime dependency.

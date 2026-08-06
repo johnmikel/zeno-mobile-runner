@@ -4,7 +4,7 @@
   "title": "ZMR Import Output",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ok", "format", "source", "out", "name", "appId", "stepCount", "next", "nextCommands"],
+  "required": ["ok", "format", "source", "out", "name", "appId", "stepCount", "supportedCount", "rewrittenCount", "unsupportedCount", "compatibilityReport", "next", "nextCommands"],
   "properties": {
     "ok": { "const": true },
     "format": { "const": "flow-yaml" },
@@ -13,6 +13,10 @@
     "name": { "type": "string", "minLength": 1 },
     "appId": { "type": ["string", "null"] },
     "stepCount": { "type": "integer", "minimum": 0 },
+    "supportedCount": { "type": "integer", "minimum": 0 },
+    "rewrittenCount": { "type": "integer", "minimum": 0 },
+    "unsupportedCount": { "type": "integer", "minimum": 0 },
+    "compatibilityReport": { "type": ["string", "null"] },
     "next": { "type": "string", "minLength": 1 },
     "nextCommands": {
       "type": "array",

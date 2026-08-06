@@ -11,6 +11,8 @@ pub const ParsedArgs = struct {
     name: ?[]const u8 = null,
     app_id: ?[]const u8 = null,
     force: bool = false,
+    strict: bool = false,
+    compatibility_report_path: ?[]const u8 = null,
     json: bool = false,
 };
 
@@ -21,6 +23,8 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
     var name: ?[]const u8 = null;
     var app_id: ?[]const u8 = null;
     var force = false;
+    var strict = false;
+    var compatibility_report_path: ?[]const u8 = null;
     var json = false;
 
     var index: usize = 0;
@@ -35,8 +39,13 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--app-id")) {
             index += 1;
             app_id = if (index < args.len) args[index] else return error.MissingAppId;
+        } else if (std.mem.eql(u8, arg, "--report")) {
+            index += 1;
+            compatibility_report_path = if (index < args.len) args[index] else return error.MissingImportReport;
         } else if (std.mem.eql(u8, arg, "--force")) {
             force = true;
+        } else if (std.mem.eql(u8, arg, "--strict")) {
+            strict = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
             json = true;
         } else if (std.mem.startsWith(u8, arg, "--")) {
@@ -59,6 +68,8 @@ pub fn parseArgs(args: []const []const u8) !ParsedArgs {
         .name = name,
         .app_id = app_id,
         .force = force,
+        .strict = strict,
+        .compatibility_report_path = compatibility_report_path,
         .json = json,
     };
 }
@@ -88,6 +99,8 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
         .name = parsed.name,
         .app_id = parsed.app_id,
         .force = parsed.force,
+        .strict = parsed.strict,
+        .compatibility_report_path = parsed.compatibility_report_path,
     });
     defer result.deinit(allocator);
 

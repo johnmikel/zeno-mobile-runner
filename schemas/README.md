@@ -15,6 +15,7 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `doctor-output.schema.json`: machine-readable `zmr doctor --json` setup diagnostics, including remediation hints for actionable checks
 - `init-output.schema.json`: machine-readable `zmr init --json` bootstrap output for scenario and app-local `.zmr/` initialization
 - `import-output.schema.json`: machine-readable `zmr import --json` output for one-time scenario migration helpers
+- `import-compatibility-report.schema.json`: per-command migration status, diagnostics, and source locations emitted by `zmr import`
 - `devices-output.schema.json`: machine-readable `zmr devices --json` output for Android, iOS/iPadOS simulator, and physical iOS/iPadOS discovery
 - `validate-output.schema.json`: machine-readable `zmr validate --json` scenario preflight output
 - `version-output.schema.json`: machine-readable `zmr version --json` output for runner and protocol compatibility discovery

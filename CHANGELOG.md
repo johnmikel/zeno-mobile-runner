@@ -47,6 +47,14 @@ All notable changes to Zeno Mobile Runner are tracked here.
   nonexistent tools (`wait_until_visible`, `wait_until_not_visible`) were
   corrected to the real `wait_visible`/`wait_not_visible`.
 
+- `zmr import` now reports per-command compatibility: every import returns
+  `supportedCount`/`rewrittenCount`/`unsupportedCount`, `--report <path>`
+  writes a per-command diagnostics file with source line/column for each
+  command (published as `schemas/import-compatibility-report.schema.json`),
+  and `--strict` exits non-zero when any command is unsupported. The importer
+  vocabulary grows to cover the new canonical actions, `runFlow` nesting with
+  a bounded depth, launch arguments, and flow lifecycle hooks.
+
 ### Changed
 
 - MCP `launch_app` now routes through the runner engine's `executeStep`, so a

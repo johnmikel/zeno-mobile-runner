@@ -20,6 +20,7 @@ const public_schemas = [_]PublicSchema{
     .{ .name = "doctor-output", .path = "schemas/doctor-output.schema.json", .id = "https://zmr.dev/schemas/doctor-output.schema.json", .description = "Machine-readable zmr doctor --json setup diagnostics" },
     .{ .name = "init-output", .path = "schemas/init-output.schema.json", .id = "https://zmr.dev/schemas/init-output.schema.json", .description = "Machine-readable zmr init --json bootstrap output" },
     .{ .name = "import-output", .path = "schemas/import-output.schema.json", .id = "https://zmr.dev/schemas/import-output.schema.json", .description = "Machine-readable zmr import --json migration output" },
+    .{ .name = "import-compatibility-report", .path = "schemas/import-compatibility-report.schema.json", .id = "https://zmr.dev/schemas/import-compatibility-report.schema.json", .description = "Per-command flow migration diagnostics with source locations" },
     .{ .name = "devices-output", .path = "schemas/devices-output.schema.json", .id = "https://zmr.dev/schemas/devices-output.schema.json", .description = "Machine-readable zmr devices --json discovery output" },
     .{ .name = "validate-output", .path = "schemas/validate-output.schema.json", .id = "https://zmr.dev/schemas/validate-output.schema.json", .description = "Machine-readable zmr validate --json scenario preflight output" },
     .{ .name = "version-output", .path = "schemas/version-output.schema.json", .id = "https://zmr.dev/schemas/version-output.schema.json", .description = "Machine-readable zmr version --json compatibility output" },

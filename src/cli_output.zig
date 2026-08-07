@@ -27,6 +27,12 @@ pub fn writeImportJson(writer: anytype, format: []const u8, source_path: []const
         try writer.writeAll("null");
     }
     try writer.print(",\"stepCount\":{d}", .{result.step_count});
+    try writer.print(",\"supportedCount\":{d},\"rewrittenCount\":{d},\"unsupportedCount\":{d},\"compatibilityReport\":", .{ result.supported_count, result.rewritten_count, result.unsupported_count });
+    if (result.compatibility_report_path) |path| {
+        try trace.writeJsonString(writer, path);
+    } else {
+        try writer.writeAll("null");
+    }
     try writer.writeAll(",\"next\":\"zmr validate ");
     try writeShellArgJsonContent(writer, result.out_path);
     try writer.writeAll("\"");

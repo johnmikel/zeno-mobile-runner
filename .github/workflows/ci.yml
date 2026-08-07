@@ -74,9 +74,12 @@ jobs:
   coverage-linux:
     # The macOS gate skips kcov (it can hang tracing child device-tool
     # processes), so the 90% floor was never actually enforced anywhere. Linux
-    # runs kcov cleanly, so the gate lives here. Pinned to 22.04: kcov is not
-    # packaged for 24.04 (noble), which is what ubuntu-latest resolves to.
-    runs-on: ubuntu-22.04
+    # runs kcov cleanly, so the gate lives here.
+    #
+    # 24.04 specifically: Zig emits DWARF 5, and kcov reads debug info through
+    # libdw. 22.04 ships elfutils 0.186, whose DWARF 5 support is incomplete —
+    # kcov runs the binary and reports 0 lines. 24.04 ships 0.190+.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       ZIG_VERSION: "0.16.0"
@@ -91,10 +94,9 @@ jobs:
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
           "$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" version
       - name: Build kcov
-        # The packaged kcov (v38 on 22.04) cannot read the DWARF that current
-        # Zig emits: it runs the binary happily and reports 0/0 lines, which
-        # reads like a coverage failure but is a measurement failure. Build a
-        # version that understands it. It is not packaged at all on 24.04.
+        # kcov is not packaged for 24.04 at all, and the 22.04 package (v38)
+        # is too old to read current Zig debug info. Build it, so the gate does
+        # not depend on what a runner image happens to ship.
         env:
           KCOV_VERSION: "v43"
         run: |

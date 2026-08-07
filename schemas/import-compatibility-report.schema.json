@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/import-compatibility-report.schema.json",
+  "title": "ZMR Flow Import Compatibility Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "source", "summary", "commands"],
+  "properties": {
+    "version": { "const": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supported", "rewritten", "unsupported"],
+      "properties": {
+        "supported": { "type": "integer", "minimum": 0 },
+        "rewritten": { "type": "integer", "minimum": 0 },
+        "unsupported": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/command" }
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "status", "line", "column", "message", "sourceFile", "canonicalAction"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["supported", "rewritten", "unsupported"] },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "sourceFile": { "type": ["string", "null"] },
+        "canonicalAction": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

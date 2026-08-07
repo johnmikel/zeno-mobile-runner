@@ -98,12 +98,22 @@ zmr validate .zmr/login-smoke.json
 ```
 
 The importer supports the common subset needed for smoke scenarios:
-`launchApp`, `stopApp`, `clearState`, `tapOn`, `inputText`, `eraseText`,
-`hideKeyboard`, `assertVisible`, `assertNotVisible`, `assertHealthy`,
-`openLink`, `back`,
-`scrollUntilVisible`, `takeScreenshot`, and simple wait commands. Review the
-generated JSON before committing it. Native `.zmr/*.json` scenarios remain the
-runtime contract for agents and CI.
+`launchApp` (including launch arguments), `stopApp`, `killApp`/`forceStop`,
+`clearState`/`clearAppState`, `clearKeychain`, `tapOn`, `longPressOn`,
+`doubleTapOn`, `pressKey`, `inputText`, `eraseText`, `hideKeyboard`,
+`copyText`/`setClipboard`, `grantPermissions`, `setOrientation`,
+`assertVisible`, `assertNotVisible`, `openLink`, `back`/`pressBack`,
+`scrollUntilVisible`, `takeScreenshot`, `runFlow` (nested flows are inlined
+with a bounded depth), `repeat`, `retry`, `whenVisible`/`whenNotVisible`, and
+the `waitUntilVisible`/`waitUntilNotVisible`/`waitForAnimationToEnd` wait
+commands. Review the generated JSON before committing it. Native
+`.zmr/*.json` scenarios remain the runtime contract for agents and CI.
+
+Pass `--report <compatibility.json>` to write a per-command migration report —
+each source command's status (`supported`, `rewritten`, or `unsupported`) with
+its source line and column, so a large suite can be triaged file by file. Pass
+`--strict` to exit non-zero when any command is unsupported, which makes
+migration CI-gateable.
 
 Use `setLocation` before location-dependent assertions to set simulator or
 emulator coordinates through the runner instead of shelling out from the app

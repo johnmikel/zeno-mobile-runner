@@ -97,19 +97,21 @@ stdio MCP server:
 zmr mcp --config .zmr/config.json --trace-dir traces/zmr-agent
 ```
 
-The MCP server exposes mobile-specific tools:
+The MCP server exposes seven tools, built around one executor:
 
 - `snapshot`: raw ZMR observation JSON
 - `semantic_snapshot`: normalized roles, names, selectors, bounds, and
-  recommended actions
-- `install_app`, `launch_app`, `stop_app`, and `clear_state`
-- `tap`, `type`, `erase_text`, `hide_keyboard`, `swipe`, `press_back`,
-  `open_link`, and `scroll_until_visible`
-- `wait_visible`, `wait_not_visible`, and `wait_any`
-- `assert_visible`, `assert_not_visible`, and `assert_healthy`
+  recommended actions; pass `compact: true` for the token-optimized encoding
+- `run_scenario`: run a whole scenario — inline JSON or a path — and get back a
+  typed verdict, the trace directory, and the evidence digest
 - `scenario_validate`
-- `trace_events`, `trace_explain`, `trace_explore`, `trace_discover`, and
-  `trace_export`
+- `trace_explain`, `trace_discover`, and `trace_export`
+
+Individual actions are **not** tools. Launch, tap, type, swipe, waits and
+assertions are steps inside the scenario you hand to `run_scenario`. Driving a
+device one tool call per tap costs a round-trip and a slice of context per step,
+and leaves a chat transcript behind; handing over a whole scenario costs one
+call and leaves the committed test behind.
 
 Prefer `semantic_snapshot` for action planning. It prevents the agent from
 inferring product intent from platform-specific Android/UI Automator or XCTest

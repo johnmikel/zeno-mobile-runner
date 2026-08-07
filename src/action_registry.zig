@@ -57,12 +57,12 @@ const no_aliases = [_][]const u8{};
 const json_launch = [_][]const u8{"launch"};
 const yaml_launch = [_][]const u8{"launchApp"};
 const rpc_launch = [_][]const u8{"app.launch"};
-const mcp_launch = [_][]const u8{"launch_app"};
+const mcp_launch = [_][]const u8{};
 
 const json_stop = [_][]const u8{"stop"};
 const yaml_stop = [_][]const u8{"stopApp"};
 const rpc_stop = [_][]const u8{"app.stop"};
-const mcp_stop = [_][]const u8{"stop_app"};
+const mcp_stop = [_][]const u8{};
 
 const json_kill = [_][]const u8{"killApp"};
 const yaml_kill = [_][]const u8{"killApp"};
@@ -72,17 +72,17 @@ const mcp_kill = [_][]const u8{};
 const json_clear_state = [_][]const u8{"clearState"};
 const yaml_clear_state = [_][]const u8{ "clearState", "clearAppState" };
 const rpc_clear_state = [_][]const u8{"app.clearState"};
-const mcp_clear_state = [_][]const u8{"clear_state"};
+const mcp_clear_state = [_][]const u8{};
 
 const json_clear_keychain = [_][]const u8{"clearKeychain"};
 const yaml_clear_keychain = [_][]const u8{"clearKeychain"};
 const rpc_clear_keychain = [_][]const u8{"app.clearKeychain"};
-const mcp_clear_keychain = [_][]const u8{"clear_keychain"};
+const mcp_clear_keychain = [_][]const u8{};
 
 const json_open_link = [_][]const u8{"openLink"};
 const yaml_open_link = [_][]const u8{"openLink"};
 const rpc_open_link = [_][]const u8{"app.openLink"};
-const mcp_open_link = [_][]const u8{"open_link"};
+const mcp_open_link = [_][]const u8{};
 
 const json_permissions = [_][]const u8{"grantPermissions"};
 const yaml_permissions = [_][]const u8{"grantPermissions"};
@@ -102,12 +102,12 @@ const mcp_clipboard = [_][]const u8{};
 const json_snapshot = [_][]const u8{"snapshot"};
 const yaml_snapshot = [_][]const u8{"takeScreenshot"};
 const rpc_snapshot = [_][]const u8{"observe.snapshot"};
-const mcp_snapshot = [_][]const u8{"snapshot"};
+const mcp_snapshot = [_][]const u8{ "snapshot", "semantic_snapshot" };
 
 const json_tap = [_][]const u8{"tap"};
 const yaml_tap = [_][]const u8{"tapOn"};
 const rpc_tap = [_][]const u8{"ui.tap"};
-const mcp_tap = [_][]const u8{"tap"};
+const mcp_tap = [_][]const u8{};
 
 const json_long_press = [_][]const u8{"longPress"};
 const yaml_long_press = [_][]const u8{"longPressOn"};
@@ -122,17 +122,17 @@ const mcp_double_tap = [_][]const u8{};
 const json_type = [_][]const u8{"typeText"};
 const yaml_type = [_][]const u8{"inputText"};
 const rpc_type = [_][]const u8{"ui.type"};
-const mcp_type = [_][]const u8{"type"};
+const mcp_type = [_][]const u8{};
 
 const json_erase = [_][]const u8{"eraseText"};
 const yaml_erase = [_][]const u8{"eraseText"};
 const rpc_erase = [_][]const u8{"ui.eraseText"};
-const mcp_erase = [_][]const u8{"erase_text"};
+const mcp_erase = [_][]const u8{};
 
 const json_back = [_][]const u8{"pressBack"};
 const yaml_back = [_][]const u8{ "back", "pressBack" };
 const rpc_back = [_][]const u8{"ui.pressBack"};
-const mcp_back = [_][]const u8{"press_back"};
+const mcp_back = [_][]const u8{};
 
 const json_press_key = [_][]const u8{"pressKey"};
 const yaml_press_key = [_][]const u8{"pressKey"};
@@ -142,37 +142,37 @@ const mcp_press_key = [_][]const u8{};
 const json_hide_keyboard = [_][]const u8{"hideKeyboard"};
 const yaml_hide_keyboard = [_][]const u8{"hideKeyboard"};
 const rpc_hide_keyboard = [_][]const u8{"ui.hideKeyboard"};
-const mcp_hide_keyboard = [_][]const u8{"hide_keyboard"};
+const mcp_hide_keyboard = [_][]const u8{};
 
 const json_swipe = [_][]const u8{"swipe"};
 const yaml_swipe = [_][]const u8{"swipe"};
 const rpc_swipe = [_][]const u8{"ui.swipe"};
-const mcp_swipe = [_][]const u8{"swipe"};
+const mcp_swipe = [_][]const u8{};
 
 const json_wait_visible = [_][]const u8{"waitVisible"};
 const yaml_wait_visible = [_][]const u8{"waitUntilVisible"};
 const rpc_wait_visible = [_][]const u8{"wait.until"};
-const mcp_wait_visible = [_][]const u8{"wait_visible"};
+const mcp_wait_visible = [_][]const u8{};
 
 const json_wait_not_visible = [_][]const u8{"waitNotVisible"};
 const yaml_wait_not_visible = [_][]const u8{"waitUntilNotVisible"};
 const rpc_wait_not_visible = [_][]const u8{"wait.gone"};
-const mcp_wait_not_visible = [_][]const u8{"wait_not_visible"};
+const mcp_wait_not_visible = [_][]const u8{};
 
 const json_wait_any = [_][]const u8{"waitAny"};
 const yaml_wait_any = [_][]const u8{};
 const rpc_wait_any = [_][]const u8{"wait.any"};
-const mcp_wait_any = [_][]const u8{"wait_any"};
+const mcp_wait_any = [_][]const u8{};
 
 const json_assert_visible = [_][]const u8{"assertVisible"};
 const yaml_assert_visible = [_][]const u8{"assertVisible"};
 const rpc_assert_visible = [_][]const u8{"assert.visible"};
-const mcp_assert_visible = [_][]const u8{"assert_visible"};
+const mcp_assert_visible = [_][]const u8{};
 
 const json_assert_not_visible = [_][]const u8{"assertNotVisible"};
 const yaml_assert_not_visible = [_][]const u8{"assertNotVisible"};
 const rpc_assert_not_visible = [_][]const u8{"assert.notVisible"};
-const mcp_assert_not_visible = [_][]const u8{"assert_not_visible"};
+const mcp_assert_not_visible = [_][]const u8{};
 
 const json_assert_none_visible = [_][]const u8{"assertNoneVisible"};
 const yaml_assert_none_visible = [_][]const u8{};
@@ -182,7 +182,7 @@ const mcp_assert_none_visible = [_][]const u8{};
 const json_assert_healthy = [_][]const u8{"assertHealthy"};
 const yaml_assert_healthy = [_][]const u8{};
 const rpc_assert_healthy = [_][]const u8{"assert.healthy"};
-const mcp_assert_healthy = [_][]const u8{"assert_healthy"};
+const mcp_assert_healthy = [_][]const u8{};
 
 const json_when_visible = [_][]const u8{"whenVisible"};
 const yaml_when_visible = [_][]const u8{"whenVisible"};
@@ -207,7 +207,7 @@ const mcp_run_flow = [_][]const u8{};
 const json_scroll = [_][]const u8{"scrollUntilVisible"};
 const yaml_scroll = [_][]const u8{"scrollUntilVisible"};
 const rpc_scroll = [_][]const u8{"ui.scrollUntilVisible"};
-const mcp_scroll = [_][]const u8{"scroll_until_visible"};
+const mcp_scroll = [_][]const u8{};
 
 const json_sleep = [_][]const u8{"sleep"};
 const yaml_sleep = [_][]const u8{"waitForAnimationToEnd"};

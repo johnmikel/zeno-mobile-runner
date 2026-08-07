@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# End-to-end MCP exercise against the real binary, over the surface an agent
+# actually uses: look at the screen, run a whole scenario, read the verdict.
+#
+# This replaces a per-action drive (install_app, tap, type, wait_visible, ...)
+# because those tools no longer exist: actions are scenario steps now. The
+# sequence below IS the agent loop the collapsed surface is built for.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,27 +17,14 @@ trap 'rm -f "$tmp"; rm -rf "$trace_dir"' EXIT
 cat <<'JSONL' | ./zig-out/bin/zmr mcp --device fake-android-1 --app-id com.example.mobiletest --adb ./tests/fake-adb.sh --trace-dir "$trace_dir" > "$tmp"
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"zmr-test","version":"1.0.0"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"install_app","arguments":{"path":"examples/demo-fake.json"}}}
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"clear_state","arguments":{}}}
-{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"launch_app","arguments":{}}}
-{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"open_link","arguments":{"url":"exampleapp://mcp-trace"}}}
-{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"type","arguments":{"text":"mcp unscoped text"}}}
-{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"press_back","arguments":{}}}
-{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"semantic_snapshot","arguments":{}}}
-{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"wait_visible","arguments":{"selector":{"text":"Sample landing."},"timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"wait_not_visible","arguments":{"selector":{"text":"Missing toast"},"timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"wait_any","arguments":{"selectors":[{"text":"Missing toast"},{"text":"Dashboard"}],"timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"swipe","arguments":{"x1":500,"y1":900,"x2":500,"y2":300,"durationMs":250}}}
-{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"hide_keyboard","arguments":{}}}
-{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"erase_text","arguments":{"selector":{"id":"email-login-email-input"},"maxChars":12}}}
-{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"scroll_until_visible","arguments":{"selector":{"text":"Invite a teammate"},"direction":"down","timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"assert_visible","arguments":{"selector":{"text":"Sample landing."},"timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"assert_not_visible","arguments":{"selector":{"text":"Missing toast"},"timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"assert_healthy","arguments":{"timeoutMs":1000}}}
-{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"scenario_validate","arguments":{"path":"examples/demo-fake.json"}}}
-{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"stop_app","arguments":{}}}
-{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"trace_events","arguments":{"afterSeq":0,"limit":100}}}
-{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"trace_explain","arguments":{}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"semantic_snapshot","arguments":{}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"semantic_snapshot","arguments":{"compact":true}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_scenario","arguments":{"path":"examples/demo-fake.json"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_scenario","arguments":{"scenario":{"name":"inline probe","appId":"com.example.mobiletest","steps":[{"action":"launch"},{"action":"assertVisible","selector":{"text":"Sample landing."},"timeoutMs":1000}]}}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"run_scenario","arguments":{"path":"examples/demo-fake.json","scenario":{"name":"x","steps":[{"action":"launch"}]}}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"scenario_validate","arguments":{"path":"examples/demo-fake.json"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"trace_explain","arguments":{}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"tap","arguments":{"selector":{"text":"Sample landing."}}}}
 JSONL
 
 python3 - "$tmp" <<'PY'
@@ -40,74 +33,68 @@ import sys
 
 path = sys.argv[1]
 rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
-assert len(rows) == 23, rows
+assert len(rows) == 10, rows
 
 assert rows[0]["result"]["protocolVersion"] == "2024-11-05"
 assert rows[0]["result"]["serverInfo"]["name"] == "zmr"
 
-tool_names = [tool["name"] for tool in rows[1]["result"]["tools"]]
-for expected in ["snapshot", "semantic_snapshot", "install_app", "launch_app", "stop_app", "clear_state", "tap", "type", "press_back", "open_link", "swipe", "wait_visible", "wait_not_visible", "wait_any", "hide_keyboard", "erase_text", "scroll_until_visible", "assert_visible", "assert_not_visible", "assert_healthy", "scenario_validate", "trace_events", "trace_explain", "trace_explore", "trace_discover", "trace_export"]:
-    assert expected in tool_names, expected
+# The surface is deliberately small. src/mcp_protocol_tests.zig pins the exact
+# set; here we assert the shape an agent sees from outside the process.
+tool_names = sorted(tool["name"] for tool in rows[1]["result"]["tools"])
+assert tool_names == sorted([
+    "snapshot", "semantic_snapshot", "run_scenario", "scenario_validate",
+    "trace_explain", "trace_discover", "trace_export",
+]), tool_names
 
-for index in [2, 3, 4, 5, 6, 7]:
-    lifecycle_text = rows[index]["result"]["content"][0]["text"]
-    lifecycle_result = json.loads(lifecycle_text)
-    assert lifecycle_result == {"ok": True}, lifecycle_result
+for gone in ["tap", "type", "swipe", "launch_app", "install_app", "wait_visible", "assert_visible"]:
+    assert gone not in tool_names, gone
 
-semantic_text = rows[8]["result"]["content"][0]["text"]
-semantic_snapshot = json.loads(semantic_text)
-assert semantic_snapshot["activePackage"] == "com.example.mobiletest"
-assert any(node["role"] == "button" and node["recommendedAction"] == "tap" for node in semantic_snapshot["nodes"])
-assert any(node["role"] == "textbox" and node["recommendedAction"] == "type" for node in semantic_snapshot["nodes"])
-assert "Sample landing." in semantic_snapshot["summary"]["visibleText"]
+full = json.loads(rows[2]["result"]["content"][0]["text"])
+assert full["activePackage"] == "com.example.mobiletest"
+assert any(n["role"] == "button" and n["recommendedAction"] == "tap" for n in full["nodes"])
+assert "Sample landing." in full["summary"]["visibleText"]
 
-wait_text = rows[9]["result"]["content"][0]["text"]
-wait_result = json.loads(wait_text)
-assert wait_result == {"visible": True}
+compact = json.loads(rows[3]["result"]["content"][0]["text"])
+assert "uiSchema" in compact and "defaults" in compact["uiSchema"]
+# Defaults are omitted from nodes; every emitted node keeps an addressable selector.
+assert all("s" in n and "i" in n for n in compact["nodes"]), compact["nodes"][:2]
+assert not any(n.get("e") is True for n in compact["nodes"])
+compact_len = len(rows[3]["result"]["content"][0]["text"])
+full_len = len(rows[2]["result"]["content"][0]["text"])
+assert compact_len < full_len, (full_len, compact_len)
+print(f"  semantic snapshot over MCP: {full_len} -> {compact_len} bytes "
+      f"({100 - round(compact_len * 100 / full_len)}% smaller)")
 
-gone_text = rows[10]["result"]["content"][0]["text"]
-gone_result = json.loads(gone_text)
-assert gone_result == {"visible": False}
+# A whole scenario in one call, from a path...
+by_path = json.loads(rows[4]["result"]["content"][0]["text"])
+assert by_path["status"] == "passed", by_path
+assert by_path["name"] == "ZMR fake Android auth probe demo"
+assert by_path["stepCount"] == 4
+assert by_path["traceDir"], by_path
+assert by_path["nextCommands"] == ["trace_export"], by_path
 
-any_text = rows[11]["result"]["content"][0]["text"]
-any_result = json.loads(any_text)
-assert any_result == {"matchedIndex": 1}
+# ...and inline, which is the same JSON an agent commits to .zmr/.
+inline = json.loads(rows[5]["result"]["content"][0]["text"])
+assert inline["status"] == "passed", inline
+assert inline["name"] == "inline probe"
+assert inline["stepCount"] == 2
 
-for index in [12, 13, 14]:
-    action_text = rows[index]["result"]["content"][0]["text"]
-    action_result = json.loads(action_text)
-    assert action_result == {"ok": True}, action_result
+# Two sources at once is refused: otherwise the evidence would describe one run
+# while the agent reasoned about the other.
+assert "error" in rows[6], rows[6]
+assert "ConflictingScenarioSources" in json.dumps(rows[6]), rows[6]
 
-scroll_text = rows[15]["result"]["content"][0]["text"]
-scroll_result = json.loads(scroll_text)
-assert scroll_result == {"visible": True}
+validated = json.loads(rows[7]["result"]["content"][0]["text"])
+assert validated["ok"] is True
+assert validated["stepCount"] == 4
 
-for index in [16, 17, 18]:
-    assertion_text = rows[index]["result"]["content"][0]["text"]
-    assertion_result = json.loads(assertion_text)
-    assert assertion_result == {"ok": True}, assertion_result
+explained = json.loads(rows[8]["result"]["content"][0]["text"])
+assert explained["traceDir"] == by_path["traceDir"], (explained, by_path)
+assert "nextCommands" in explained
 
-validate_text = rows[19]["result"]["content"][0]["text"]
-validate_result = json.loads(validate_text)
-assert validate_result["ok"] is True
-assert validate_result["path"] == "examples/demo-fake.json"
-assert validate_result["stepCount"] == 4
-
-stop_text = rows[20]["result"]["content"][0]["text"]
-stop_result = json.loads(stop_text)
-assert stop_result == {"ok": True}, stop_result
-
-trace_text = rows[21]["result"]["content"][0]["text"]
-trace_result = json.loads(trace_text)
-events = trace_result["events"]
-assert any(event["kind"] == "app.openLink" and event["payload"]["url"] == "exampleapp://mcp-trace" for event in events)
-assert any(event["kind"] == "ui.type" and event["payload"]["text"] == "mcp unscoped text" for event in events)
-assert any(event["kind"] == "ui.pressBack" and event["payload"]["status"] == "ok" for event in events)
-
-explain_text = rows[22]["result"]["content"][0]["text"]
-explain_result = json.loads(explain_text)
-assert explain_result["traceDir"] == trace_result["traceDir"]
-assert explain_result["scenario"] == "mcp session"
-assert explain_result["status"] == "running"
-assert "nextCommands" in explain_result
+# Per-action tools are gone, and calling one must fail loudly rather than
+# silently doing nothing.
+assert "error" in rows[9], rows[9]
 PY
+
+printf 'mcp server surface verified\n'

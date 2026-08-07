@@ -4,7 +4,32 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Changed
+
+- **Breaking (MCP): the agent surface is seven tools built around one executor,
+  down from 27 per-action tools.** New `run_scenario` takes a scenario inline —
+  the same JSON shape you commit to `.zmr/` — or by path, validates it, runs it,
+  and returns a typed verdict plus the trace directory and evidence digest.
+  Launch, tap, type, swipe, waits and assertions are steps inside the scenario
+  rather than tools. There was previously no way to run a scenario over MCP at
+  all, so an agent had to replay it one call per action: a round-trip and a
+  slice of context per step, leaving a chat transcript instead of a committed
+  test. Measured on the real binary: `tools/list` fell from 8248 to 4182 bytes.
+  Passing both `path` and `scenario` is refused rather than silently preferring
+  one. See `docs/benchmarks/2026-08-07-agent-surface.md`.
+- MCP tool descriptions now pre-empt the mistakes agents actually make —
+  author selectors from the tree and never from a screenshot, copy text
+  verbatim, and note that matching is exact by default, so `Sign in` does not
+  match `Sign in with Apple`.
+
 ### Added
+
+- `semantic_snapshot` accepts `compact: true`, which states each abbreviation
+  and default once in a `uiSchema` legend, omits attributes holding their
+  default, and drops zero-area unlabelled nodes an agent cannot act on.
+  Measured 54% smaller on the unit fixture and 59% on the fake device; the
+  test asserts a 30% floor so the encoding keeps earning it. The full form is
+  unchanged and remains the default.
 
 - `zmr test <workspace>` runs every canonical scenario in a directory as one CI
   step: parallel workers, per-attempt retries, and CI sharding

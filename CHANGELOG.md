@@ -58,10 +58,12 @@ All notable changes to Zeno Mobile Runner are tracked here.
 ### Changed
 
 - The 90% coverage floor is now enforced. `scripts/coverage.sh` skips kcov on
-  hosted macOS (it can hang tracing child device-tool processes) and that was
-  the only job running it, so the gate never actually ran in CI. A Linux CI
-  job now runs it where kcov is well behaved, and the coverage build links
-  libc so the suite builds there.
+  hosted macOS and that was the only job calling it, so the gate never
+  actually ran in CI. It now runs as its own job with the skip disabled, and
+  a 0-line kcov report is rejected as a measurement failure rather than
+  reported as 0% coverage — a blind tool must not be able to masquerade as a
+  coverage result in either direction. The coverage build also links libc so
+  the suite builds on Linux.
 - `scripts/check-test-harness.sh` fails CI when a `src/*_tests.zig` file is
   missing from `src/test_harness.zig`. `zig build test` roots at that
   hand-maintained registry, so a forgotten entry means those tests silently

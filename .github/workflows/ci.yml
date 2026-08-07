@@ -71,42 +71,39 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  coverage-linux:
-    # The macOS gate skips kcov (it can hang tracing child device-tool
-    # processes), so the 90% floor was never actually enforced anywhere. Linux
-    # runs kcov cleanly, so the gate lives here.
+  coverage:
+    # The 90% floor was never enforced: ci-gate.sh calls coverage.sh, which
+    # skips kcov on hosted macOS, and that was the only job running it.
     #
-    # 24.04 specifically: Zig emits DWARF 5, and kcov reads debug info through
-    # libdw. 22.04 ships elfutils 0.186, whose DWARF 5 support is incomplete —
-    # kcov runs the binary and reports 0 lines. 24.04 ships 0.190+.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # It runs here as its own job (so it cannot inflate the main gate) with
+    # ZMR_FORCE_KCOV=1 to defeat the skip. macOS, not Linux: kcov reads debug
+    # info through libdw and reports 0 instrumented lines against this binary
+    # on both Ubuntu 22.04 (elfutils 0.186) and 24.04 (0.190) — it runs the
+    # whole suite and measures nothing. kcov on macOS reads it correctly.
+    # coverage.sh now treats a 0-line report as a measurement failure, so a
+    # blind tool can never be mistaken for a coverage result.
+    runs-on: macos-15
+    timeout-minutes: 45
     env:
       ZIG_VERSION: "0.16.0"
-      ZIG_TARGET: "native"
-      ZMR_KCOV_TIMEOUT_SECONDS: "1200"
+      ZMR_FORCE_KCOV: "1"
+      ZMR_KCOV_TIMEOUT_SECONDS: "1800"
     steps:
       - uses: actions/checkout@v5
       - name: Install Zig
         run: |
-          curl -L -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          case "$(uname -m)" in
+            arm64) zig_arch="aarch64" ;;
+            x86_64) zig_arch="x86_64" ;;
+            *) echo "unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -L -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-${zig_arch}-macos-${ZIG_VERSION}.tar.xz"
           tar -xf zig.tar.xz
-          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
-          "$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" version
-      - name: Build kcov
-        # kcov is not packaged for 24.04 at all, and the 22.04 package (v38)
-        # is too old to read current Zig debug info. Build it, so the gate does
-        # not depend on what a runner image happens to ship.
-        env:
-          KCOV_VERSION: "v43"
+          echo "$PWD/zig-${zig_arch}-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          "$PWD/zig-${zig_arch}-macos-${ZIG_VERSION}/zig" version
+      - name: Install kcov
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ binutils-dev libcurl4-openssl-dev \
-            zlib1g-dev libdw-dev libiberty-dev libssl-dev ninja-build
-          git clone --depth 1 --branch "$KCOV_VERSION" https://github.com/SimonKagstrom/kcov.git /tmp/kcov
-          cmake -S /tmp/kcov -B /tmp/kcov/build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build /tmp/kcov/build
-          sudo cmake --install /tmp/kcov/build
+          brew install kcov
           kcov --version
       - name: Coverage gate
         run: ./scripts/coverage.sh

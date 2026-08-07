@@ -37,7 +37,9 @@ test "action registry exposes cross-protocol aliases for mobile primitives" {
     try std.testing.expectEqualStrings("ui.tap", tap.id);
     try std.testing.expectEqualStrings("tap", tap.json_aliases[0]);
     try std.testing.expectEqualStrings("ui.tap", tap.rpc_aliases[0]);
-    try std.testing.expectEqualStrings("tap", tap.mcp_aliases[0]);
+    // Actions are scenario steps now, not MCP tools, so the registry
+    // advertises no MCP alias for them. The parity test above enforces it.
+    try std.testing.expectEqual(@as(usize, 0), tap.mcp_aliases.len);
     try std.testing.expectEqual(action_registry.Mutability.mutating, tap.mutability);
     try std.testing.expectEqual(action_registry.RiskClass.medium, tap.risk_class);
     try std.testing.expect(!tap.deprecated);

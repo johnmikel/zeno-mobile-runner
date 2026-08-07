@@ -143,201 +143,29 @@ fn callTool(
         return;
     }
 
-    if (std.mem.eql(u8, tool_name, "install_app")) {
-        const path = try requiredParamString(arguments, "path");
-        try device.install(path);
-        if (live_trace) |tw| try rpc_trace.recordSimplePayload(tw, "app.install", "path", path);
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "launch_app")) {
-        var launch = try parseMcpLaunchOptions(allocator, arguments);
-        defer launch.deinit(allocator);
-        try runner.executeStep(allocator, device, .{ .launch_app = launch }, live_trace, .{});
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "stop_app")) {
-        try device.stop();
-        if (live_trace) |tw| try tw.recordEvent("app.stop", "{\"status\":\"ok\"}");
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "clear_state")) {
-        try device.clearState();
-        if (live_trace) |tw| try tw.recordEvent("app.clearState", "{\"status\":\"ok\"}");
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "clear_keychain")) {
-        try device.clearKeychain();
-        if (live_trace) |tw| try tw.recordEvent("app.clearKeychain", "{\"status\":\"ok\"}");
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "tap")) {
-        const wanted = try parseArgumentsSelector(allocator, arguments);
-        defer wanted.deinit(allocator);
-        try runner.tapSelector(device, wanted, live_trace, .{});
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "type")) {
-        const text = try requiredParamString(arguments, "text");
-        if (paramField(arguments, "selector")) |selector_value| {
-            const wanted = try selector.parseFromJson(allocator, selector_value);
-            defer wanted.deinit(allocator);
-            try runner.typeTextSelector(device, wanted, text, live_trace, .{});
-        } else {
-            try device.typeText(text);
-            if (live_trace) |tw| try rpc_trace.recordSimplePayload(tw, "ui.type", "text", text);
-        }
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "swipe")) {
-        const x1 = try params_parser.requiredI32(arguments, "x1");
-        const y1 = try params_parser.requiredI32(arguments, "y1");
-        const x2 = try params_parser.requiredI32(arguments, "x2");
-        const y2 = try params_parser.requiredI32(arguments, "y2");
-        const duration_ms = @as(u32, @intCast(try optionalParamU64(arguments, "durationMs", 300)));
-        try device.swipe(x1, y1, x2, y2, duration_ms);
-        if (live_trace) |tw| try runner_events.recordSwipe(tw, x1, y1, x2, y2, duration_ms);
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "hide_keyboard")) {
-        try device.hideKeyboard();
-        if (live_trace) |tw| try tw.recordEvent("ui.hideKeyboard", "{\"status\":\"ok\"}");
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "erase_text")) {
-        const max_chars = @as(u32, @intCast(try optionalParamU64(arguments, "maxChars", 80)));
-        if (paramField(arguments, "selector")) |selector_value| {
-            const wanted = try selector.parseFromJson(allocator, selector_value);
-            defer wanted.deinit(allocator);
-            try runner.eraseTextSelector(device, wanted, max_chars, live_trace, .{});
-        } else {
-            try device.eraseText(max_chars);
-            if (live_trace) |tw| {
-                const payload = try std.fmt.allocPrint(tw.allocator, "{{\"maxChars\":{d}}}", .{max_chars});
-                defer tw.allocator.free(payload);
-                try tw.recordEvent("ui.eraseText", payload);
-            }
-        }
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "press_back")) {
-        try device.pressBack();
-        if (live_trace) |tw| try tw.recordEvent("ui.pressBack", "{\"status\":\"ok\"}");
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "open_link")) {
-        const url = try requiredParamString(arguments, "url");
-        try device.openLink(url);
-        if (live_trace) |tw| try runner_events.recordActionStatus(tw, "app.openLink", "ok", null, url);
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "wait_visible")) {
-        const wanted = try parseArgumentsSelector(allocator, arguments);
-        defer wanted.deinit(allocator);
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
-        const visible = try runner.waitUntilVisible(device, wanted, timeout_ms, live_trace, .{});
-        try writeVisibleToolResult(writer, id, visible);
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "wait_not_visible")) {
-        const wanted = try parseArgumentsSelector(allocator, arguments);
-        defer wanted.deinit(allocator);
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
-        const gone = try runner.waitUntilNotVisible(device, wanted, timeout_ms, live_trace, .{});
-        try writeVisibleToolResult(writer, id, !gone);
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "wait_any")) {
-        const selectors = try params_parser.selectors(allocator, arguments);
-        defer {
-            for (selectors) |wanted| wanted.deinit(allocator);
-            allocator.free(selectors);
-        }
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
-        const matched = try runner.waitUntilAnyVisible(device, selectors, timeout_ms, live_trace, .{});
-        try writeMatchedIndexToolResult(allocator, writer, id, matched);
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "scroll_until_visible")) {
-        const wanted = try parseArgumentsSelector(allocator, arguments);
-        defer wanted.deinit(allocator);
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
-        const visible = try runner.scrollUntilVisible(
-            device,
-            wanted,
-            timeout_ms,
-            try params_parser.optionalDirection(arguments, "direction", .down),
-            live_trace,
-            .{},
-        );
-        try writeVisibleToolResult(writer, id, visible);
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "assert_visible")) {
-        const wanted = try parseArgumentsSelector(allocator, arguments);
-        defer wanted.deinit(allocator);
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
-        if (!try runner.assertVisible(device, wanted, timeout_ms, live_trace, .{})) return error.AssertionFailed;
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "assert_not_visible")) {
-        const wanted = try parseArgumentsSelector(allocator, arguments);
-        defer wanted.deinit(allocator);
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 5000);
-        if (!try runner.assertNotVisible(device, wanted, timeout_ms, live_trace, .{})) return error.AssertionFailed;
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "assert_healthy")) {
-        const timeout_ms = try optionalParamU64(arguments, "timeoutMs", 0);
-        if (!try runner.assertHealthy(device, timeout_ms, live_trace, .{})) return error.AssertionFailed;
-        try mcp_protocol.writeToolTextResult(writer, id, "{\"ok\":true}");
+    if (std.mem.eql(u8, tool_name, "run_scenario")) {
+        try runScenarioTool(allocator, device, arguments, id, writer, live_trace);
         return;
     }
 
     if (std.mem.eql(u8, tool_name, "scenario_validate")) {
-        const path = try requiredParamString(arguments, "path");
-        var result = try validation.validateFile(allocator, path);
+        if (optionalParamString(arguments, "path")) |path| {
+            var result = try validation.validateFile(allocator, path);
+            defer result.deinit(allocator);
+            var payload: std.Io.Writer.Allocating = .init(allocator);
+            defer payload.deinit();
+            try cli_output.writeValidationJson(&payload.writer, path, result);
+            try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
+            return;
+        }
+        const inline_json = try inlineScenarioJson(allocator, arguments);
+        defer allocator.free(inline_json);
+        var result = try validation.validateSlice(allocator, inline_json);
         defer result.deinit(allocator);
         var payload: std.Io.Writer.Allocating = .init(allocator);
         defer payload.deinit();
-        try cli_output.writeValidationJson(&payload.writer, path, result);
+        try cli_output.writeValidationJson(&payload.writer, "<inline>", result);
         try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "trace_events")) {
-        try mcp_trace.writeEventsToolResult(allocator, writer, id, live_trace, try optionalParamU64(arguments, "afterSeq", 0), @min(try optionalParamU64(arguments, "limit", 100), 1000));
         return;
     }
 
@@ -348,23 +176,6 @@ fn callTool(
             id,
             live_trace,
             try requiredParamString(arguments, "out"),
-            try optionalParamBool(arguments, "includeActions", false),
-            try optionalParamBool(arguments, "validate", false),
-            try optionalParamBool(arguments, "force", false),
-            optionalParamString(arguments, "name"),
-            optionalParamString(arguments, "appId"),
-        );
-        return;
-    }
-
-    if (std.mem.eql(u8, tool_name, "trace_explore")) {
-        try mcp_trace.writeExploreToolResult(
-            allocator,
-            writer,
-            id,
-            live_trace,
-            try requiredParamString(arguments, "out"),
-            try requiredParamString(arguments, "goal"),
             try optionalParamBool(arguments, "includeActions", false),
             try optionalParamBool(arguments, "validate", false),
             try optionalParamBool(arguments, "force", false),
@@ -388,6 +199,76 @@ fn callTool(
     }
 
     try mcp_protocol.writeError(writer, id, -32602, "unknown tool");
+}
+
+/// Re-serialize an inline `scenario` argument so the ordinary scenario parser
+/// sees exactly the bytes a committed `.zmr/*.json` would contain. Keeping one
+/// parser means an inline scenario and a committed one cannot diverge.
+fn inlineScenarioJson(allocator: std.mem.Allocator, arguments: ?std.json.Value) ![]u8 {
+    const value = paramField(arguments, "scenario") orelse return error.MissingScenarioPath;
+    if (value != .object) return error.ScenarioMustBeObject;
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    errdefer payload.deinit();
+    try std.json.Stringify.value(value, .{}, &payload.writer);
+    return try payload.toOwnedSlice();
+}
+
+/// The whole point of the collapsed surface: one call runs a scenario end to
+/// end and answers with a verdict plus the evidence to check it, instead of an
+/// agent replaying twenty single-action calls and keeping a transcript.
+fn runScenarioTool(
+    allocator: std.mem.Allocator,
+    device: anytype,
+    arguments: ?std.json.Value,
+    id: ?std.json.Value,
+    writer: anytype,
+    live_trace: ?*trace.TraceWriter,
+) !void {
+    const has_path = optionalParamString(arguments, "path") != null;
+    const has_inline = paramField(arguments, "scenario") != null;
+    if (has_path and has_inline) return error.ConflictingScenarioSources;
+
+    var script = if (optionalParamString(arguments, "path")) |path|
+        try scenario.parseFile(allocator, path)
+    else blk: {
+        const json = try inlineScenarioJson(allocator, arguments);
+        defer allocator.free(json);
+        break :blk try scenario.parseSlice(allocator, json);
+    };
+    defer script.deinit(allocator);
+
+    var failure: ?anyerror = null;
+    runner.runScenario(allocator, device, script, live_trace, .{}) catch |err| {
+        failure = err;
+    };
+
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    try payload.writer.writeAll("{\"status\":");
+    try trace.writeJsonString(&payload.writer, if (failure == null) "passed" else "failed");
+    try payload.writer.writeAll(",\"name\":");
+    try trace.writeJsonString(&payload.writer, script.name);
+    try payload.writer.print(",\"stepCount\":{d}", .{script.steps.len});
+    if (failure) |err| {
+        const classified = errors.classify(err);
+        try payload.writer.writeAll(",\"error\":");
+        try trace.writeJsonString(&payload.writer, classified.code);
+        try payload.writer.writeAll(",\"message\":");
+        try trace.writeJsonString(&payload.writer, classified.message);
+    }
+    if (live_trace) |tw| {
+        try payload.writer.writeAll(",\"traceDir\":");
+        try trace.writeJsonString(&payload.writer, tw.root_dir);
+        try payload.writer.print(",\"eventCount\":{d}", .{tw.event_count});
+    }
+    try payload.writer.writeAll(",\"nextCommands\":[");
+    if (failure == null) {
+        try payload.writer.writeAll("\"trace_export\"");
+    } else {
+        try payload.writer.writeAll("\"trace_explain\"");
+    }
+    try payload.writer.writeAll("]}");
+    try mcp_protocol.writeToolTextResult(writer, id, payload.writer.buffered());
 }
 
 fn writeVisibleToolResult(writer: anytype, id: ?std.json.Value, visible: bool) !void {
@@ -502,7 +383,36 @@ fn optionalParamBool(params: ?std.json.Value, key: []const u8, default_value: bo
     };
 }
 
-test "mcp launch_app accepts typed options and preserves trace metadata" {
+test "run_scenario executes an inline scenario and answers with a verdict" {
+    const fake_device = @import("fake_device.zig");
+    const allocator = std.testing.allocator;
+    var device = fake_device.FakeDevice.init(allocator, &.{});
+    defer device.deinit();
+
+    // The whole point of the collapsed surface: the agent hands over a
+    // scenario, not a sequence of taps, and the scenario it hands over is
+    // byte-for-byte what it can commit to .zmr/.
+    const parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        \\{"scenario":{"name":"inline smoke","appId":"com.example.mobiletest","steps":[{"action":"launch"},{"action":"stop"}]}}
+    ,
+        .{},
+    );
+    defer parsed.deinit();
+
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    try callTool(allocator, &device, "run_scenario", parsed.value, .{ .integer = 1 }, &output.writer, null);
+
+    const written = output.written();
+    try std.testing.expect(std.mem.indexOf(u8, written, "passed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "inline smoke") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "trace_export") != null);
+    try std.testing.expect(device.launched);
+}
+
+test "run_scenario refuses two scenario sources at once" {
     const fake_device = @import("fake_device.zig");
     const allocator = std.testing.allocator;
     var device = fake_device.FakeDevice.init(allocator, &.{});
@@ -511,20 +421,18 @@ test "mcp launch_app accepts typed options and preserves trace metadata" {
     const parsed = try std.json.parseFromSlice(
         std.json.Value,
         allocator,
-        "{\"appId\":\"com.example.other\",\"stopApp\":false,\"clearState\":true,\"clearKeychain\":true,\"arguments\":{\"flag\":true,\"count\":3,\"ratio\":1.5,\"name\":\"demo\"}}",
+        \\{"path":"a.json","scenario":{"name":"n","steps":[{"action":"launch"}]}}
+    ,
         .{},
     );
     defer parsed.deinit();
 
     var output: std.Io.Writer.Allocating = .init(allocator);
     defer output.deinit();
-    try callTool(allocator, &device, "launch_app", parsed.value, .{ .integer = 1 }, &output.writer, null);
-
-    try std.testing.expect(device.launched);
-    try std.testing.expect(!device.stopped);
-    try std.testing.expect(device.cleared);
-    try std.testing.expect(device.cleared_keychain);
-    try std.testing.expectEqual(@as(usize, 4), device.launch_argument_count);
-    try std.testing.expectEqualStrings("com.example.other", device.launch_app_id.?);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\\\"ok\\\":true") != null);
+    // Ambiguity here would leave the agent unsure which scenario ran, and the
+    // evidence would describe one while the agent reasoned about the other.
+    try std.testing.expectError(
+        error.ConflictingScenarioSources,
+        callTool(allocator, &device, "run_scenario", parsed.value, .{ .integer = 1 }, &output.writer, null),
+    );
 }

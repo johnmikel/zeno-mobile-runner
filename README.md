@@ -212,17 +212,22 @@ Or wire it into an `.mcp.json` / MCP client config:
 ```
 
 Then ask the agent to verify its own work: *"launch the app, walk through
-onboarding, and show me the trace."* The MCP server exposes the full loop as
-27 mobile-native tools:
+onboarding, and show me the trace."* The MCP server exposes seven tools, built
+around one executor rather than one tool per tap:
 
 | Group | Tools |
 | --- | --- |
 | Observe | `snapshot`, `semantic_snapshot` |
-| App lifecycle | `install_app`, `launch_app`, `stop_app`, `clear_state`, `clear_keychain`, `open_link` |
-| Act | `tap`, `type`, `erase_text`, `hide_keyboard`, `swipe`, `press_back` |
-| Wait | `wait_visible`, `wait_not_visible`, `wait_any`, `scroll_until_visible` |
-| Assert | `assert_visible`, `assert_not_visible`, `assert_healthy` |
-| Evidence | `trace_events`, `trace_explain`, `trace_discover`, `trace_explore`, `trace_export`, `scenario_validate` |
+| Run | `run_scenario`, `scenario_validate` |
+| Evidence | `trace_explain`, `trace_discover`, `trace_export` |
+
+Actions — launch, tap, type, swipe, waits, assertions — are steps inside a
+scenario, not separate tools. An agent driving a device one call per tap spends
+a round-trip and a slice of its context on every step, and what it leaves behind
+is a chat transcript. `run_scenario` takes the whole scenario in one call,
+validates it, runs it, and answers with a typed verdict plus the trace and
+evidence digest — and the scenario it ran is the same JSON you commit to
+`.zmr/`, so CI replays exactly that check with no model in the loop.
 
 ## Agent Verification Loop
 

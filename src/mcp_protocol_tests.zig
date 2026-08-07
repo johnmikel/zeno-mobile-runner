@@ -15,37 +15,78 @@ test "mcp protocol writes initialize and tool list responses" {
     defer tools.deinit();
     try mcp_protocol.writeToolListResult(&tools.writer, .{ .integer = 2 });
 
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"semantic_snapshot\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"install_app\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"launch_app\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"appId\":{\"type\":\"string\"}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"arguments\":{\"type\":\"object\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"stop_app\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"clear_state\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"clear_keychain\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"tap\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"type\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"swipe\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"hide_keyboard\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"erase_text\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"scroll_until_visible\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"wait_visible\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"wait_not_visible\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"wait_any\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"assert_visible\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"assert_not_visible\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"assert_healthy\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"scenario_validate\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"trace_explain\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"trace_explore\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"trace_discover\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"trace_export\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"goal\":{\"type\":\"string\"}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"inputSchema\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"selector\":{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"stableId\":{\"type\":\"string\"}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"selectors\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"minProperties\":1") != null);
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, tools.written(), "\n"));
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"inputSchema\"") != null);
+}
+
+// An agent that has to send one tool call per tap burns a round-trip and a
+// slice of its context on every step, and what it leaves behind is a
+// transcript rather than a committed scenario. The surface is deliberately
+// small: observe, run a whole scenario, explain a failure. Every per-action
+// tool that used to live here is a scenario step instead.
+const expected_tools = [_][]const u8{
+    "snapshot",
+    "semantic_snapshot",
+    "run_scenario",
+    "scenario_validate",
+    "trace_explain",
+    "trace_discover",
+    "trace_export",
+};
+
+const removed_tools = [_][]const u8{
+    "install_app",   "launch_app",     "stop_app",             "clear_state",    "clear_keychain",
+    "open_link",     "tap",            "type",                 "erase_text",     "hide_keyboard",
+    "swipe",         "press_back",     "scroll_until_visible", "wait_visible",   "wait_not_visible",
+    "wait_any",      "assert_visible", "assert_not_visible",   "assert_healthy", "trace_events",
+    "trace_explore",
+};
+
+test "mcp exposes exactly the collapsed agent surface" {
+    var tools = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer tools.deinit();
+    try mcp_protocol.writeToolListResult(&tools.writer, .{ .integer = 2 });
+    const payload = tools.written();
+
+    for (expected_tools) |name| {
+        const needle = try std.fmt.allocPrint(std.testing.allocator, "\"name\":\"{s}\"", .{name});
+        defer std.testing.allocator.free(needle);
+        if (std.mem.indexOf(u8, payload, needle) == null) {
+            std.debug.print("missing expected tool: {s}\n", .{name});
+            return error.MissingExpectedTool;
+        }
+    }
+
+    for (removed_tools) |name| {
+        const needle = try std.fmt.allocPrint(std.testing.allocator, "\"name\":\"{s}\"", .{name});
+        defer std.testing.allocator.free(needle);
+        if (std.mem.indexOf(u8, payload, needle) != null) {
+            std.debug.print("per-action tool still exposed: {s}\n", .{name});
+            return error.RemovedToolStillExposed;
+        }
+    }
+
+    // Nothing beyond the declared set: count tool objects, not just presence.
+    try std.testing.expectEqual(expected_tools.len, std.mem.count(u8, payload, "\"inputSchema\""));
+}
+
+test "run_scenario accepts an inline scenario and reports evidence" {
+    var tools = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer tools.deinit();
+    try mcp_protocol.writeToolListResult(&tools.writer, .{ .integer = 2 });
+    const payload = tools.written();
+
+    const run = std.mem.indexOf(u8, payload, "\"name\":\"run_scenario\"") orelse
+        return error.MissingRunScenarioTool;
+    const rest = payload[run..];
+    const schema_end = std.mem.indexOf(u8, rest[1..], "{\"name\":\"") orelse rest.len - 1;
+    const tool = rest[0 .. schema_end + 1];
+
+    // Exactly one source of the scenario, so an agent cannot pass two and
+    // wonder which won.
+    try std.testing.expect(std.mem.indexOf(u8, tool, "\"scenario\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tool, "\"path\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tool, "\"oneOf\"") != null);
 }
 
 test "mcp protocol writes text results and public errors" {

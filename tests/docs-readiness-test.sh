@@ -164,22 +164,12 @@ require_grep '^## Release evidence (mobile + web)$' README.md
 require_grep 'Zeno turns completed ZMR and Playwright runs into one open,' README.md
 require_grep 'docs/evidence-contract.md' README.md
 require_grep 'semantic_snapshot' README.md
-require_grep 'install_app' README.md
-require_grep 'launch_app' README.md
-require_grep 'stop_app' README.md
-require_grep 'clear_state' README.md
-require_grep 'erase_text' README.md
-require_grep 'hide_keyboard' README.md
-require_grep 'swipe' README.md
-require_grep 'wait_not_visible' README.md
-require_grep 'wait_any' README.md
-require_grep 'scroll_until_visible' README.md
-require_grep 'assert_visible' README.md
-require_grep 'assert_not_visible' README.md
-require_grep 'assert_healthy' README.md
+# The MCP surface is deliberately small: actions are scenario steps, not tools.
+# src/mcp_protocol_tests.zig pins the exact tool set; this only checks the README
+# documents the surface that actually exists.
+require_grep 'run_scenario' README.md
 require_grep 'trace_explain' README.md
 require_grep 'trace_discover' README.md
-require_grep 'trace_explore' README.md
 require_grep 'trace_export' README.md
 require_grep 'scenario_validate' README.md
 
@@ -379,19 +369,7 @@ require_grep 'AI Agent Guide' docs/ai-agents.md
 require_grep 'runner.capabilities' docs/ai-agents.md
 require_grep 'zmr mcp' docs/ai-agents.md
 require_grep 'semantic_snapshot' docs/ai-agents.md
-require_grep 'install_app' docs/ai-agents.md
-require_grep 'launch_app' docs/ai-agents.md
-require_grep 'stop_app' docs/ai-agents.md
-require_grep 'clear_state' docs/ai-agents.md
-require_grep 'erase_text' docs/ai-agents.md
-require_grep 'hide_keyboard' docs/ai-agents.md
-require_grep 'swipe' docs/ai-agents.md
-require_grep 'wait_not_visible' docs/ai-agents.md
-require_grep 'wait_any' docs/ai-agents.md
-require_grep 'scroll_until_visible' docs/ai-agents.md
-require_grep 'assert_visible' docs/ai-agents.md
-require_grep 'assert_not_visible' docs/ai-agents.md
-require_grep 'assert_healthy' docs/ai-agents.md
+require_grep 'run_scenario' docs/ai-agents.md
 require_grep 'scenario.validate' docs/ai-agents.md
 require_grep 'scenario_validate' docs/ai-agents.md
 require_grep 'trace.explain' docs/ai-agents.md
@@ -480,19 +458,8 @@ require_grep 'zmr run <scenario.json> --trace-dir <trace-dir> --discover-out' do
 require_grep '"replay":{"enabled":true' docs/protocol.md
 require_grep 'zmr draft --from-trace <trace-dir> --out <scenario.json> --json' docs/protocol.md
 require_grep 'zmr draft --include-actions' docs/protocol.md
-require_grep 'install_app' docs/protocol.md
-require_grep 'launch_app' docs/protocol.md
-require_grep 'stop_app' docs/protocol.md
-require_grep 'clear_state' docs/protocol.md
-require_grep 'erase_text' docs/protocol.md
-require_grep 'hide_keyboard' docs/protocol.md
+require_grep 'run_scenario' docs/protocol.md
 require_grep 'swipe' docs/protocol.md
-require_grep 'wait_not_visible' docs/protocol.md
-require_grep 'wait_any' docs/protocol.md
-require_grep 'scroll_until_visible' docs/protocol.md
-require_grep 'assert_visible' docs/protocol.md
-require_grep 'assert_not_visible' docs/protocol.md
-require_grep 'assert_healthy' docs/protocol.md
 require_grep 'selector/timeout-preserving `assertVisible` and `assertNotVisible`' docs/protocol.md
 require_grep '`assertNoneVisible` selector arrays plus timed `assertHealthy` checks' docs/protocol.md
 require_grep 'redacted from the trace are skipped' docs/protocol.md

@@ -24,35 +24,18 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run zmr");
     run_step.dependOn(&run_cmd.step);
 
+    // src/test_harness.zig imports every *_tests.zig file plus the inline
+    // tests, so this is the same full suite ci-gate.sh and release-gate.sh
+    // run via `zig test src/test_harness.zig`.
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("src/test_harness.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    const ios_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ios.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    const run_ios_tests = b.addRunArtifact(ios_tests);
-
-    const runner_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/runner.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    const run_runner_tests = b.addRunArtifact(runner_tests);
-
-    const test_step = b.step("test", "Run unit tests");
+    const test_step = b.step("test", "Run the full test suite");
     test_step.dependOn(&run_unit_tests.step);
-    test_step.dependOn(&run_ios_tests.step);
-    test_step.dependOn(&run_runner_tests.step);
 }

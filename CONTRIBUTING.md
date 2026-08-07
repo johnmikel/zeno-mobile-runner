@@ -20,7 +20,7 @@ bash tests/release-metadata-test.sh
 bash tests/homebrew-formula-test.sh
 node --test tests/viewer-parser.test.mjs tests/npm-package.test.mjs
 bash tests/public-safety-test.sh
-zig test src/main.zig -target aarch64-macos.15.0
+zig test src/test_harness.zig -target aarch64-macos.15.0
 ./scripts/coverage.sh
 ./scripts/build-release.sh
 ./scripts/release-smoke.sh dist/*.tar.gz

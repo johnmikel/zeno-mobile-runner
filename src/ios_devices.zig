@@ -5,7 +5,8 @@ const types = @import("types.zig");
 
 const default_max_output = 32 * 1024 * 1024;
 const simctl_retry_attempts = 6;
-const simctl_retry_delay_ms = 500;
+// Mutable so tests can zero it; production code never writes it.
+pub var simctl_retry_delay_ms: u64 = 500;
 
 pub fn listSimulators(allocator: std.mem.Allocator, xcrun_path: []const u8) ![]types.DeviceInfo {
     const result = try runSimctlCommand(allocator, xcrun_path, &.{ "list", "devices", "--json" }, 4 * 1024 * 1024);

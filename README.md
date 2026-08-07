@@ -293,6 +293,29 @@ device matrices, and baseline comparison, see
 repo are generic — gather your own app/device evidence before making performance
 claims.
 
+### Running a whole workspace
+
+`zmr test` runs every canonical scenario in a directory and writes one
+aggregate report, so a suite is a single CI step instead of a loop:
+
+```bash
+zmr test .zmr --workers 4 --retry 1 --output-dir traces/suite --json
+```
+
+It parallelises across workers, retries failures up to `--retry` times
+(recording every attempt separately), and can split work across CI machines
+with `--shard-split` (or run the full set on each with `--shard-all`). The
+aggregate report is covered by `schemas/test-report.schema.json`; `--dry-run`
+lists what would run without touching a device.
+
+`zmr record` prepares a trace workspace for a live agent session, then prints
+the follow-up commands that turn that session's evidence into a committed
+scenario:
+
+```bash
+zmr record --trace-dir traces/agent-session --json
+```
+
 ## Reference clients
 
 Thin JSON-RPC wrappers ship for **TypeScript, Python, Go, Rust, Swift, and

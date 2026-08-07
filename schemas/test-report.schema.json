@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zmr.dev/schemas/test-report.schema.json",
+  "title": "ZMR Workspace Test Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "workspace", "platform", "workers", "shardMode", "retry", "dryRun", "reportPath", "items"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "workspace": { "type": "string", "minLength": 1 },
+    "platform": { "enum": ["android", "ios"] },
+    "workers": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "shardMode": { "enum": ["none", "all", "split"] },
+    "retry": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "dryRun": { "type": "boolean" },
+    "reportPath": { "type": "string", "minLength": 1 },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "worker", "shard", "attemptLimit", "attempts", "status", "failureClass", "error", "artifactPath", "attemptRecords"],
+      "properties": {
+        "scenario": { "type": "string", "minLength": 1 },
+        "worker": { "type": "integer", "minimum": 0 },
+        "shard": { "type": "integer", "minimum": 0 },
+        "attemptLimit": { "type": "integer", "minimum": 1 },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "status": { "enum": ["planned", "passed", "failed"] },
+        "failureClass": { "type": "string", "minLength": 1 },
+        "error": { "type": ["string", "null"] },
+        "artifactPath": { "type": ["string", "null"] },
+        "attemptRecords": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["attemptId", "status", "failureClass", "error", "artifactPath"],
+            "properties": {
+              "attemptId": { "type": "integer", "minimum": 0 },
+              "status": { "enum": ["passed", "failed"] },
+              "failureClass": { "type": "string", "minLength": 1 },
+              "error": { "type": ["string", "null"] },
+              "artifactPath": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

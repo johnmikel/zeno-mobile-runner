@@ -108,6 +108,7 @@ const schema_registry = @import("schema_registry.zig");
 const schema_registry_tests = @import("schema_registry_tests.zig");
 const selector = @import("selector.zig");
 const selector_tests = @import("selector_tests.zig");
+const launch_options_tests = @import("launch_options_tests.zig");
 const semantic = @import("semantic.zig");
 const semantic_tests = @import("semantic_tests.zig");
 const trace = @import("trace.zig");
@@ -237,6 +238,7 @@ test {
     _ = schema_registry_tests;
     _ = selector;
     _ = selector_tests;
+    _ = launch_options_tests;
     _ = semantic;
     _ = semantic_tests;
     _ = trace;

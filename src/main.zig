@@ -178,7 +178,9 @@ fn usage() !void {
         \\  zmr serve --transport tcp [--port <port>] [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
         \\  zmr mcp [--config <path>] [--platform android|ios] [--ios-device-type simulator|physical] [--device <serial>] [--app-id <id>] [--trace-dir <path>] [--adb <path>] [--android-shim <path>] [--xcrun <path>] [--ios-shim <path>]
         \\
-        \\Scenario actions: launch, stop, clearState, openLink, tap, typeText,
+        \\Scenario actions: launch, stop, killApp, clearState, openLink, tap, longPressOn,
+        \\doubleTapOn, pressKey, typeText, grantPermissions, setOrientation,
+        \\setClipboard,
         \\eraseText, hideKeyboard, swipe, pressBack, waitVisible, waitNotVisible,
         \\waitAny, whenVisible, repeat, scrollUntilVisible, assertVisible,
         \\assertNotVisible, assertNoneVisible, assertHealthy, snapshot, sleep. Any step may use "optional": true.

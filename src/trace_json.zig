@@ -49,8 +49,8 @@ pub fn writeNodeJson(writer: anytype, node: types.UiNode) !void {
         .{ node.bounds.x, node.bounds.y, node.bounds.width, node.bounds.height },
     );
     try writer.print(
-        ",\"enabled\":{},\"visible\":{},\"selected\":{}",
-        .{ node.enabled, node.visible, node.selected },
+        ",\"enabled\":{},\"visible\":{},\"checked\":{},\"focused\":{},\"selected\":{}",
+        .{ node.enabled, node.visible, node.checked, node.focused, node.selected },
     );
     try writer.writeAll("}");
 }
@@ -96,13 +96,13 @@ fn writeNodeJsonRedacted(writer: anytype, node: types.UiNode, redaction: Redacti
         .{ node.bounds.x, node.bounds.y, node.bounds.width, node.bounds.height },
     );
     try writer.print(
-        ",\"enabled\":{},\"visible\":{},\"selected\":{}",
-        .{ node.enabled, node.visible, node.selected },
+        ",\"enabled\":{},\"visible\":{},\"checked\":{},\"focused\":{},\"selected\":{}",
+        .{ node.enabled, node.visible, node.checked, node.focused, node.selected },
     );
     try writer.writeAll("}");
 }
 
-pub fn writeSelectorJson(writer: anytype, wanted: selector.Selector) !void {
+pub fn writeSelectorJson(writer: anytype, wanted: selector.Selector) anyerror!void {
     try writer.writeAll("{");
     var first = true;
     if (wanted.id) |value| {
@@ -121,6 +121,10 @@ pub fn writeSelectorJson(writer: anytype, wanted: selector.Selector) !void {
         try jsonField(writer, "textContains", value, first);
         first = false;
     }
+    if (wanted.text_regex) |value| {
+        try jsonField(writer, "textRegex", value, first);
+        first = false;
+    }
     if (wanted.content_desc) |value| {
         try jsonField(writer, "contentDesc", value, first);
         first = false;
@@ -129,10 +133,79 @@ pub fn writeSelectorJson(writer: anytype, wanted: selector.Selector) !void {
         try jsonField(writer, "contentDescContains", value, first);
         first = false;
     }
+    if (wanted.content_desc_regex) |value| {
+        try jsonField(writer, "contentDescRegex", value, first);
+        first = false;
+    }
     if (wanted.class_name) |value| {
         try jsonField(writer, "className", value, first);
+        first = false;
+    }
+    if (wanted.index) |value| {
+        try jsonNumberField(writer, "index", value, first);
+        first = false;
+    }
+    if (wanted.point) |value| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+        try writer.print("\"point\":{{\"x\":{d},\"y\":{d}}}", .{ value.x, value.y });
+    }
+    if (wanted.enabled) |value| {
+        try jsonBoolField(writer, "enabled", value, first);
+        first = false;
+    }
+    if (wanted.checked) |value| {
+        try jsonBoolField(writer, "checked", value, first);
+        first = false;
+    }
+    if (wanted.focused) |value| {
+        try jsonBoolField(writer, "focused", value, first);
+        first = false;
+    }
+    if (wanted.selected) |value| {
+        try jsonBoolField(writer, "selected", value, first);
+        first = false;
+    }
+    if (wanted.above) |value| {
+        try jsonSelectorField(writer, "above", value, first);
+        first = false;
+    }
+    if (wanted.below) |value| {
+        try jsonSelectorField(writer, "below", value, first);
+        first = false;
+    }
+    if (wanted.left) |value| {
+        try jsonSelectorField(writer, "leftOf", value, first);
+        first = false;
+    }
+    if (wanted.right) |value| {
+        try jsonSelectorField(writer, "rightOf", value, first);
+        first = false;
+    }
+    if (wanted.child) |value| {
+        try jsonSelectorField(writer, "child", value, first);
+        first = false;
+    }
+    if (wanted.descendant) |value| {
+        try jsonSelectorField(writer, "descendant", value, first);
     }
     try writer.writeAll("}");
+}
+
+fn jsonNumberField(writer: anytype, key: []const u8, value: anytype, first: bool) !void {
+    if (!first) try writer.writeAll(",");
+    try writer.print("\"{s}\":{d}", .{ key, value });
+}
+
+fn jsonBoolField(writer: anytype, key: []const u8, value: bool, first: bool) !void {
+    if (!first) try writer.writeAll(",");
+    try writer.print("\"{s}\":{}", .{ key, value });
+}
+
+fn jsonSelectorField(writer: anytype, key: []const u8, value: *const selector.Selector, first: bool) anyerror!void {
+    if (!first) try writer.writeAll(",");
+    try writer.print("\"{s}\":", .{key});
+    try writeSelectorJson(writer, value.*);
 }
 
 fn jsonField(writer: anytype, key: []const u8, value: []const u8, first: bool) !void {

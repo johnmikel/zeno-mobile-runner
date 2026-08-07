@@ -1,5 +1,6 @@
 const std = @import("std");
 const android_shell = @import("android_shell.zig");
+const scenario = @import("scenario.zig");
 
 test "android shell helpers build escaped open link intent args" {
     var args = try android_shell.openLinkIntent(
@@ -56,4 +57,33 @@ test "android shell helpers build erase and back key args" {
     try std.testing.expectEqualStrings("input", back.items()[1]);
     try std.testing.expectEqualStrings("keyevent", back.items()[2]);
     try std.testing.expectEqualStrings("BACK", back.items()[3]);
+}
+
+test "android shell press key keeps the key as an argument" {
+    var args = try android_shell.pressKey(std.testing.allocator, "ENTER");
+    defer args.deinit();
+    try std.testing.expectEqualStrings("keyevent", args.items()[2]);
+    try std.testing.expectEqualStrings("ENTER", args.items()[3]);
+}
+
+test "android shell builds typed launch extras" {
+    const arguments = [_]scenario.LaunchArgument{
+        .{ .name = "foo", .value = .{ .string = "hello world" } },
+        .{ .name = "enabled", .value = .{ .boolean = true } },
+        .{ .name = "count", .value = .{ .integer = 3 } },
+        .{ .name = "ratio", .value = .{ .double = 3.25 } },
+    };
+    var args = try android_shell.launchWithArguments(std.testing.allocator, "com.example/.MainActivity", arguments[0..]);
+    defer args.deinit();
+
+    try std.testing.expectEqualStrings("shell", args.items()[0]);
+    try std.testing.expectEqualStrings("-W", args.items()[3]);
+    try std.testing.expectEqualStrings("-n", args.items()[4]);
+    try std.testing.expectEqualStrings("com.example/.MainActivity", args.items()[5]);
+    try std.testing.expectEqualStrings("--es", args.items()[6]);
+    try std.testing.expectEqualStrings("'foo'", args.items()[7]);
+    try std.testing.expectEqualStrings("'hello world'", args.items()[8]);
+    try std.testing.expectEqualStrings("--ez", args.items()[9]);
+    try std.testing.expectEqualStrings("'enabled'", args.items()[10]);
+    try std.testing.expectEqualStrings("true", args.items()[11]);
 }

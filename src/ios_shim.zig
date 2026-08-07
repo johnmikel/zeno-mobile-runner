@@ -13,6 +13,8 @@ pub const CommandKind = enum {
     hide_keyboard,
     swipe,
     press_back,
+    set_clipboard,
+    set_orientation,
     app_state,
     settle,
     accept_system_alert,
@@ -127,6 +129,8 @@ pub fn parseSnapshotResponse(allocator: std.mem.Allocator, content: []const u8) 
             },
             .enabled = boolField(object, "enabled", true),
             .visible = boolField(object, "visible", true),
+            .checked = boolField(object, "checked", false),
+            .focused = boolField(object, "focused", false),
             .selected = boolField(object, "selected", false),
         });
     }
@@ -301,6 +305,8 @@ fn commandName(kind: CommandKind) []const u8 {
         .hide_keyboard => "hideKeyboard",
         .swipe => "swipe",
         .press_back => "pressBack",
+        .set_clipboard => "setClipboard",
+        .set_orientation => "setOrientation",
         .app_state => "appState",
         .settle => "settle",
         .accept_system_alert => "acceptSystemAlert",

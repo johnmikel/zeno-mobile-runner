@@ -37,6 +37,21 @@ Treat `stableId` as a live-session fallback: it can unblock immediate agent
 actions, but committed CI scenarios should prefer app-owned selectors because UI
 tree shape and fallback IDs can change as layouts evolve.
 
+Beyond the identity fields above, selectors can narrow a match with:
+
+- State fields: `enabled`, `checked`, `focused`, `selected` (booleans).
+- `index` to pick the nth node when several match.
+- Bounded-regex fields: `textRegex`, `contentDescRegex` — a deterministic
+  subset supporting literals, `.`, `*`, `^`, `$`, and backslash escapes.
+  Unsupported constructs simply produce no match; they never fall back to
+  substring matching.
+- Relational anchors: `above`, `below`, `leftOf`, `rightOf` (spatial), and
+  `child` / `descendant` (hierarchy), each taking a nested selector for the
+  anchor node.
+
+Use relational anchors sparingly in committed scenarios — they encode layout,
+which changes more often than app-owned identifiers do.
+
 ## Waits And Assertions
 
 Use a wait before actions that depend on navigation, network, or app state:
@@ -104,6 +119,42 @@ best-effort and then uses emulator geolocation.
 
 `assertVisible` and `assertNotVisible` accept the same `timeoutMs` field as
 waits when a scenario needs assertion-specific timing.
+
+## Device And App Control Actions
+
+Beyond the core lifecycle steps, scenarios can drive device and app state
+directly:
+
+- `killApp` (alias `forceStop`) — force-stop without clearing state.
+- `clearKeychain` — reset iOS keychain entries for the target app (no-op
+  driver-side on Android).
+- `grantPermissions` — grant runtime permissions up front:
+  `{ "action": "grantPermissions", "permissions": ["android.permission.CAMERA"] }`.
+- `setOrientation` — `portrait` or `landscape`.
+- `setClipboard` (alias `copyText`) — seed the clipboard before a paste flow.
+- `launch` accepts typed `arguments` (string, number, or boolean values) passed
+  to the app process on both platforms.
+
+## Gestures And Keys
+
+- `longPress` / `longPressOn` — long-press a selector target.
+- `doubleTap` / `doubleTapOn` — double-tap a selector target.
+- `pressKey` — send a named key (for example `enter`, `back`, `home`).
+
+## Flow Composition
+
+- `whenVisible` / `whenNotVisible` — run a nested block only if a selector is
+  (not) on screen.
+- `retry` — retry a nested block up to `times` attempts.
+- `repeat` — run a nested block a fixed number of times.
+- `runFlow` — inline the steps of another scenario file by path; nesting depth
+  is bounded so cycles fail validation instead of recursing forever.
+- `sleep` (alias `waitForAnimationToEnd`) — prefer explicit waits; reserve
+  sleeps for animation settling.
+
+The scenario root also accepts reserved metadata fields — `env`, `constants`,
+`labels`, and `source` — which validate against the schema but are not yet
+interpreted by the runner. Treat them as annotations for tooling.
 
 ## Example Templates
 

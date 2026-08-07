@@ -1,5 +1,6 @@
 const std = @import("std");
 const command = @import("command.zig");
+const scenario = @import("scenario.zig");
 
 pub const Args = struct {
     allocator: std.mem.Allocator,
@@ -54,6 +55,44 @@ pub fn openLinkIntent(allocator: std.mem.Allocator, url: []const u8, app_id: []c
     return args;
 }
 
+pub fn launchWithArguments(
+    allocator: std.mem.Allocator,
+    activity: []const u8,
+    arguments: []const scenario.LaunchArgument,
+) !Args {
+    var args = initArgs(allocator);
+    errdefer args.deinit();
+
+    try args.appendLiteral("shell");
+    try args.appendLiteral("am");
+    try args.appendLiteral("start");
+    try args.appendLiteral("-W");
+    try args.appendLiteral("-n");
+    try args.appendLiteral(activity);
+    for (arguments) |argument| {
+        const flag = switch (argument.value) {
+            .string => "--es",
+            .boolean => "--ez",
+            .integer => "--el",
+            .double => "--ef",
+        };
+        try args.appendLiteral(flag);
+        try appendShellValue(&args, argument.name);
+        switch (argument.value) {
+            .string => |value| try appendShellValue(&args, value),
+            .boolean => |value| try args.appendLiteral(if (value) "true" else "false"),
+            .integer => |value| try args.appendFmt("{d}", .{value}),
+            .double => |value| try args.appendFmt("{d}", .{value}),
+        }
+    }
+    return args;
+}
+
+fn appendShellValue(args: *Args, value: []const u8) !void {
+    const escaped = try command.escapeAdbShellArg(args.allocator, value);
+    try args.appendOwned(escaped);
+}
+
 pub fn tap(allocator: std.mem.Allocator, x: i32, y: i32) !Args {
     var args = initArgs(allocator);
     errdefer args.deinit();
@@ -94,6 +133,17 @@ pub fn pressBack(allocator: std.mem.Allocator) !Args {
     try args.appendLiteral("input");
     try args.appendLiteral("keyevent");
     try args.appendLiteral("BACK");
+    return args;
+}
+
+pub fn pressKey(allocator: std.mem.Allocator, key: []const u8) !Args {
+    if (key.len == 0) return error.UnsupportedDeviceCapability;
+    var args = initArgs(allocator);
+    errdefer args.deinit();
+    try args.appendLiteral("shell");
+    try args.appendLiteral("input");
+    try args.appendLiteral("keyevent");
+    try args.appendLiteral(key);
     return args;
 }
 

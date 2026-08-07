@@ -93,6 +93,46 @@ test "tap retries through transient empty snapshots" {
     try std.testing.expectEqual(@as(usize, 1), fake.taps);
 }
 
+test "gesture selectors execute long press and double tap with deterministic coordinates" {
+    const fake_device = @import("fake_device.zig");
+    const allocator = std.testing.allocator;
+    var snapshots = std.ArrayList(types.ObservationSnapshot).empty;
+    defer {
+        for (snapshots.items) |snap| snap.deinit(allocator);
+        snapshots.deinit(allocator);
+    }
+    try appendTextSnapshot(allocator, &snapshots, "gesture", "More", .{ .width = 1080, .height = 2400 });
+
+    var fake = fake_device.FakeDevice.init(allocator, snapshots.items);
+    defer fake.deinit();
+    try runner.executeStep(allocator, &fake, .{ .long_press = .{
+        .selector = .{ .text = "More" },
+        .duration_ms = 1200,
+    } }, null, .{ .settle_ms = 0, .poll_ms = 0, .action_timeout_ms = 100 });
+    try runner.executeStep(allocator, &fake, .{ .double_tap = .{ .text = "More" } }, null, .{ .settle_ms = 0, .poll_ms = 0, .action_timeout_ms = 100 });
+    try runner.executeStep(allocator, &fake, .{ .press_key = "ENTER" }, null, .{ .settle_ms = 0, .poll_ms = 0 });
+    try std.testing.expectEqual(@as(usize, 1), fake.swipes);
+    try std.testing.expectEqual(@as(u32, 1200), fake.last_swipe.?.duration_ms);
+    try std.testing.expectEqual(@as(usize, 2), fake.taps);
+    try std.testing.expectEqualStrings("ENTER", fake.pressed_keys.items[0]);
+}
+
+test "runner applies permissions orientation and clipboard state" {
+    const fake_device = @import("fake_device.zig");
+    const allocator = std.testing.allocator;
+    const snapshots = try allocator.alloc(types.ObservationSnapshot, 0);
+    defer allocator.free(snapshots);
+    var fake = fake_device.FakeDevice.init(allocator, snapshots);
+    defer fake.deinit();
+    var permissions = [_][]const u8{ "android.permission.CAMERA", "android.permission.ACCESS_FINE_LOCATION" };
+    try runner.executeStep(allocator, &fake, .{ .grant_permissions = permissions[0..] }, null, .{ .settle_ms = 0 });
+    try runner.executeStep(allocator, &fake, .{ .set_orientation = .landscape }, null, .{ .settle_ms = 0 });
+    try runner.executeStep(allocator, &fake, .{ .set_clipboard = "copied" }, null, .{ .settle_ms = 0 });
+    try std.testing.expectEqual(@as(usize, 2), fake.granted_permissions.items.len);
+    try std.testing.expectEqual(scenario.Orientation.landscape, fake.current_orientation);
+    try std.testing.expectEqualStrings("copied", fake.clipboard.?);
+}
+
 test "runner uses native selector actions when a device exposes them" {
     const allocator = std.testing.allocator;
     const dir = "zig-cache-test-runner-native-selector-actions";

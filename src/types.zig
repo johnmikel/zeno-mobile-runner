@@ -31,7 +31,10 @@ pub const UiNode = struct {
     bounds: Bounds = .{},
     enabled: bool = true,
     visible: bool = true,
+    checked: bool = false,
+    focused: bool = false,
     selected: bool = false,
+    parent_stable_id: ?[]const u8 = null,
 
     pub fn deinit(self: UiNode, allocator: Allocator) void {
         allocator.free(self.stable_id);
@@ -39,6 +42,7 @@ pub const UiNode = struct {
         if (self.resource_id) |value| allocator.free(value);
         if (self.text) |value| allocator.free(value);
         if (self.content_desc) |value| allocator.free(value);
+        if (self.parent_stable_id) |value| allocator.free(value);
     }
 };
 

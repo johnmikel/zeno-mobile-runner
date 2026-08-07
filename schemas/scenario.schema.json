@@ -8,6 +8,28 @@
   "properties": {
     "name": { "type": "string", "minLength": 1 },
     "appId": { "type": "string", "minLength": 1 },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "constants": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "source": { "$ref": "#/$defs/source" },
+    "onStart": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "onComplete": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    },
     "steps": {
       "type": "array",
       "minItems": 1,
@@ -25,9 +47,33 @@
         "stableId": { "type": "string" },
         "text": { "type": "string" },
         "textContains": { "type": "string" },
+        "textRegex": { "type": "string" },
         "contentDesc": { "type": "string" },
         "contentDescContains": { "type": "string" },
-        "className": { "type": "string" }
+        "contentDescRegex": { "type": "string" },
+        "className": { "type": "string" },
+        "index": { "type": "integer", "minimum": 0 },
+        "point": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "type": "integer" },
+            "y": { "type": "integer" }
+          }
+        },
+        "enabled": { "type": "boolean" },
+        "checked": { "type": "boolean" },
+        "focused": { "type": "boolean" },
+        "selected": { "type": "boolean" },
+        "above": { "$ref": "#/$defs/selector" },
+        "below": { "$ref": "#/$defs/selector" },
+        "leftOf": { "$ref": "#/$defs/selector" },
+        "rightOf": { "$ref": "#/$defs/selector" },
+        "left": { "$ref": "#/$defs/selector" },
+        "right": { "$ref": "#/$defs/selector" },
+        "child": { "$ref": "#/$defs/selector" },
+        "descendant": { "$ref": "#/$defs/selector" }
       }
     },
     "step": {
@@ -38,19 +84,39 @@
         "action": {
           "enum": [
             "launch",
+            "launchApp",
             "stop",
+            "stopApp",
+            "killApp",
+            "forceStop",
             "clearState",
+            "clearKeychain",
             "snapshot",
+            "takeScreenshot",
             "openLink",
             "setLocation",
+            "grantPermissions",
+            "setOrientation",
+            "setClipboard",
+            "copyText",
             "tap",
+            "tapOn",
+            "longPress",
+            "longPressOn",
+            "doubleTap",
+            "doubleTapOn",
+            "pressKey",
             "typeText",
+            "inputText",
             "eraseText",
             "pressBack",
+            "back",
             "hideKeyboard",
             "swipe",
             "waitVisible",
+            "waitUntilVisible",
             "waitNotVisible",
+            "waitUntilNotVisible",
             "waitAny",
             "assertVisible",
             "assertNotVisible",
@@ -58,15 +124,36 @@
             "assertHealthy",
             "optional",
             "whenVisible",
+            "whenNotVisible",
             "repeat",
+            "retry",
+            "runFlow",
             "scrollUntilVisible",
             "sleep"
           ]
         },
         "optional": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/source" },
+        "appId": { "type": "string", "minLength": 1 },
+        "stopApp": { "type": "boolean" },
+        "clearState": { "type": "boolean" },
+        "clearKeychain": { "type": "boolean" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "boolean", "integer", "number"]
+          }
+        },
         "url": { "type": "string", "minLength": 1 },
         "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
         "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "orientation": { "enum": ["portrait", "landscape"] },
         "selector": { "$ref": "#/$defs/selector" },
         "selectors": {
           "type": "array",
@@ -74,6 +161,7 @@
           "items": { "$ref": "#/$defs/selector" }
         },
         "text": { "type": "string" },
+        "key": { "type": "string", "minLength": 1 },
         "maxChars": { "type": "integer", "minimum": 0 },
         "x1": { "type": "integer" },
         "y1": { "type": "integer" },
@@ -83,6 +171,7 @@
         "timeoutMs": { "type": "integer", "minimum": 0 },
         "direction": { "enum": ["down", "up"] },
         "times": { "type": "integer", "minimum": 1 },
+        "attempts": { "type": "integer", "minimum": 1, "maximum": 100 },
         "steps": {
           "type": "array",
           "items": { "$ref": "#/$defs/step" }
@@ -100,7 +189,19 @@
           "then": { "required": ["latitude", "longitude"] }
         },
         {
-          "if": { "properties": { "action": { "enum": ["tap", "waitVisible", "waitNotVisible", "assertVisible", "assertNotVisible", "scrollUntilVisible"] } } },
+          "if": { "properties": { "action": { "const": "grantPermissions" } } },
+          "then": { "required": ["permissions"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "setOrientation" } } },
+          "then": { "required": ["orientation"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "setClipboard" } } },
+          "then": { "required": ["text"] }
+        },
+        {
+          "if": { "properties": { "action": { "enum": ["tap", "tapOn", "longPress", "longPressOn", "doubleTap", "doubleTapOn", "waitVisible", "waitUntilVisible", "waitNotVisible", "waitUntilNotVisible", "assertVisible", "assertNotVisible", "scrollUntilVisible"] } } },
           "then": { "required": ["selector"] }
         },
         {
@@ -116,6 +217,10 @@
           "then": { "required": ["text"] }
         },
         {
+          "if": { "properties": { "action": { "const": "pressKey" } } },
+          "then": { "required": ["key"] }
+        },
+        {
           "if": { "properties": { "action": { "const": "swipe" } } },
           "then": { "required": ["x1", "y1", "x2", "y2"] }
         },
@@ -128,10 +233,32 @@
           "then": { "required": ["selector", "steps"] }
         },
         {
+          "if": { "properties": { "action": { "const": "whenNotVisible" } } },
+          "then": { "required": ["selector", "steps"] }
+        },
+        {
           "if": { "properties": { "action": { "const": "repeat" } } },
           "then": { "required": ["times", "steps"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "retry" } } },
+          "then": { "required": ["attempts", "steps"] }
+        },
+        {
+          "if": { "properties": { "action": { "const": "runFlow" } } },
+          "then": { "required": ["steps"] }
         }
       ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line", "column"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
     }
   }
 }

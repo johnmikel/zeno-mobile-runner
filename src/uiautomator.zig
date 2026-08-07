@@ -26,6 +26,8 @@ pub fn parseHierarchy(allocator: std.mem.Allocator, xml: []const u8) ![]types.Ui
 
         const bounds = if (bounds_text) |value| parseBounds(value) catch types.Bounds{} else types.Bounds{};
         const enabled = parseBoolAttr(tag, "enabled", true);
+        const checked = parseBoolAttr(tag, "checked", false);
+        const focused = parseBoolAttr(tag, "focused", false);
         const selected = parseBoolAttr(tag, "selected", false);
         const visible = bounds.width > 0 and bounds.height > 0;
         text = emptyToNullOwned(allocator, text);
@@ -41,6 +43,8 @@ pub fn parseHierarchy(allocator: std.mem.Allocator, xml: []const u8) ![]types.Ui
             .bounds = bounds,
             .enabled = enabled,
             .visible = visible,
+            .checked = checked,
+            .focused = focused,
             .selected = selected,
         });
 

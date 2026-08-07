@@ -1,4 +1,6 @@
 const android = @import("android.zig");
+const action_registry = @import("action_registry.zig");
+const action_registry_tests = @import("action_registry_tests.zig");
 const android_device_info = @import("android_device_info.zig");
 const android_emulator = @import("android_emulator.zig");
 const android_emulator_tests = @import("android_emulator_tests.zig");
@@ -116,6 +118,7 @@ const selector = @import("selector.zig");
 const session = @import("session.zig");
 const session_tests = @import("session_tests.zig");
 const selector_tests = @import("selector_tests.zig");
+const launch_options_tests = @import("launch_options_tests.zig");
 const semantic = @import("semantic.zig");
 const semantic_tests = @import("semantic_tests.zig");
 const trace = @import("trace.zig");
@@ -136,6 +139,8 @@ const version_tests = @import("version_tests.zig");
 
 test {
     _ = android;
+    _ = action_registry;
+    _ = action_registry_tests;
     _ = android_device_info;
     _ = android_emulator;
     _ = android_emulator_tests;
@@ -253,6 +258,7 @@ test {
     _ = session;
     _ = session_tests;
     _ = selector_tests;
+    _ = launch_options_tests;
     _ = semantic;
     _ = semantic_tests;
     _ = trace;

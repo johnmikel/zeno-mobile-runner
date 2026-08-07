@@ -96,6 +96,12 @@ fn dispatchAppMethod(
         try protocol.writeResultRaw(writer, id, "true");
         return true;
     }
+    if (std.mem.eql(u8, method, "app.clearKeychain")) {
+        try device.clearKeychain();
+        if (live_trace) |tw| try tw.recordEvent("app.clearKeychain", "{\"status\":\"ok\"}");
+        try protocol.writeResultRaw(writer, id, "true");
+        return true;
+    }
     if (std.mem.eql(u8, method, "app.openLink")) {
         const url = try params_parser.requiredString(params, "url");
         try device.openLink(url);

@@ -5,6 +5,7 @@ const android_device_info = @import("android_device_info.zig");
 const android_shell = @import("android_shell.zig");
 const android_screen_recording = @import("android_screen_recording.zig");
 const ios_shim = @import("ios_shim.zig");
+const scenario = @import("scenario.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
 const uiautomator = @import("uiautomator.zig");
@@ -71,16 +72,46 @@ pub const AndroidDevice = struct {
         try result.ensureSuccess();
     }
 
+    pub fn launchWithArguments(self: *AndroidDevice, requested_app_id: ?[]const u8, arguments: []const scenario.LaunchArgument) !void {
+        if (self.shim_path != null) return error.UnsupportedDeviceCapability;
+        const app_id = requested_app_id orelse self.app_id;
+        if (arguments.len == 0) {
+            const result = try self.runAdb(&.{ "shell", "monkey", "-p", app_id, "-c", "android.intent.category.LAUNCHER", "1" }, default_max_output);
+            defer result.deinit(self.allocator);
+            return result.ensureSuccess();
+        }
+
+        const resolved = try self.runAdb(&.{ "shell", "cmd", "package", "resolve-activity", "--brief", app_id }, default_max_output);
+        defer resolved.deinit(self.allocator);
+        try resolved.ensureSuccess();
+        const activity = parseResolvedActivity(resolved.stdout) orelse return error.AppLaunchActivityNotFound;
+        var args = try android_shell.launchWithArguments(self.allocator, activity, arguments);
+        defer args.deinit();
+        const result = try self.runAdb(args.items(), default_max_output);
+        defer result.deinit(self.allocator);
+        try result.ensureSuccess();
+    }
+
     pub fn stop(self: *AndroidDevice) !void {
         const result = try self.runAdb(&.{ "shell", "am", "force-stop", self.app_id }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
     }
 
+    pub fn killApp(self: *AndroidDevice) !void {
+        return self.stop();
+    }
+
     pub fn clearState(self: *AndroidDevice) !void {
         const result = try self.runAdb(&.{ "shell", "pm", "clear", self.app_id }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
+    }
+
+    pub fn clearKeychain(self: *AndroidDevice) !void {
+        // Android has no separate app keychain reset primitive exposed by adb;
+        // clearing app data is the closest deterministic equivalent.
+        return self.clearState();
     }
 
     pub fn openLink(self: *AndroidDevice, url: []const u8) !void {
@@ -110,6 +141,35 @@ pub const AndroidDevice = struct {
         try self.grantRuntimePermissionBestEffort("android.permission.ACCESS_COARSE_LOCATION");
 
         const result = try self.runAdb(&.{ "emu", "geo", "fix", longitude_arg, latitude_arg }, default_max_output);
+        defer result.deinit(self.allocator);
+        try result.ensureSuccess();
+    }
+
+    pub fn grantPermissions(self: *AndroidDevice, permissions: [][]const u8) !void {
+        for (permissions) |permission| {
+            const result = try self.runAdb(&.{ "shell", "pm", "grant", self.app_id, permission }, default_max_output);
+            defer result.deinit(self.allocator);
+            try result.ensureSuccess();
+        }
+    }
+
+    pub fn setClipboard(self: *AndroidDevice, text: []const u8) !void {
+        if (self.shim_path != null) return error.UnsupportedDeviceCapability;
+        const result = try self.runAdb(&.{ "shell", "cmd", "clipboard", "set", "text", text }, default_max_output);
+        defer result.deinit(self.allocator);
+        try result.ensureSuccess();
+    }
+
+    pub fn setOrientation(self: *AndroidDevice, orientation: scenario.Orientation) !void {
+        if (self.shim_path != null) return error.UnsupportedDeviceCapability;
+        const rotation: []const u8 = switch (orientation) {
+            .portrait => "0",
+            .landscape => "1",
+        };
+        const disabled = self.runAdb(&.{ "shell", "settings", "put", "system", "accelerometer_rotation", "0" }, default_max_output) catch |err| return err;
+        defer disabled.deinit(self.allocator);
+        try disabled.ensureSuccess();
+        const result = try self.runAdb(&.{ "shell", "settings", "put", "system", "user_rotation", rotation }, default_max_output);
         defer result.deinit(self.allocator);
         try result.ensureSuccess();
     }
@@ -162,6 +222,16 @@ pub const AndroidDevice = struct {
     pub fn pressBack(self: *AndroidDevice) !void {
         if (self.shim_path != null) return try self.runShimAction(.{ .kind = .press_back });
         var args = try android_shell.pressBack(self.allocator);
+        defer args.deinit();
+        const result = try self.runAdb(args.items(), default_max_output);
+        defer result.deinit(self.allocator);
+        try result.ensureSuccess();
+    }
+
+    pub fn pressKey(self: *AndroidDevice, key: []const u8) !void {
+        if (std.ascii.eqlIgnoreCase(key, "BACK")) return self.pressBack();
+        if (self.shim_path != null) return error.UnsupportedDeviceCapability;
+        var args = try android_shell.pressKey(self.allocator, key);
         defer args.deinit();
         const result = try self.runAdb(args.items(), default_max_output);
         defer result.deinit(self.allocator);
@@ -343,6 +413,17 @@ pub const AndroidDevice = struct {
         }
     }
 };
+
+fn parseResolvedActivity(output: []const u8) ?[]const u8 {
+    var activity: ?[]const u8 = null;
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r\n");
+        if (trimmed.len == 0 or std.mem.startsWith(u8, trimmed, "No activity")) continue;
+        if (std.mem.indexOfScalar(u8, trimmed, '/') != null) activity = trimmed;
+    }
+    return activity;
+}
 
 pub const AndroidScreenRecording = android_screen_recording.AndroidScreenRecording;
 

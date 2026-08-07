@@ -53,6 +53,80 @@ pub fn tapSelector(
     }
 }
 
+pub fn longPressSelector(
+    device: anytype,
+    wanted: selector.Selector,
+    duration_ms: u32,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+) !void {
+    const deadline = stdio.nowMs() + @as(i64, @intCast(options.action_timeout_ms));
+    var attempts: u32 = 0;
+    while (true) {
+        attempts += 1;
+        var snap = try device.snapshot(writer);
+        defer snap.deinit(device.allocator);
+        if (findActionable(snap, wanted)) |node| {
+            const x = node.bounds.centerX();
+            const y = node.bounds.centerY();
+            try device.swipe(x, y, x, y, duration_ms);
+            if (writer) |tw| {
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                const out = &payload.writer;
+                try out.print("{{\"target\":\"{s}\",\"x\":{d},\"y\":{d},\"durationMs\":{d},\"attempts\":{d},\"selector\":", .{ node.stable_id, x, y, duration_ms, attempts });
+                try trace.writeSelectorJson(out, wanted);
+                try out.writeAll("}");
+                try tw.recordEvent("ui.longPress", out.buffered());
+            }
+            try settleDevice(device, options);
+            return;
+        }
+        if (stdio.nowMs() >= deadline) {
+            if (writer) |tw| try runner_events.recordSelectorMiss(tw, "ui.longPress.notFound", wanted, snap);
+            return error.SelectorNotFound;
+        }
+        try sleepMs(options.poll_ms);
+    }
+}
+
+pub fn doubleTapSelector(
+    device: anytype,
+    wanted: selector.Selector,
+    writer: ?*trace.TraceWriter,
+    options: RunOptions,
+) !void {
+    const deadline = stdio.nowMs() + @as(i64, @intCast(options.action_timeout_ms));
+    var attempts: u32 = 0;
+    while (true) {
+        attempts += 1;
+        var snap = try device.snapshot(writer);
+        defer snap.deinit(device.allocator);
+        if (findActionable(snap, wanted)) |node| {
+            const x = node.bounds.centerX();
+            const y = node.bounds.centerY();
+            try device.tap(x, y);
+            try device.tap(x, y);
+            if (writer) |tw| {
+                var payload: std.Io.Writer.Allocating = .init(tw.allocator);
+                defer payload.deinit();
+                const out = &payload.writer;
+                try out.print("{{\"target\":\"{s}\",\"x\":{d},\"y\":{d},\"attempts\":{d},\"selector\":", .{ node.stable_id, x, y, attempts });
+                try trace.writeSelectorJson(out, wanted);
+                try out.writeAll("}");
+                try tw.recordEvent("ui.doubleTap", out.buffered());
+            }
+            try settleDevice(device, options);
+            return;
+        }
+        if (stdio.nowMs() >= deadline) {
+            if (writer) |tw| try runner_events.recordSelectorMiss(tw, "ui.doubleTap.notFound", wanted, snap);
+            return error.SelectorNotFound;
+        }
+        try sleepMs(options.poll_ms);
+    }
+}
+
 pub fn typeTextSelector(
     device: anytype,
     wanted: selector.Selector,
@@ -96,8 +170,8 @@ pub fn eraseTextSelector(
 }
 
 fn findActionable(snap: types.ObservationSnapshot, wanted: selector.Selector) ?types.UiNode {
-    for (snap.nodes) |node| {
-        if (!selector.matches(node, wanted)) continue;
+    for (snap.nodes, 0..) |node, index| {
+        if (!selector.matchesAt(snap.nodes, index, wanted)) continue;
         if (!node.enabled) continue;
         if (!isInViewport(node, snap.viewport)) continue;
         return node;

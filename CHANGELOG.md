@@ -20,6 +20,44 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - `zmr record`'s usage text listed `--trace-dir` as optional while the parser
   required it, so following the help produced `cli.missing_record_trace_dir`.
   The usage now marks it required, matching what the command enforces.
+- Canonical scenario actions covering the common mobile-flow vocabulary: `killApp` (alias
+  `forceStop`), `clearKeychain`, `grantPermissions`, `setOrientation`,
+  `setClipboard` (alias `copyText`), `longPress`/`longPressOn`,
+  `doubleTap`/`doubleTapOn`, `pressKey`, `whenNotVisible`, `retry`, `runFlow`,
+  and `sleep`'s `waitForAnimationToEnd` alias — implemented across the Android
+  shell/uiautomator and iOS XCTest shim backends with typed trace events.
+- `launchApp` accepts typed launch `arguments` (string/number/boolean) on both
+  platforms; Android resolves the launch activity explicitly and reports
+  `app.launch_activity_not_found` when it cannot.
+- Selectors accept state fields (`enabled`, `checked`, `focused`, `selected`),
+  `index`, bounded-regex fields (`textRegex`, `contentDescRegex`), and
+  relational anchors (`above`, `below`, `leftOf`, `rightOf`, `child`,
+  `descendant`).
+- `app.clearKeychain` on the JSON-RPC surface and `clear_keychain` as an MCP
+  tool (27 tools total).
+- Scenario metadata fields `env`, `constants`, `labels`, and `source` are
+  parsed and schema-validated as **reserved metadata** — the runner does not
+  interpolate or act on them yet.
+- A canonical action registry: `runner.capabilities` now appends an additive
+  `actions` array describing every runner action — stable id, per-surface
+  aliases, parameter schema, platforms, mutability, risk class, and trace
+  event — published as `schemas/action-registry.schema.json`. Aliases are
+  listed only for endpoints each surface actually dispatches; a conformance
+  test enforces the parity, and two MCP alias names that pointed at
+  nonexistent tools (`wait_until_visible`, `wait_until_not_visible`) were
+  corrected to the real `wait_visible`/`wait_not_visible`.
+
+### Changed
+
+- MCP `launch_app` now routes through the runner engine's `executeStep`, so a
+  launch performs the same settle wait a scenario `launch` step does. Launches
+  over MCP take slightly longer and behave identically to scenario runs.
+
+### Fixed
+
+- The selector `descendant`/`child` ancestor walk is bounded by node count, so
+  a malformed snapshot carrying a parent-id cycle fails the match instead of
+  hanging the runner.
 
 - `zmr init --app` no longer falls back to the example bundle id
   `com.example.mobiletest` when `--app-id` is omitted. It now reads

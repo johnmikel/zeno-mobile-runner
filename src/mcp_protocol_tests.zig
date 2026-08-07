@@ -18,8 +18,11 @@ test "mcp protocol writes initialize and tool list responses" {
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"semantic_snapshot\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"install_app\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"launch_app\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"appId\":{\"type\":\"string\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"arguments\":{\"type\":\"object\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"stop_app\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"clear_state\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"clear_keychain\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"tap\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"type\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, tools.written(), "\"name\":\"swipe\"") != null);

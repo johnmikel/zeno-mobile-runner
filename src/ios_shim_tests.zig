@@ -15,6 +15,13 @@ test "ios shim command json is stable" {
     try std.testing.expectEqualStrings("{\"cmd\":\"tap\",\"selector\":\"text=Continue\",\"x\":20,\"y\":40}\n", out.written());
 }
 
+test "ios shim device state commands serialize stable names" {
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+    try ios_shim.writeCommandJson(&out.writer, .{ .kind = .set_orientation, .text = "landscape" });
+    try std.testing.expectEqualStrings("{\"cmd\":\"setOrientation\",\"text\":\"landscape\"}\n", out.written());
+}
+
 test "ios shim accept system alert command json is stable" {
     var out = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer out.deinit();
@@ -132,6 +139,19 @@ test "ios shim snapshot response maps xctest elements into ui nodes" {
     try std.testing.expect(nodes[0].visible);
     try std.testing.expectEqualStrings("agent@example.com", nodes[1].text.?);
     try std.testing.expectEqualStrings("email_field", nodes[1].resource_id.?);
+}
+
+test "ios shim preserves checked and focused state" {
+    const content =
+        \\{"status":"ok","nodes":[{"id":"toggle","type":"XCUIElementTypeSwitch","bounds":{"x":0,"y":0,"width":50,"height":30},"checked":true,"focused":true}]}
+    ;
+    const nodes = try ios_shim.parseSnapshotNodes(std.testing.allocator, content);
+    defer {
+        for (nodes) |*node| node.deinit(std.testing.allocator);
+        std.testing.allocator.free(nodes);
+    }
+    try std.testing.expect(nodes[0].checked);
+    try std.testing.expect(nodes[0].focused);
 }
 
 test "ios shim rejects malformed snapshot responses" {

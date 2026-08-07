@@ -239,7 +239,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.Args.Iterator) !void
     if (run_error) |err| return err;
 }
 
-fn runAndroidWithTrace(
+pub fn runAndroidWithTrace(
     allocator: std.mem.Allocator,
     device: *android.AndroidDevice,
     script: scenario.Scenario,
@@ -265,7 +265,7 @@ fn runAndroidWithTrace(
     return try runner.runScenario(allocator, device, script, &trace_writer, .{});
 }
 
-fn runWithTrace(
+pub fn runWithTrace(
     allocator: std.mem.Allocator,
     device: anytype,
     script: scenario.Scenario,

@@ -22,6 +22,7 @@ should use these schemas for validation instead of inferring shapes from prose.
 - `capabilities-output.schema.json`: machine-readable `runner.capabilities` JSON-RPC result for protocol, platform support, transport, and method discovery
 - `explain-output.schema.json`: machine-readable `zmr explain --json` failure triage output for agents and CI
 - `run-output.schema.json`: machine-readable `zmr run --json` terminal run summary output
+- `test-report.schema.json`: machine-readable `zmr test` aggregate report with worker, shard, retry, and attempt metadata
 - `inspect-output.schema.json`: machine-readable `zmr inspect --json` app and agent handoff output
 - `discover-output.schema.json`: machine-readable `zmr discover --json` trace-backed scenario discovery output with replay coverage metadata
 - `explore-output.schema.json`: machine-readable `zmr explore --json` review-first trace exploration output with goal and guardrail metadata

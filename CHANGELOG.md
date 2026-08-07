@@ -6,6 +6,20 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Added
 
+- `zmr test <workspace>` runs every canonical scenario in a directory as one CI
+  step: parallel workers, per-attempt retries, and CI sharding
+  (`--shard-split` / `--shard-all`), aggregated into a single report published
+  as `schemas/test-report.schema.json`. `--dry-run` lists the plan without
+  touching a device.
+- `zmr record --trace-dir <path>` prepares a trace workspace for a live agent
+  session and prints the follow-up commands that turn its evidence into a
+  committed scenario.
+
+### Fixed
+
+- `zmr record`'s usage text listed `--trace-dir` as optional while the parser
+  required it, so following the help produced `cli.missing_record_trace_dir`.
+  The usage now marks it required, matching what the command enforces.
 - Canonical scenario actions covering the common mobile-flow vocabulary: `killApp` (alias
   `forceStop`), `clearKeychain`, `grantPermissions`, `setOrientation`,
   `setClipboard` (alias `copyText`), `longPress`/`longPressOn`,

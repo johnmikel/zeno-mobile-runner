@@ -1,4 +1,5 @@
 const std = @import("std");
+const runner_settle = @import("runner_settle.zig");
 const stdio = @import("stdio.zig");
 const runner_actions = @import("runner_actions.zig");
 const runner_config = @import("runner_config.zig");
@@ -509,7 +510,16 @@ fn setClipboard(device: anytype, text: []const u8) !void {
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {
-    try device.settle(options.settle_ms);
+    if (!options.adaptive_settle) {
+        return try device.settle(options.settle_ms);
+    }
+    // Poll until the screen stops changing rather than sleeping a fixed
+    // amount. Never fails the run: a screen that never settles is bounded, and
+    // the next lookup is what reports a real problem.
+    _ = runner_settle.waitForQuiet(device.allocator, device, null, .{
+        .settle_timeout_ms = options.settle_timeout_ms,
+        .settle_poll_ms = options.settle_poll_ms,
+    });
 }
 
 test "setLocation dispatches through the device, records trace evidence, and settles" {

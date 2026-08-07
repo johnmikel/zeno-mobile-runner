@@ -102,6 +102,8 @@ const runner_diagnostics_tests = @import("runner_diagnostics_tests.zig");
 const runner_events = @import("runner_events.zig");
 const runner_events_tests = @import("runner_events_tests.zig");
 const runner_native = @import("runner_native.zig");
+const runner_settle = @import("runner_settle.zig");
+const runner_settle_tests = @import("runner_settle_tests.zig");
 const runner_tests = @import("runner_tests.zig");
 const runner_waits = @import("runner_waits.zig");
 const run_options = @import("run_options.zig");
@@ -243,6 +245,8 @@ test {
     _ = runner_events;
     _ = runner_events_tests;
     _ = runner_native;
+    _ = runner_settle;
+    _ = runner_settle_tests;
     _ = runner_tests;
     _ = runner_waits;
     _ = run_options;

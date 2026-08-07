@@ -4,6 +4,25 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Added
+
+- Adaptive settling (`src/runner_settle.zig`): after an action, poll the
+  hierarchy and continue as soon as two consecutive reads are identical,
+  instead of sleeping a fixed `settle_ms`. A fixed sleep is wrong in both
+  directions — it pays in full when the screen settled immediately, and gives
+  up early when the screen needed longer — and neither is visible from the
+  outside. Settling never fails a run: a screen that never stops changing (a
+  clock, a spinner) is bounded and then simply proceeds, because bounding the
+  wait matters more than perfecting the predicate, and the lookup that follows
+  reports anything genuinely wrong with a far better message.
+
+  **Off by default** (`adaptive_settle`). It costs at least one extra
+  hierarchy read per action, and on a real device that is a full
+  `uiautomator dump` or XCTest snapshot. Whether it is a net win depends on how
+  that compares to `settle_ms` on real hardware, which has not been measured;
+  turning it on beforehand would put the published determinism figures at risk
+  on a guess. The mechanism, its tests, and the knob ship now.
+
 ### Changed
 
 - **Breaking (MCP): the agent surface is seven tools built around one executor,

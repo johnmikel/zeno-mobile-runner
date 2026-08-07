@@ -3,6 +3,7 @@ const stdio = @import("stdio.zig");
 const runner_config = @import("runner_config.zig");
 const runner_events = @import("runner_events.zig");
 const runner_native = @import("runner_native.zig");
+const runner_settle = @import("runner_settle.zig");
 const selector = @import("selector.zig");
 const trace = @import("trace.zig");
 const types = @import("types.zig");
@@ -188,7 +189,16 @@ fn isInViewport(node: types.UiNode, viewport: types.Viewport) bool {
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {
-    try device.settle(options.settle_ms);
+    if (!options.adaptive_settle) {
+        return try device.settle(options.settle_ms);
+    }
+    // Poll until the screen stops changing rather than sleeping a fixed
+    // amount. Never fails the run: a screen that never settles is bounded, and
+    // the next lookup is what reports a real problem.
+    _ = runner_settle.waitForQuiet(device.allocator, device, null, .{
+        .settle_timeout_ms = options.settle_timeout_ms,
+        .settle_poll_ms = options.settle_poll_ms,
+    });
 }
 
 fn sleepMs(ms: u64) !void {

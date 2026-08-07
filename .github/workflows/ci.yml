@@ -70,3 +70,37 @@ jobs:
             zig-out/bin/zmr
           if-no-files-found: ignore
           retention-days: 14
+
+  coverage-linux:
+    # The macOS gate skips kcov (it can hang tracing child device-tool
+    # processes), so the 90% floor was never actually enforced anywhere. Linux
+    # runs kcov cleanly, so the gate lives here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ZIG_VERSION: "0.16.0"
+      ZIG_TARGET: "native"
+      ZMR_KCOV_TIMEOUT_SECONDS: "1200"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Zig
+        run: |
+          curl -L -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          "$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" version
+      - name: Install kcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kcov
+          kcov --version
+      - name: Coverage gate
+        run: ./scripts/coverage.sh
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: zmr-coverage
+          path: zig-cache/coverage/kcov
+          if-no-files-found: ignore
+          retention-days: 14

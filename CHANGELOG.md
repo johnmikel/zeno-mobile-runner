@@ -57,12 +57,35 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Changed
 
+- The 90% coverage floor is now enforced. `scripts/coverage.sh` skips kcov on
+  hosted macOS (it can hang tracing child device-tool processes) and that was
+  the only job running it, so the gate never actually ran in CI. A Linux CI
+  job now runs it where kcov is well behaved, and the coverage build links
+  libc so the suite builds there.
+- `scripts/check-test-harness.sh` fails CI when a `src/*_tests.zig` file is
+  missing from `src/test_harness.zig`. `zig build test` roots at that
+  hand-maintained registry, so a forgotten entry means those tests silently
+  never run — the same false-green shape as the build wiring bug.
 - MCP `launch_app` now routes through the runner engine's `executeStep`, so a
   launch performs the same settle wait a scenario `launch` step does. Launches
   over MCP take slightly longer and behave identically to scenario runs.
 
 ### Fixed
 
+- The generated iOS shim no longer aborts a healthy run with `iOS shim server
+  exited before it became ready`. Readiness polling asked `ps` whether the
+  process it had just started already showed an `xcodebuild` command line
+  naming the test target, but `start_server` records the pid the instant
+  `nohup` forks — before the child has exec'd its real argv. On a loaded
+  machine the first poll landed in that window and a live server was reported
+  as dead. Liveness (`kill -0`) is now separate from identity (the `ps`
+  match); the wait loops use liveness, and the identity check stays where it
+  belongs, deciding whether a pid file left by an earlier run still names our
+  server. This is what made the shim install test flaky in CI.
+- `.zmr/config.json` diagnostics no longer disagree with the parser. Both read
+  one field table (`src/config_schema.zig`), so a valid `ensureDevice` is no
+  longer reported as the unknown field, and a wrong-typed one gets a field
+  path. The two hand-copied allow-lists had already drifted.
 - The selector `descendant`/`child` ancestor walk is bounded by node count, so
   a malformed snapshot carrying a parent-id cycle fails the match instead of
   hanging the runner.

@@ -491,3 +491,66 @@ test "config parser reads trace redaction controls" {
     try std.testing.expectEqual(@as(usize, 1), cfg.redaction.allowlist_resource_ids.len);
     try std.testing.expectEqualStrings("public-token-label", cfg.redaction.allowlist_resource_ids[0]);
 }
+
+test "diagnostics agree with the parser about every platform field" {
+    // The parser and the diagnostics used to keep hand-copied allow-lists, and
+    // they drifted: ensureDevice parsed fine but the diagnostics treated it as
+    // unknown. Drive both from the same config, field by field.
+    const allocator = std.testing.allocator;
+
+    for (config.platform_fields) |field| {
+        const valid = switch (field.kind) {
+            .boolean => "true",
+            .string => "\"value\"",
+        };
+        const content = try std.fmt.allocPrint(allocator,
+            \\{{
+            \\  "schemaVersion": 1,
+            \\  "android": {{
+            \\    "{s}": {s},
+            \\    "definitelyNotAField": 1
+            \\  }}
+            \\}}
+        , .{ field.name, valid });
+        defer allocator.free(content);
+
+        // The parser accepts the field, so the unknown-field diagnostic must
+        // name the actually-unknown key.
+        const path = try errorFieldPathForSlice(allocator, content, error.ConfigUnknownField);
+        defer if (path) |value| allocator.free(value);
+        if (path == null) return error.ExpectedUnknownFieldPath;
+        try std.testing.expectEqualStrings("$.android.definitelyNotAField", path.?);
+    }
+}
+
+test "diagnostics name the platform field that has the wrong type" {
+    const allocator = std.testing.allocator;
+
+    for (config.platform_fields) |field| {
+        const wrong = switch (field.kind) {
+            .boolean => "\"not a bool\"",
+            .string => "false",
+        };
+        const content = try std.fmt.allocPrint(allocator,
+            \\{{
+            \\  "schemaVersion": 1,
+            \\  "ios": {{
+            \\    "{s}": {s}
+            \\  }}
+            \\}}
+        , .{ field.name, wrong });
+        defer allocator.free(content);
+
+        const err = switch (field.kind) {
+            .boolean => error.ConfigFieldMustBeBool,
+            .string => error.ConfigFieldMustBeString,
+        };
+        const path = try errorFieldPathForSlice(allocator, content, err);
+        defer if (path) |value| allocator.free(value);
+        if (path == null) return error.ExpectedTypedFieldPath;
+
+        const expected = try std.fmt.allocPrint(allocator, "$.ios.{s}", .{field.name});
+        defer allocator.free(expected);
+        try std.testing.expectEqualStrings(expected, path.?);
+    }
+}

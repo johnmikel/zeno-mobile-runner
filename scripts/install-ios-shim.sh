@@ -392,15 +392,27 @@ clean_zmr_derived_data() {
   esac
 }
 
-is_server_running() {
+# Liveness only. Authoritative for "did our server die?".
+server_pid_alive() {
   if [[ ! -f "\$PID_FILE" ]]; then
     return 1
   fi
+  local pid
+  pid="\$(cat "\$PID_FILE" 2>/dev/null || true)"
+  [[ -n "\$pid" ]] && kill -0 "\$pid" 2>/dev/null
+}
+
+# Liveness AND identity. Used to decide whether a PID file left by an earlier
+# run still names our server, so a recycled PID is not mistaken for one.
+#
+# Do NOT use this to detect exit while waiting: start_server records \$! the
+# instant nohup forks, and the child may not have exec'd its real argv yet, so
+# a healthy server can briefly fail the identity match. Treating that as "the
+# server exited" turned a startup window into a hard failure.
+is_server_running() {
+  server_pid_alive || return 1
   local pid command
   pid="\$(cat "\$PID_FILE" 2>/dev/null || true)"
-  if [[ -z "\$pid" ]] || ! kill -0 "\$pid" 2>/dev/null; then
-    return 1
-  fi
   command="\$(ps -p "\$pid" -o command= 2>/dev/null || true)"
   [[ "\$command" == *xcodebuild* && "\$command" == *"$TEST_TARGET"* ]]
 }
@@ -439,7 +451,7 @@ wait_for_ready() {
     if [[ -f "\$READY_FILE" ]]; then
       return 0
     fi
-    if ! is_server_running; then
+    if ! server_pid_alive; then
       echo "iOS shim server exited before it became ready" >&2
       tail_log
       exit 1
@@ -521,7 +533,7 @@ send_request() {
       rm -f "\$request_file" "\$response_file"
       return 0
     fi
-    if ! is_server_running; then
+    if ! server_pid_alive; then
       echo "iOS shim server exited while waiting for response \$REQUEST_ID" >&2
       tail_log
       exit 1

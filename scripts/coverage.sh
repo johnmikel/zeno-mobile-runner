@@ -42,11 +42,14 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+# The suite touches libc (std.c.chmod in the iOS shim tests), so the test
+# binary must link it. Harmless on macOS, required on Linux.
 if [[ "$ZIG_TARGET" == "native" ]]; then
-  zig test "$ROOT/src/test_harness.zig" --test-no-exec -femit-bin="$BIN"
+  zig test "$ROOT/src/test_harness.zig" -lc --test-no-exec -femit-bin="$BIN"
 else
-  zig test "$ROOT/src/test_harness.zig" "${target_args[@]}" --test-no-exec -femit-bin="$BIN"
+  zig test "$ROOT/src/test_harness.zig" "${target_args[@]}" -lc --test-no-exec -femit-bin="$BIN"
 fi
+
 
 if should_skip_kcov_on_hosted_macos; then
   "$BIN"

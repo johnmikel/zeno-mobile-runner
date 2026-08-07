@@ -18,9 +18,9 @@ const default_shim_timeout_ms = 5_400_000;
 const shim_timeout_env = "ZMR_IOS_SHIM_TIMEOUT_MS";
 const shim_best_effort_timeout_ms = 10_000;
 const open_link_interruption_attempts = 8;
-const open_link_interruption_retry_delay_ms = 1_000;
+const default_open_link_interruption_retry_delay_ms = 1_000;
 const shim_command_attempts = 2;
-const shim_bootstrap_retry_delay_ms = 500;
+const default_shim_bootstrap_retry_delay_ms = 500;
 
 pub const TargetKind = enum {
     simulator,
@@ -35,6 +35,9 @@ pub const IosDevice = struct {
     shim_path: ?[]const u8 = null,
     target_kind: TargetKind = .simulator,
     expo_dev_client_open_link_mode: bool = false,
+    // Tests set these to 0 so retry sweeps never really sleep.
+    open_link_interruption_retry_delay_ms: u64 = default_open_link_interruption_retry_delay_ms,
+    shim_bootstrap_retry_delay_ms: u64 = default_shim_bootstrap_retry_delay_ms,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -423,7 +426,7 @@ pub const IosDevice = struct {
             attempt += 1;
             if (self.acceptOpenURLConfirmationOnce(url) catch return) return;
             if (attempt < open_link_interruption_attempts) {
-                stdio.sleepNs(open_link_interruption_retry_delay_ms * std.time.ns_per_ms);
+                stdio.sleepNs(self.open_link_interruption_retry_delay_ms * std.time.ns_per_ms);
             }
         }
     }
@@ -480,7 +483,7 @@ pub const IosDevice = struct {
 
             result.ensureSuccess() catch |err| {
                 if (attempt < shim_command_attempts and err == error.CommandFailed and isTransientShimBootstrapFailure(result)) {
-                    stdio.sleepNs(shim_bootstrap_retry_delay_ms * std.time.ns_per_ms);
+                    stdio.sleepNs(self.shim_bootstrap_retry_delay_ms * std.time.ns_per_ms);
                     continue;
                 }
                 return classifyShimCommandFailure(result);
@@ -616,6 +619,8 @@ test "ios simulator openLink keeps sweeping delayed XCTest interruptions until a
 
     var device = try IosDevice.initWithShim(allocator, "./tests/fake-xcrun.sh", "fake-ios-1", "com.example.mobiletest", shim_path);
     defer device.deinit();
+    device.open_link_interruption_retry_delay_ms = 0;
+    device.shim_bootstrap_retry_delay_ms = 0;
 
     try device.openLink("exampleapp:///e2e-auth?probe=1");
 

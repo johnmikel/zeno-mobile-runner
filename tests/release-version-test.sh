@@ -46,3 +46,16 @@ if [[ "$package_mismatch_status" -eq 0 ]]; then
   exit 1
 fi
 grep -q "package.json version 123.123.123 does not match src/version.zig runner_version $SOURCE_VERSION" <<< "$package_mismatch_output"
+
+# build.zig.zon drifted unnoticed for 11 releases; the manifest is now part of
+# the same check.
+sed 's/^\([[:space:]]*\)\.version = "[^"]*"/\1.version = "9.9.9"/' "$ROOT/build.zig.zon" > "$TMPDIR/build.zig.zon"
+set +e
+manifest_mismatch_output="$("$ROOT/scripts/verify-release-version.sh" --manifest "$TMPDIR/build.zig.zon" 2>&1)"
+manifest_mismatch_status=$?
+set -e
+if [[ "$manifest_mismatch_status" -eq 0 ]]; then
+  echo "expected verify-release-version to fail when build.zig.zon disagrees with package.json" >&2
+  exit 1
+fi
+grep -q "build.zig.zon version 9.9.9 does not match package.json version $PACKAGE_VERSION" <<< "$manifest_mismatch_output"

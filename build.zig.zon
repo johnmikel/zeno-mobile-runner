@@ -1,6 +1,6 @@
 .{
     .name = .zeno_mobile_runner,
-    .version = "0.2.7",
+    .version = "0.2.18",
     .minimum_zig_version = "0.16.0",
     .paths = .{""},
     .fingerprint = 0xcc2c8187874868fc,

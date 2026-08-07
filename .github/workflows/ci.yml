@@ -74,8 +74,9 @@ jobs:
   coverage-linux:
     # The macOS gate skips kcov (it can hang tracing child device-tool
     # processes), so the 90% floor was never actually enforced anywhere. Linux
-    # runs kcov cleanly, so the gate lives here.
-    runs-on: ubuntu-latest
+    # runs kcov cleanly, so the gate lives here. Pinned to 22.04: kcov is not
+    # packaged for 24.04 (noble), which is what ubuntu-latest resolves to.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
       ZIG_VERSION: "0.16.0"

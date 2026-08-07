@@ -138,8 +138,12 @@ fn callTool(
         }
         var payload: std.Io.Writer.Allocating = .init(allocator);
         defer payload.deinit();
-        try semantic.writeSemanticSnapshotJson(&payload.writer, snap);
-        try mcp_protocol.writeToolTextResult(writer, id, payload.writer.buffered());
+        if (try optionalParamBool(arguments, "compact", false)) {
+            try semantic.writeCompactSnapshotJson(&payload.writer, snap);
+        } else {
+            try semantic.writeSemanticSnapshotJson(&payload.writer, snap);
+        }
+        try mcp_protocol.writeToolTextResult(writer, id, std.mem.trimEnd(u8, payload.writer.buffered(), " \t\r\n"));
         return;
     }
 

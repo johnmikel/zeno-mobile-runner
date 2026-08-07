@@ -79,6 +79,97 @@ pub fn writeSemanticSnapshotJson(writer: anytype, snapshot: types.ObservationSna
     try writer.writeAll("]}}");
 }
 
+/// A snapshot is the largest payload an agent reads, and it reads one per step,
+/// so every byte competes with the agent's own reasoning for context. This form
+/// states each abbreviation and each default once in a legend, then omits any
+/// attribute that holds its default value, and drops nodes an agent cannot act
+/// on. `writeSemanticSnapshotJson` remains the explicit, self-describing form.
+///
+/// The legend keys are deliberately NOT selector field names — an agent selects
+/// with `text`/`resourceId`/`contentDesc`, never with `n` or `r`. The tool
+/// description says so, because the abbreviation is the obvious thing to reach
+/// for and it silently matches nothing.
+pub fn writeCompactSnapshotJson(writer: anytype, snapshot: types.ObservationSnapshot) !void {
+    try writer.writeAll(
+        \\{"uiSchema":{"legend":{"i":"id","r":"role","n":"name","s":"selector","b":"bounds [x,y,width,height]","e":"enabled","v":"visible","x":"interactive","a":"recommendedAction"},"defaults":{"e":true,"v":true,"x":false,"a":null},"note":"legend keys are not selector fields; select with text, resourceId or contentDesc"},
+    );
+    try writer.writeAll("\"id\":");
+    try trace.writeJsonString(writer, snapshot.id);
+    try writer.print(",\"timestampMs\":{d}", .{snapshot.timestamp_ms});
+    try writer.print(
+        ",\"viewport\":{{\"width\":{d},\"height\":{d}}}",
+        .{ snapshot.viewport.width, snapshot.viewport.height },
+    );
+    try writeNullableField(writer, "activePackage", snapshot.active_package);
+    try writeNullableField(writer, "focusedNodeId", snapshot.focused_node_id);
+    try writer.writeAll(",\"nodes\":[");
+
+    var emitted: usize = 0;
+    var interactive_count: usize = 0;
+    for (snapshot.nodes) |node| {
+        if (!isActionable(node)) continue;
+        if (emitted > 0) try writer.writeAll(",");
+        emitted += 1;
+        if (isInteractive(node)) interactive_count += 1;
+        try writeCompactNodeJson(writer, node);
+    }
+    try writer.writeAll("],\"summary\":{");
+    try writer.print(
+        "\"nodeCount\":{d},\"emittedCount\":{d},\"interactiveCount\":{d}",
+        .{ snapshot.nodes.len, emitted, interactive_count },
+    );
+    try writer.writeAll("}}\n");
+}
+
+/// A zero-area node with no accessible name is layout scaffolding: an agent can
+/// neither see it nor address it, so carrying it only costs context.
+fn isActionable(node: types.UiNode) bool {
+    if (isInteractive(node)) return true;
+    // accessibleName() falls back to stable_id, so it is never empty — ask
+    // instead whether the node carries a label a human would actually see.
+    if (hasVisibleLabel(node)) return true;
+    return node.bounds.width > 0 and node.bounds.height > 0;
+}
+
+fn hasVisibleLabel(node: types.UiNode) bool {
+    if (node.text) |value| {
+        if (value.len > 0) return true;
+    }
+    if (node.content_desc) |value| {
+        if (value.len > 0) return true;
+    }
+    if (node.resource_id) |value| {
+        if (value.len > 0) return true;
+    }
+    return false;
+}
+
+fn writeCompactNodeJson(writer: anytype, node: types.UiNode) !void {
+    try writer.writeAll("{\"i\":");
+    try trace.writeJsonString(writer, node.stable_id);
+    try writer.writeAll(",\"r\":");
+    try trace.writeJsonString(writer, roleForNode(node));
+    const name = accessibleName(node);
+    if (name.len > 0) {
+        try writer.writeAll(",\"n\":");
+        try trace.writeJsonString(writer, name);
+    }
+    try writer.writeAll(",\"s\":");
+    try writeBestSelectorJson(writer, node);
+    try writer.print(
+        ",\"b\":[{d},{d},{d},{d}]",
+        .{ node.bounds.x, node.bounds.y, node.bounds.width, node.bounds.height },
+    );
+    if (!node.enabled) try writer.writeAll(",\"e\":false");
+    if (!node.visible) try writer.writeAll(",\"v\":false");
+    if (isInteractive(node)) try writer.writeAll(",\"x\":true");
+    if (recommendedAction(node)) |action| {
+        try writer.writeAll(",\"a\":");
+        try trace.writeJsonString(writer, action);
+    }
+    try writer.writeAll("}");
+}
+
 fn writeSemanticNodeJson(writer: anytype, node: types.UiNode) !void {
     try writer.writeAll("{\"id\":");
     try trace.writeJsonString(writer, node.stable_id);

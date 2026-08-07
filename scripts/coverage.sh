@@ -96,6 +96,17 @@ coverage="$(awk -F'"' '/^  "percent_covered"/ { print $4; exit }' "$report_json"
 covered_lines="$(awk -F'[: ,]+' '/^  "covered_lines"/ { print $3; exit }' "$report_json")"
 total_lines="$(awk -F'[: ,]+' '/^  "total_lines"/ { print $3; exit }' "$report_json")"
 
+# kcov reports 0/0 when it cannot read the binary's debug info (an old kcov
+# against modern DWARF, say). That is a broken measurement, not 0% coverage,
+# and it must not read as a normal gate failure.
+if [[ -z "$total_lines" || "$total_lines" == "0" ]]; then
+  echo "coverage instrumented no lines: kcov produced a 0-line report" >&2
+  echo "  This is a measurement failure, not a coverage result. Check that kcov" >&2
+  echo "  can read this binary's debug info (kcov --version, DWARF support)." >&2
+  echo "  Report: $report_json" >&2
+  exit 1
+fi
+
 printf 'Coverage: %s%% (%s/%s lines)\n' "$coverage" "$covered_lines" "$total_lines"
 printf 'Report: %s\n' "$report_json"
 

@@ -42,16 +42,25 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+# The suite touches libc (std.c.chmod in the iOS shim tests), so the test
+# binary must link it. Harmless on macOS, required on Linux.
 if [[ "$ZIG_TARGET" == "native" ]]; then
-  zig test "$ROOT/src/test_harness.zig" --test-no-exec -femit-bin="$BIN"
+  zig test "$ROOT/src/test_harness.zig" -lc --test-no-exec -femit-bin="$BIN"
 else
-  zig test "$ROOT/src/test_harness.zig" "${target_args[@]}" --test-no-exec -femit-bin="$BIN"
+  zig test "$ROOT/src/test_harness.zig" "${target_args[@]}" -lc --test-no-exec -femit-bin="$BIN"
 fi
+
 
 if should_skip_kcov_on_hosted_macos; then
   "$BIN"
-  echo "Coverage: skipped on GitHub Actions macOS because kcov can hang while tracing child device-tool processes."
-  echo "Coverage gate: run ./scripts/coverage.sh locally, or set ZMR_FORCE_KCOV=1 to force kcov on hosted macOS."
+  echo "Coverage: skipped on GitHub Actions macOS because kcov hangs there."
+  echo "  Measured 2026-08-07, all paths, so nobody re-litigates this:"
+  echo "    hosted macOS   kcov hangs; killed by the watchdog after 30 minutes"
+  echo "    Ubuntu 22.04   runs the suite, instruments 0 lines (elfutils 0.186)"
+  echo "    Ubuntu 24.04   runs the suite, instruments 0 lines (elfutils 0.190)"
+  echo "    local macOS    works — 91.94% (13850/15064 lines)"
+  echo "  The 90% gate is therefore enforced by scripts/release-gate.sh on a"
+  echo "  developer machine, not per-PR in CI. Run ./scripts/coverage.sh locally."
   exit 0
 fi
 
@@ -92,6 +101,17 @@ fi
 coverage="$(awk -F'"' '/^  "percent_covered"/ { print $4; exit }' "$report_json")"
 covered_lines="$(awk -F'[: ,]+' '/^  "covered_lines"/ { print $3; exit }' "$report_json")"
 total_lines="$(awk -F'[: ,]+' '/^  "total_lines"/ { print $3; exit }' "$report_json")"
+
+# kcov reports 0/0 when it cannot read the binary's debug info (an old kcov
+# against modern DWARF, say). That is a broken measurement, not 0% coverage,
+# and it must not read as a normal gate failure.
+if [[ -z "$total_lines" || "$total_lines" == "0" ]]; then
+  echo "coverage instrumented no lines: kcov produced a 0-line report" >&2
+  echo "  This is a measurement failure, not a coverage result. Check that kcov" >&2
+  echo "  can read this binary's debug info (kcov --version, DWARF support)." >&2
+  echo "  Report: $report_json" >&2
+  exit 1
+fi
 
 printf 'Coverage: %s%% (%s/%s lines)\n' "$coverage" "$covered_lines" "$total_lines"
 printf 'Report: %s\n' "$report_json"

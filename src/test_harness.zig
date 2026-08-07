@@ -47,6 +47,7 @@ const command = @import("command.zig");
 const command_tests = @import("command_tests.zig");
 const config = @import("config.zig");
 const config_diagnostics = @import("config_diagnostics.zig");
+const config_schema = @import("config_schema.zig");
 const config_tests = @import("config_tests.zig");
 const config_paths = @import("config_paths.zig");
 const config_paths_tests = @import("config_paths_tests.zig");
@@ -187,6 +188,7 @@ test {
     _ = command_tests;
     _ = config;
     _ = config_diagnostics;
+    _ = config_schema;
     _ = config_tests;
     _ = config_paths;
     _ = config_paths_tests;

@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdio = @import("stdio.zig");
+const config_schema = @import("config_schema.zig");
 
 pub fn errorFieldPathForFile(allocator: std.mem.Allocator, path: []const u8, err: anyerror) !?[]const u8 {
     const content = stdio.readFileAlloc(allocator, path, 1024 * 1024) catch return null;
@@ -34,33 +35,20 @@ pub fn errorFieldPathForSlice(allocator: std.mem.Allocator, content: []const u8,
 }
 
 fn findUnknownFieldPath(allocator: std.mem.Allocator, object: std.json.ObjectMap) !?[]const u8 {
-    const root_allowed = [_][]const u8{ "schemaVersion", "appId", "android", "ios", "artifacts", "redaction", "tools", "scripts" };
-    if (try unknownInObject(allocator, object, "$", root_allowed[0..])) |path| return path;
+    if (try unknownInObject(allocator, object, "$", config_schema.root_fields[0..])) |path| return path;
 
-    const platform_allowed = [_][]const u8{
-        "enabled",
-        "defaultDevice",
-        "smokeScenario",
-        "traceDir",
-        "avdName",
-        "restoreSnapshot",
-        "createAvdIfMissing",
-        "avdSystemImage",
-        "avdDeviceProfile",
-        "resetBeforeRun",
-        "waitReady",
-    };
-    if (try unknownInNestedObject(allocator, object, "android", "$.android", platform_allowed[0..])) |path| return path;
-    if (try unknownInNestedObject(allocator, object, "ios", "$.ios", platform_allowed[0..])) |path| return path;
+    const platform_allowed = config_schema.allNames(&config_schema.platform_fields);
+    if (try unknownInNestedObject(allocator, object, "android", "$.android", platform_allowed)) |path| return path;
+    if (try unknownInNestedObject(allocator, object, "ios", "$.ios", platform_allowed)) |path| return path;
 
-    const tools_allowed = [_][]const u8{ "adbPath", "emulatorPath", "avdmanagerPath", "androidShimPath", "xcrunPath", "iosShimPath", "zigPath" };
-    if (try unknownInNestedObject(allocator, object, "tools", "$.tools", tools_allowed[0..])) |path| return path;
+    const tools_allowed = config_schema.allNames(&config_schema.tools_fields);
+    if (try unknownInNestedObject(allocator, object, "tools", "$.tools", tools_allowed)) |path| return path;
 
-    const artifact_allowed = [_][]const u8{ "screenshots", "hierarchy", "logs", "screenRecording" };
-    if (try unknownInNestedObject(allocator, object, "artifacts", "$.artifacts", artifact_allowed[0..])) |path| return path;
+    const artifact_allowed = config_schema.allNames(&config_schema.artifact_fields);
+    if (try unknownInNestedObject(allocator, object, "artifacts", "$.artifacts", artifact_allowed)) |path| return path;
 
-    const redaction_allowed = [_][]const u8{ "denylistText", "allowlistText", "denylistResourceIds", "allowlistResourceIds" };
-    if (try unknownInNestedObject(allocator, object, "redaction", "$.redaction", redaction_allowed[0..])) |path| return path;
+    const redaction_allowed = config_schema.redaction_fields[0..];
+    if (try unknownInNestedObject(allocator, object, "redaction", "$.redaction", redaction_allowed)) |path| return path;
 
     return null;
 }
@@ -103,21 +91,21 @@ fn firstObjectTypeFieldPath(allocator: std.mem.Allocator, object: std.json.Objec
 }
 
 fn findBoolFieldPath(allocator: std.mem.Allocator, object: std.json.ObjectMap) !?[]const u8 {
-    const platform_bool_keys = [_][]const u8{ "enabled", "resetBeforeRun", "waitReady", "createAvdIfMissing" };
-    if (try fieldWithUnexpectedTag(allocator, object, "android", "$.android", platform_bool_keys[0..], .bool)) |path| return path;
-    if (try fieldWithUnexpectedTag(allocator, object, "ios", "$.ios", platform_bool_keys[0..], .bool)) |path| return path;
+    const platform_bool_keys = config_schema.namesOfKind(&config_schema.platform_fields, .boolean);
+    if (try fieldWithUnexpectedTag(allocator, object, "android", "$.android", platform_bool_keys, .bool)) |path| return path;
+    if (try fieldWithUnexpectedTag(allocator, object, "ios", "$.ios", platform_bool_keys, .bool)) |path| return path;
 
-    const artifact_bool_keys = [_][]const u8{ "screenshots", "hierarchy", "logs", "screenRecording" };
-    if (try fieldWithUnexpectedTag(allocator, object, "artifacts", "$.artifacts", artifact_bool_keys[0..], .bool)) |path| return path;
+    const artifact_bool_keys = config_schema.namesOfKind(&config_schema.artifact_fields, .boolean);
+    if (try fieldWithUnexpectedTag(allocator, object, "artifacts", "$.artifacts", artifact_bool_keys, .bool)) |path| return path;
     return null;
 }
 
 fn findStringFieldPath(allocator: std.mem.Allocator, object: std.json.ObjectMap) !?[]const u8 {
     if (try scriptValueWithUnexpectedTag(allocator, object, .string, false)) |path| return path;
     if (try directFieldWithUnexpectedTag(allocator, object, "appId", "$.appId", .string, false)) |path| return path;
-    const platform_string_keys = [_][]const u8{ "defaultDevice", "smokeScenario", "traceDir", "avdName", "restoreSnapshot", "avdSystemImage", "avdDeviceProfile" };
-    if (try fieldWithUnexpectedTag(allocator, object, "android", "$.android", platform_string_keys[0..], .string)) |path| return path;
-    if (try fieldWithUnexpectedTag(allocator, object, "ios", "$.ios", platform_string_keys[0..], .string)) |path| return path;
+    const platform_string_keys = config_schema.namesOfKind(&config_schema.platform_fields, .string);
+    if (try fieldWithUnexpectedTag(allocator, object, "android", "$.android", platform_string_keys, .string)) |path| return path;
+    if (try fieldWithUnexpectedTag(allocator, object, "ios", "$.ios", platform_string_keys, .string)) |path| return path;
     const tools_string_keys = [_][]const u8{ "adbPath", "emulatorPath", "avdmanagerPath", "androidShimPath", "xcrunPath", "iosShimPath", "zigPath" };
     if (try fieldWithUnexpectedTag(allocator, object, "tools", "$.tools", tools_string_keys[0..], .string)) |path| return path;
     return null;
@@ -126,9 +114,9 @@ fn findStringFieldPath(allocator: std.mem.Allocator, object: std.json.ObjectMap)
 fn findNonEmptyStringFieldPath(allocator: std.mem.Allocator, object: std.json.ObjectMap) !?[]const u8 {
     if (try scriptValueWithUnexpectedTag(allocator, object, .string, true)) |path| return path;
     if (try emptyDirectStringFieldPath(allocator, object, "appId", "$.appId")) |path| return path;
-    const platform_string_keys = [_][]const u8{ "defaultDevice", "smokeScenario", "traceDir", "avdName", "restoreSnapshot", "avdSystemImage", "avdDeviceProfile" };
-    if (try emptyNestedStringFieldPath(allocator, object, "android", "$.android", platform_string_keys[0..])) |path| return path;
-    if (try emptyNestedStringFieldPath(allocator, object, "ios", "$.ios", platform_string_keys[0..])) |path| return path;
+    const platform_string_keys = config_schema.namesOfKind(&config_schema.platform_fields, .string);
+    if (try emptyNestedStringFieldPath(allocator, object, "android", "$.android", platform_string_keys)) |path| return path;
+    if (try emptyNestedStringFieldPath(allocator, object, "ios", "$.ios", platform_string_keys)) |path| return path;
     const tools_string_keys = [_][]const u8{ "adbPath", "emulatorPath", "avdmanagerPath", "androidShimPath", "xcrunPath", "iosShimPath", "zigPath" };
     if (try emptyNestedStringFieldPath(allocator, object, "tools", "$.tools", tools_string_keys[0..])) |path| return path;
     const redaction_keys = [_][]const u8{ "denylistText", "allowlistText", "denylistResourceIds", "allowlistResourceIds" };

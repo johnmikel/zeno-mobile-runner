@@ -275,3 +275,56 @@ test -e "$TMPDIR/shared-derived-data-app/ios/build/stale.txt"
 bash -n "$TMPDIR/physical-app/.zmr/ios-shim"
 grep -q 'platform_name="iOS"' "$TMPDIR/physical-app/.zmr/ios-shim"
 grep -q 'local destination_id="fake-physical-ios-1"' "$TMPDIR/physical-app/.zmr/ios-shim"
+
+# A server that is alive but not yet identifiable by `ps` must not be reported
+# as exited. start_server records $! immediately after nohup, so on a loaded
+# machine the first readiness poll can run before the child has exec'd its real
+# command line — the shim then declared "server exited before it became ready"
+# and failed a perfectly healthy run. This reproduces that window by exec'ing a
+# command whose argv does not mention xcodebuild or the test target.
+mkdir -p "$TMPDIR/slow-bin"
+cat > "$TMPDIR/slow-bin/xcodebuild" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+server_dir=""
+for arg in "$@"; do
+  case "$arg" in
+    ZMR_SHIM_SERVER_DIR=*) server_dir="${arg#ZMR_SHIM_SERVER_DIR=}" ;;
+  esac
+done
+if [[ "$*" == *"build-for-testing"* ]]; then
+  exit 0
+fi
+if [[ -n "$server_dir" ]]; then
+  # Become unidentifiable first, then answer. `exec` replaces this argv, so
+  # `ps -p <pid> -o command=` no longer matches xcodebuild or the test target.
+  exec bash -c '
+    server_dir="$1"
+    sleep 1
+    touch "$server_dir/ready"
+    deadline=$((SECONDS + 30))
+    while (( SECONDS < deadline )); do
+      for request_file in "$server_dir"/request-*.json; do
+        [[ -e "$request_file" ]] || continue
+        request_id="${request_file##*/request-}"
+        request_id="${request_id%.json}"
+        printf "{\"status\":\"ok\",\"state\":\"runningForeground\"}\n" > "$server_dir/response-$request_id.json"
+        sleep 1
+        exit 0
+      done
+      sleep 0.05
+    done
+    exit 1
+  ' _ "$server_dir"
+fi
+exit 0
+SH
+chmod +x "$TMPDIR/slow-bin/xcodebuild"
+
+rm -rf "$TMPDIR/app/.zmr/ios-shim-state"
+if ! printf '{"cmd":"appState"}\n' | PATH="$TMPDIR/slow-bin:$PATH" "$TMPDIR/app/.zmr/ios-shim" > "$TMPDIR/slow-start-response.json" 2> "$TMPDIR/slow-start-stderr.txt"; then
+  echo "shim failed while its server was alive but not yet identifiable:" >&2
+  cat "$TMPDIR/slow-start-stderr.txt" >&2
+  exit 1
+fi
+grep -q '"status":"ok"' "$TMPDIR/slow-start-response.json"

@@ -66,6 +66,7 @@ done
 HOST_ZIG_TARGET="$(detect_host_zig_target)"
 
 run "zig fmt --check build.zig src"
+run "bash scripts/check-test-harness.sh"
 run "bash -n install.sh scripts/*.sh scripts/hooks/* tests/*.sh"
 run "python3 -m py_compile scripts/*.py"
 run "mkdir -p zig-out/bin"

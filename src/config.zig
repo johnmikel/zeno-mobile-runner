@@ -2,6 +2,14 @@ const std = @import("std");
 const stdio = @import("stdio.zig");
 const config_diagnostics = @import("config_diagnostics.zig");
 
+pub const config_schema = @import("config_schema.zig");
+pub const FieldKind = config_schema.FieldKind;
+pub const Field = config_schema.Field;
+pub const platform_fields = config_schema.platform_fields;
+pub const tools_fields = config_schema.tools_fields;
+pub const artifact_fields = config_schema.artifact_fields;
+const allNames = config_schema.allNames;
+
 pub const PlatformConfig = struct {
     enabled: bool = false,
     default_device: ?[]const u8 = null,
@@ -108,7 +116,7 @@ pub fn parseSlice(allocator: std.mem.Allocator, content: []const u8) !Config {
     defer parsed.deinit();
     if (parsed.value != .object) return error.ConfigMustBeObject;
     const object = parsed.value.object;
-    try rejectUnknownFields(object, &.{ "schemaVersion", "appId", "android", "ios", "artifacts", "redaction", "tools", "scripts" });
+    try rejectUnknownFields(object, config_schema.root_fields[0..]);
     const schema_version = try requiredU32(object, "schemaVersion");
 
     var cfg = Config{
@@ -131,20 +139,7 @@ fn platformConfig(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) !P
     const value = maybe_value orelse return .{};
     if (value != .object) return error.ConfigPlatformMustBeObject;
     const object = value.object;
-    try rejectUnknownFields(object, &.{
-        "enabled",
-        "defaultDevice",
-        "smokeScenario",
-        "traceDir",
-        "avdName",
-        "restoreSnapshot",
-        "createAvdIfMissing",
-        "avdSystemImage",
-        "avdDeviceProfile",
-        "resetBeforeRun",
-        "waitReady",
-        "ensureDevice",
-    });
+    try rejectUnknownFields(object, allNames(&platform_fields));
     return .{
         .enabled = try optionalBool(object, "enabled") orelse false,
         .default_device = try optionalString(allocator, object, "defaultDevice"),
@@ -169,7 +164,7 @@ fn toolsConfig(allocator: std.mem.Allocator, maybe_value: ?std.json.Value) !Tool
     const value = maybe_value orelse return .{};
     if (value != .object) return error.ConfigToolsMustBeObject;
     const object = value.object;
-    try rejectUnknownFields(object, &.{ "adbPath", "emulatorPath", "avdmanagerPath", "androidShimPath", "xcrunPath", "iosShimPath", "zigPath" });
+    try rejectUnknownFields(object, allNames(&tools_fields));
     return .{
         .adb_path = try optionalString(allocator, object, "adbPath"),
         .emulator_path = try optionalString(allocator, object, "emulatorPath"),
@@ -185,7 +180,7 @@ fn artifactConfig(maybe_value: ?std.json.Value) !ArtifactConfig {
     const value = maybe_value orelse return .{};
     if (value != .object) return error.ConfigArtifactsMustBeObject;
     const object = value.object;
-    try rejectUnknownFields(object, &.{ "screenshots", "hierarchy", "logs", "screenRecording" });
+    try rejectUnknownFields(object, allNames(&artifact_fields));
     return .{
         .screenshots = try optionalBool(object, "screenshots") orelse true,
         .hierarchy = try optionalBool(object, "hierarchy") orelse true,

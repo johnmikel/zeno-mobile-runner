@@ -4,15 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PACKAGE="$ROOT/package.json"
 SOURCE="$ROOT/src/version.zig"
+MANIFEST="$ROOT/build.zig.zon"
 EXPECTED="${ZMR_VERSION:-}"
 
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/verify-release-version.sh [--package package.json] [--source src/version.zig] [--expected version]
+  scripts/verify-release-version.sh [--package package.json] [--source src/version.zig] [--manifest build.zig.zon] [--expected version]
 
-Verifies that package.json, src/version.zig, and the optional release version
-all describe the same ZMR runner version.
+Verifies that package.json, src/version.zig, build.zig.zon, and the optional
+release version all describe the same ZMR runner version.
 USAGE
 }
 
@@ -32,6 +33,14 @@ while [[ "$#" -gt 0 ]]; do
         exit 2
       fi
       SOURCE="$2"
+      shift 2
+      ;;
+    --manifest)
+      if [[ -z "${2:-}" ]]; then
+        echo "--manifest requires a value" >&2
+        exit 2
+      fi
+      MANIFEST="$2"
       shift 2
       ;;
     --expected)
@@ -56,6 +65,7 @@ done
 
 package_version="$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$PACKAGE")"
 source_version="$(awk -F'"' '/runner_version/ { print $2; exit }' "$SOURCE")"
+manifest_version="$(awk -F'"' '/^[[:space:]]*\.version[[:space:]]*=/ { print $2; exit }' "$MANIFEST")"
 
 status=0
 if [[ -z "$package_version" ]]; then
@@ -64,6 +74,14 @@ if [[ -z "$package_version" ]]; then
 fi
 if [[ -z "$source_version" ]]; then
   echo "src/version.zig runner_version is empty: $SOURCE" >&2
+  status=1
+fi
+if [[ -z "$manifest_version" ]]; then
+  echo "build.zig.zon version is empty: $MANIFEST" >&2
+  status=1
+fi
+if [[ -n "$package_version" && -n "$manifest_version" && "$package_version" != "$manifest_version" ]]; then
+  echo "build.zig.zon version $manifest_version does not match package.json version $package_version" >&2
   status=1
 fi
 if [[ -n "$package_version" && -n "$source_version" && "$package_version" != "$source_version" ]]; then

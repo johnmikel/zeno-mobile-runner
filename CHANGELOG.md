@@ -24,6 +24,14 @@ All notable changes to Zeno Mobile Runner are tracked here.
 - Scenario metadata fields `env`, `constants`, `labels`, and `source` are
   parsed and schema-validated as **reserved metadata** — the runner does not
   interpolate or act on them yet.
+- A canonical action registry: `runner.capabilities` now appends an additive
+  `actions` array describing every runner action — stable id, per-surface
+  aliases, parameter schema, platforms, mutability, risk class, and trace
+  event — published as `schemas/action-registry.schema.json`. Aliases are
+  listed only for endpoints each surface actually dispatches; a conformance
+  test enforces the parity, and two MCP alias names that pointed at
+  nonexistent tools (`wait_until_visible`, `wait_until_not_visible`) were
+  corrected to the real `wait_visible`/`wait_not_visible`.
 
 ### Changed
 

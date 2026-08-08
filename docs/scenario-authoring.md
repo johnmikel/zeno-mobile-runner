@@ -49,6 +49,12 @@ Beyond the identity fields above, selectors can narrow a match with:
   `child` / `descendant` (hierarchy), each taking a nested selector for the
   anchor node.
 
+  **`child` and `descendant` are Android-only today.** They rely on parent
+  links, which the Android hierarchy parser produces from the nesting
+  `uiautomator` reports. The iOS shim enumerates elements by type rather than
+  walking the tree, so no parent information reaches the runner and hierarchy
+  anchors match nothing there. Spatial anchors work on both platforms.
+
 Use relational anchors sparingly in committed scenarios — they encode layout,
 which changes more often than app-owned identifiers do.
 

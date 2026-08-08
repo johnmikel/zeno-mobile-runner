@@ -8,11 +8,28 @@ pub fn parseHierarchy(allocator: std.mem.Allocator, xml: []const u8) ![]types.Ui
         nodes.deinit(allocator);
     }
 
+    // uiautomator emits a nested tree, and the nesting is the only thing that
+    // says which node is the control and which is the container wrapping it.
+    // Flattening it loses that, so track open elements as we scan. The stack
+    // borrows stable_id slices; those are heap-allocated and owned by the
+    // nodes list, so they stay valid when the list grows.
+    var open = std.ArrayList([]const u8).empty;
+    defer open.deinit(allocator);
+
     var cursor: usize = 0;
     var index: usize = 0;
     while (std.mem.indexOfPos(u8, xml, cursor, "<node")) |start| {
+        // Close out any elements that ended before this one begins.
+        var scan = cursor;
+        while (std.mem.indexOfPos(u8, xml, scan, "</node>")) |close| {
+            if (close >= start) break;
+            if (open.items.len > 0) _ = open.pop();
+            scan = close + "</node>".len;
+        }
+
         const end = std.mem.indexOfScalarPos(u8, xml, start, '>') orelse break;
         const tag = xml[start..end];
+        const parent_id = if (open.items.len > 0) open.items[open.items.len - 1] else null;
         const class_name = try attrOwned(allocator, tag, "class") orelse try allocator.dupe(u8, "");
         errdefer allocator.free(class_name);
         const resource_id = try attrOwned(allocator, tag, "resource-id");
@@ -46,7 +63,12 @@ pub fn parseHierarchy(allocator: std.mem.Allocator, xml: []const u8) ![]types.Ui
             .checked = checked,
             .focused = focused,
             .selected = selected,
+            .parent_stable_id = try types.dupeOptional(allocator, parent_id),
         });
+
+        // A self-closing <node .../> has no children; anything else opens a
+        // scope that later </node> closes.
+        if (xml[end - 1] != '/') try open.append(allocator, stable_id);
 
         index += 1;
         cursor = end + 1;

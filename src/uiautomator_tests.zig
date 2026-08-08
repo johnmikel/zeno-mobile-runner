@@ -72,3 +72,43 @@ test "parse bounds rejects malformed input and clamps negative size" {
     try std.testing.expectEqual(@as(i32, 0), bounds.width);
     try std.testing.expectEqual(@as(i32, 0), bounds.height);
 }
+
+test "hierarchy parsing records parent links so depth is real" {
+    // Without parent links every node is depth 0, which silently disables
+    // deepest-match targeting and makes child/descendant selectors match
+    // nothing — on real devices, while the fake device looked correct.
+    const allocator = std.testing.allocator;
+    const xml =
+        \\<?xml version='1.0' encoding='UTF-8'?>
+        \\<hierarchy rotation="0">
+        \\<node class="android.widget.ScrollView" text="Sign in" bounds="[0,0][400,800]">
+        \\<node class="android.view.ViewGroup" text="Sign in" bounds="[0,300][400,360]">
+        \\<node class="android.widget.TextView" text="Sign in" bounds="[150,315][250,345]"/>
+        \\</node>
+        \\<node class="android.widget.TextView" text="Sibling" bounds="[0,400][400,430]"/>
+        \\</node>
+        \\</hierarchy>
+    ;
+    const nodes = try uiautomator.parseHierarchy(allocator, xml);
+    defer {
+        for (nodes) |node| node.deinit(allocator);
+        allocator.free(nodes);
+    }
+
+    try std.testing.expectEqual(@as(usize, 4), nodes.len);
+    try std.testing.expect(nodes[0].parent_stable_id == null);
+    try std.testing.expectEqualStrings(nodes[0].stable_id, nodes[1].parent_stable_id.?);
+    try std.testing.expectEqualStrings(nodes[1].stable_id, nodes[2].parent_stable_id.?);
+    // The sibling closes back out to the ScrollView, not the ViewGroup.
+    try std.testing.expectEqualStrings(nodes[0].stable_id, nodes[3].parent_stable_id.?);
+
+    const selector = @import("selector.zig");
+    try std.testing.expectEqual(@as(usize, 0), selector.depthOf(nodes, 0));
+    try std.testing.expectEqual(@as(usize, 1), selector.depthOf(nodes, 1));
+    try std.testing.expectEqual(@as(usize, 2), selector.depthOf(nodes, 2));
+
+    // The whole point: a tap on "Sign in" reaches the label, not the scroll
+    // container whose centre is 70 points away.
+    const found = selector.find(nodes, .{ .text = "Sign in" }) orelse return error.ExpectedMatch;
+    try std.testing.expectEqual(@as(i32, 330), found.bounds.centerY());
+}

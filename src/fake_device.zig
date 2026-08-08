@@ -173,11 +173,29 @@ pub const FakeDevice = struct {
     }
 
     pub fn snapshot(self: *FakeDevice, writer: anytype) !types.ObservationSnapshot {
-        _ = writer;
         if (self.snapshots.len == 0) return error.NoFakeSnapshots;
         const index = @min(self.snapshot_index, self.snapshots.len - 1);
         if (self.snapshot_index + 1 < self.snapshots.len) self.snapshot_index += 1;
-        return try cloneSnapshot(self.allocator, self.snapshots[index]);
+        var snap = try cloneSnapshot(self.allocator, self.snapshots[index]);
+        errdefer snap.deinit(self.allocator);
+        // Real devices name the snapshot from the trace writer, and every
+        // artifact in the run is named from that id. Ignoring the writer here
+        // meant no end-to-end test ever exercised the sequence, so a generator
+        // stuck on snapshot-1 would collapse a run onto one screenshot and
+        // still look complete.
+        // Callers pass the writer as `null`, as `?*TraceWriter`, or as a plain
+        // `*TraceWriter`, so normalize before using it.
+        const maybe_writer = switch (@typeInfo(@TypeOf(writer))) {
+            .null => null,
+            .optional => writer,
+            else => @as(?@TypeOf(writer), writer),
+        };
+        if (maybe_writer) |tw| {
+            const id = try tw.nextSnapshotId();
+            self.allocator.free(snap.id);
+            snap.id = id;
+        }
+        return snap;
     }
 };
 

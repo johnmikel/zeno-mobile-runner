@@ -6,6 +6,16 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Fixed
 
+- Snapshot id sequencing is now verified. Every artifact in a run is named from
+  the id `TraceWriter.nextSnapshotId` hands out, but only a single call was
+  ever tested, so a generator returning `snapshot-1` forever passed — silently
+  collapsing a whole run onto one screenshot and one UI tree while the trace
+  still looked complete. A test now pins that ids advance and never repeat, and
+  `FakeDevice` derives its snapshot id from the trace writer the way real
+  devices do, so multi-snapshot flows exercise the counter end to end instead
+  of ignoring it.
+
+
 - The Android device's adb commands are now verified. `tests/fake-adb.sh`
   accepted `input`, `am`, `pm` and `monkey` with an empty case body and its
   argv log was opt-in and used by nothing, so `AndroidDevice` could have sent

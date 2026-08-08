@@ -111,11 +111,52 @@ pub fn matches(node: types.UiNode, wanted: Selector) bool {
     return node.visible;
 }
 
+/// The deepest matching node wins.
+///
+/// React Native and Expo render one control as a stack of nested views that
+/// all carry the same accessible text — a Text inside a Pressable inside a
+/// scroll container. A flattened hierarchy lists the outermost first, so
+/// returning the first match hands back the container. Sometimes that works by
+/// accident, because the container covers the same pixels; when the container
+/// is the scroll view, a tap lands hundreds of points from the control. The
+/// leaf is what the user would press, so the leaf is the answer.
+///
+/// Among matches at equal depth the first in document order still wins, so the
+/// same hierarchy always resolves to the same node — determinism is the whole
+/// product claim, and a matcher that picked differently between runs would
+/// undermine it.
 pub fn find(nodes: []const types.UiNode, wanted: Selector) ?types.UiNode {
+    var best: ?types.UiNode = null;
+    var best_depth: usize = 0;
     for (nodes, 0..) |node, node_index| {
-        if (matchesAt(nodes, node_index, wanted)) return node;
+        if (!matchesAt(nodes, node_index, wanted)) continue;
+        const depth = depthOf(nodes, node_index);
+        if (best == null or depth > best_depth) {
+            best = node;
+            best_depth = depth;
+        }
     }
-    return null;
+    return best;
+}
+
+/// How many ancestors a node has. Bounded by node count so a malformed
+/// snapshot carrying a parent-id cycle cannot spin here.
+pub fn depthOf(nodes: []const types.UiNode, node_index: usize) usize {
+    var depth: usize = 0;
+    var parent_id = nodes[node_index].parent_stable_id orelse return 0;
+    var hops: usize = 0;
+    while (hops < nodes.len) : (hops += 1) {
+        var found = false;
+        for (nodes) |other| {
+            if (!std.mem.eql(u8, other.stable_id, parent_id)) continue;
+            depth += 1;
+            parent_id = other.parent_stable_id orelse return depth;
+            found = true;
+            break;
+        }
+        if (!found) return depth;
+    }
+    return depth;
 }
 
 /// Full-context matcher for callers that need to retain their own filtering

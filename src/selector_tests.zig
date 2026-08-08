@@ -169,3 +169,86 @@ test "selector descendant walk terminates on cyclic parent chains" {
     };
     try std.testing.expect(selector.find(nodes[0..], wanted) == null);
 }
+
+// React Native and Expo render a control as a stack of nested views that all
+// carry the same accessible text: a Pressable wrapping a View wrapping a Text.
+// A flattened hierarchy lists the outermost first, so first-match selection
+// taps the container. Sometimes that works by accident, because the container
+// occupies the same pixels; when the container is larger, or when it is the
+// scroll view rather than the button, the tap lands somewhere else entirely.
+// Since these are exactly the frameworks ZMR targets, the leaf is the answer.
+test "selector picks the deepest node when wrappers repeat the same text" {
+    const allocator = std.testing.allocator;
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator,
+        \\{"text":"Sign in"}
+    , .{});
+    defer parsed.deinit();
+    const wanted = try selector.parseFromJson(allocator, parsed.value);
+    defer wanted.deinit(allocator);
+
+    // All three carry the same `text`, which is what a nested Text inside a
+    // Pressable inside a scroll container actually produces. The container
+    // spans the whole screen, so tapping it lands 400px from the button.
+    const nodes = [_]types.UiNode{
+        .{ .stable_id = "scroll", .class_name = "android.widget.ScrollView", .text = "Sign in", .bounds = .{ .x = 0, .y = 0, .width = 400, .height = 800 } },
+        .{ .stable_id = "pressable", .class_name = "android.view.ViewGroup", .text = "Sign in", .parent_stable_id = "scroll", .bounds = .{ .x = 0, .y = 300, .width = 400, .height = 60 } },
+        .{ .stable_id = "label", .class_name = "android.widget.TextView", .text = "Sign in", .parent_stable_id = "pressable", .bounds = .{ .x = 150, .y = 315, .width = 100, .height = 30 } },
+    };
+
+    const found = selector.find(nodes[0..], wanted) orelse return error.ExpectedSelectorMatch;
+    try std.testing.expectEqualStrings("label", found.stable_id);
+}
+
+test "deepest-match selection does not disturb a single match" {
+    const allocator = std.testing.allocator;
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator,
+        \\{"text":"Only"}
+    , .{});
+    defer parsed.deinit();
+    const wanted = try selector.parseFromJson(allocator, parsed.value);
+    defer wanted.deinit(allocator);
+
+    const nodes = [_]types.UiNode{
+        .{ .stable_id = "a", .class_name = "android.widget.TextView", .text = "Other" },
+        .{ .stable_id = "b", .class_name = "android.widget.TextView", .text = "Only" },
+        .{ .stable_id = "c", .class_name = "android.widget.TextView", .text = "Another" },
+    };
+    try std.testing.expectEqualStrings("b", (selector.find(nodes[0..], wanted) orelse return error.ExpectedSelectorMatch).stable_id);
+}
+
+test "deepest-match selection prefers depth, not document order" {
+    const allocator = std.testing.allocator;
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator,
+        \\{"text":"Item"}
+    , .{});
+    defer parsed.deinit();
+    const wanted = try selector.parseFromJson(allocator, parsed.value);
+    defer wanted.deinit(allocator);
+
+    // Two unrelated matches at different depths. Depth decides, and among
+    // equals the earlier one still wins so the result stays deterministic.
+    const nodes = [_]types.UiNode{
+        .{ .stable_id = "shallow", .class_name = "android.widget.TextView", .text = "Item" },
+        .{ .stable_id = "row", .class_name = "android.view.ViewGroup", .bounds = .{ .x = 0, .y = 0, .width = 10, .height = 10 } },
+        .{ .stable_id = "deep", .class_name = "android.widget.TextView", .text = "Item", .parent_stable_id = "row" },
+    };
+    try std.testing.expectEqualStrings("deep", (selector.find(nodes[0..], wanted) orelse return error.ExpectedSelectorMatch).stable_id);
+}
+
+test "deepest-match selection is stable when matches tie on depth" {
+    const allocator = std.testing.allocator;
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator,
+        \\{"text":"Tie"}
+    , .{});
+    defer parsed.deinit();
+    const wanted = try selector.parseFromJson(allocator, parsed.value);
+    defer wanted.deinit(allocator);
+
+    // Determinism is the product's whole claim, so equal-depth matches must
+    // resolve the same way on every run: the first in document order.
+    const nodes = [_]types.UiNode{
+        .{ .stable_id = "first", .class_name = "android.widget.TextView", .text = "Tie" },
+        .{ .stable_id = "second", .class_name = "android.widget.TextView", .text = "Tie" },
+    };
+    try std.testing.expectEqualStrings("first", (selector.find(nodes[0..], wanted) orelse return error.ExpectedSelectorMatch).stable_id);
+}

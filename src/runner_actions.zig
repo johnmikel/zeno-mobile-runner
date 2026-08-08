@@ -170,14 +170,25 @@ pub fn eraseTextSelector(
     try settleDevice(device, options);
 }
 
+/// Like `selector.find`, but additionally requires the node to be enabled and
+/// on screen — and, as there, prefers the deepest match. React Native stacks
+/// several views carrying the same text, and the outermost is often the scroll
+/// container: tapping its centre can land hundreds of points from the control
+/// the user meant. Ties keep document order so the choice stays deterministic.
 fn findActionable(snap: types.ObservationSnapshot, wanted: selector.Selector) ?types.UiNode {
+    var best: ?types.UiNode = null;
+    var best_depth: usize = 0;
     for (snap.nodes, 0..) |node, index| {
         if (!selector.matchesAt(snap.nodes, index, wanted)) continue;
         if (!node.enabled) continue;
         if (!isInViewport(node, snap.viewport)) continue;
-        return node;
+        const depth = selector.depthOf(snap.nodes, index);
+        if (best == null or depth > best_depth) {
+            best = node;
+            best_depth = depth;
+        }
     }
-    return null;
+    return best;
 }
 
 fn isInViewport(node: types.UiNode, viewport: types.Viewport) bool {

@@ -1204,3 +1204,52 @@ fn appendDiagnosticSnapshot(
         .nodes = nodes,
     });
 }
+
+test "tap targets the leaf control, not the wrapper that shares its text" {
+    // The case that matters most: taps had their own first-match loop, so the
+    // deepest-match rule in selector.find did not reach them. Tapping the
+    // scroll container here lands ~370 points above the button.
+    const fake_device = @import("fake_device.zig");
+    const allocator = std.testing.allocator;
+
+    const nodes = try allocator.alloc(types.UiNode, 3);
+    nodes[0] = .{
+        .stable_id = try allocator.dupe(u8, "scroll"),
+        .class_name = try allocator.dupe(u8, "android.widget.ScrollView"),
+        .text = try allocator.dupe(u8, "Sign in"),
+        .bounds = .{ .x = 0, .y = 0, .width = 400, .height = 800 },
+    };
+    nodes[1] = .{
+        .stable_id = try allocator.dupe(u8, "pressable"),
+        .class_name = try allocator.dupe(u8, "android.view.ViewGroup"),
+        .text = try allocator.dupe(u8, "Sign in"),
+        .parent_stable_id = try allocator.dupe(u8, "scroll"),
+        .bounds = .{ .x = 0, .y = 300, .width = 400, .height = 60 },
+    };
+    nodes[2] = .{
+        .stable_id = try allocator.dupe(u8, "label"),
+        .class_name = try allocator.dupe(u8, "android.widget.TextView"),
+        .text = try allocator.dupe(u8, "Sign in"),
+        .parent_stable_id = try allocator.dupe(u8, "pressable"),
+        .bounds = .{ .x = 150, .y = 315, .width = 100, .height = 30 },
+    };
+    var snaps = try allocator.alloc(types.ObservationSnapshot, 1);
+    snaps[0] = .{
+        .id = try allocator.dupe(u8, "s1"),
+        .timestamp_ms = 1,
+        .viewport = .{ .width = 400, .height = 800 },
+        .nodes = nodes,
+    };
+    defer {
+        for (snaps) |snap| snap.deinit(allocator);
+        allocator.free(snaps);
+    }
+
+    var device = fake_device.FakeDevice.init(allocator, snaps);
+    defer device.deinit();
+
+    try tapSelector(&device, .{ .text = "Sign in" }, null, .{ .settle_ms = 1 });
+
+    try std.testing.expectEqual(@as(i32, 200), device.last_tap_x);
+    try std.testing.expectEqual(@as(i32, 330), device.last_tap_y);
+}

@@ -6,6 +6,23 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Fixed
 
+- The Android hierarchy parser now records parent links, which is what makes
+  deepest-match targeting actually work on a device. `uiautomator` reports a
+  nested tree and the parser flattened it, so **every real node arrived at
+  depth 0** — meaning the deepest-match fix shipped just before this one was
+  inert in production, and `child`/`descendant` selectors matched nothing.
+  Only the test double set parent links, so the suite was green while a tap on
+  a React Native control still landed on the wrapper. Verified against the real
+  parser: a tap for `text: "Sign in"` on a `ScrollView > ViewGroup > TextView`
+  stack moved from (200,400), the scroll container's centre, to (200,330), the
+  label.
+
+  **iOS is still affected.** Its shim enumerates elements by type rather than
+  walking the tree, so no parent data reaches the runner at all; closing that
+  needs a shim protocol change and a shim reinstall. `child`/`descendant` are
+  documented as Android-only until then.
+
+
 - Selectors now resolve to the **deepest** matching node rather than the first
   in document order. React Native and Expo render one control as a stack of
   nested views that all carry the same accessible text — a `Text` inside a

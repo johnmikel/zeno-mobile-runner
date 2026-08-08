@@ -189,6 +189,9 @@ fn isInViewport(node: types.UiNode, viewport: types.Viewport) bool {
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {
+    // Settling is what mutating actions do and non-mutating ones do not, so it
+    // is the honest place to stamp "the device just had a reason to change".
+    if (options.anchor) |anchor| anchor.touch();
     if (!options.adaptive_settle) {
         return try device.settle(options.settle_ms);
     }

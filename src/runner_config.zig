@@ -1,3 +1,5 @@
+const runner_anchor = @import("runner_anchor.zig");
+
 pub const RunOptions = struct {
     /// Upper bound on a native/device-side settle, and the fixed wait used when
     /// `adaptive_settle` is off.
@@ -24,4 +26,12 @@ pub const RunOptions = struct {
     /// continues and the next lookup reports anything genuinely wrong.
     settle_timeout_ms: u64 = 2000,
     settle_poll_ms: u64 = 100,
+
+    /// Measures wait budgets from when the device last had a reason to change
+    /// rather than from when the wait started. See src/runner_anchor.zig.
+    /// Null means the previous behavior: every wait gets its full timeout.
+    anchor: ?*runner_anchor.Anchor = null,
+    /// A wait budget is never reduced below this, however long the screen has
+    /// been quiet. Correctness beats tighter timing.
+    wait_floor_ms: u64 = 1000,
 };

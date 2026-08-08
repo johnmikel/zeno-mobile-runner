@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdio = @import("stdio.zig");
 const health = @import("health.zig");
+const runner_anchor = @import("runner_anchor.zig");
 const runner_config = @import("runner_config.zig");
 const runner_events = @import("runner_events.zig");
 const scenario = @import("scenario.zig");
@@ -10,6 +11,20 @@ const trace = @import("trace.zig");
 const RunOptions = runner_config.RunOptions;
 const native_health_probe_timeout_ms: u64 = 1000;
 const native_selector_transient_retry_limit: usize = 1;
+
+/// A wait spends what is left of its budget after however long the screen has
+/// already been quiet — see src/runner_anchor.zig. With no anchor configured
+/// this is exactly the previous behavior.
+fn anchoredDeadline(
+    timeout_ms: u64,
+    options: RunOptions,
+    writer: ?*trace.TraceWriter,
+    kind: []const u8,
+) !i64 {
+    const budget = runner_anchor.budgetFor(options.anchor, timeout_ms, options.wait_floor_ms);
+    try runner_anchor.recordBudget(writer, kind, timeout_ms, budget);
+    return stdio.nowMs() + @as(i64, @intCast(budget.timeout_ms));
+}
 
 pub fn waitUntilVisible(
     device: anytype,
@@ -39,7 +54,7 @@ fn untilVisibleKind(
     options: RunOptions,
     kind: []const u8,
 ) !bool {
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, kind);
     var native_query_failures: usize = 0;
     while (true) {
         if (nativeSelectorQueryTimeoutMs(deadline, options)) |query_timeout_ms| {
@@ -132,7 +147,7 @@ fn untilNotVisibleKind(
     options: RunOptions,
     kind: []const u8,
 ) !bool {
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, kind);
     var native_query_failures: usize = 0;
     while (true) {
         if (nativeSelectorQueryTimeoutMs(deadline, options)) |query_timeout_ms| {
@@ -204,7 +219,7 @@ pub fn waitUntilAnyVisible(
     writer: ?*trace.TraceWriter,
     options: RunOptions,
 ) !?usize {
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, "wait.any");
     var native_query_failures: usize = 0;
     native_poll: while (true) {
         var all_native = true;
@@ -284,7 +299,7 @@ pub fn assertNoneVisible(
     writer: ?*trace.TraceWriter,
     options: RunOptions,
 ) !bool {
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, "assert.noneVisible");
     while (true) {
         var snap = device.snapshot(writer) catch |err| {
             if (try retryTransientObservation(err, "assert.noneVisible", writer, deadline, options)) continue;
@@ -321,7 +336,7 @@ pub fn assertHealthy(
     options: RunOptions,
 ) !bool {
     const health_selectors = health.defaultSelectors();
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, "assert.healthy");
     if (try nativeAssertHealthy(device, health_selectors, timeout_ms, writer, options)) |healthy| return healthy;
     while (true) {
         var snap = device.snapshot(writer) catch |err| {
@@ -357,7 +372,7 @@ fn nativeAssertHealthy(
 ) !?bool {
     if (!hasNativeSelectorQuery(device)) return null;
 
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, "assert.healthy");
     native_probe: while (true) {
         const remaining_ms = nativeSelectorRemainingTimeoutMs(deadline) orelse return null;
         const query_timeout_ms = @min(remaining_ms, nativeHealthProbeTimeoutMs(timeout_ms, options));
@@ -392,7 +407,7 @@ pub fn scrollUntilVisible(
     writer: ?*trace.TraceWriter,
     options: RunOptions,
 ) !bool {
-    const deadline = stdio.nowMs() + @as(i64, @intCast(timeout_ms));
+    const deadline = try anchoredDeadline(timeout_ms, options, writer, "scroll.untilVisible");
     var native_query_failures: usize = 0;
     while (true) {
         if (nativeSelectorQueryTimeoutMs(deadline, options)) |query_timeout_ms| {

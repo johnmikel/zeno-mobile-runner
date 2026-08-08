@@ -6,6 +6,23 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Added
 
+- Wait budgets are measured from when the device last had a reason to change,
+  not from when the wait started (`src/runner_anchor.zig`). If a scenario taps
+  something and then spends four seconds taking snapshots and asserting, the
+  screen has already had four quiet seconds to produce whatever the next wait
+  is looking for; that wait now spends the remainder rather than a fresh full
+  budget. Actions stamp the anchor when they settle — which is exactly what
+  mutating actions do and non-mutating ones do not — and `zmr run` installs an
+  anchor for the scenario automatically.
+
+  Shortening a wait can turn a passing scenario into a failing one, so two
+  things bound it: a floor (`wait_floor_ms`, 1000 ms) below which no budget is
+  ever reduced, however long the screen has been quiet; and a
+  `runner.waitBudget` trace event emitted whenever a budget is actually
+  shortened, so an early failure is explainable from the evidence instead of
+  looking arbitrary. A caller that supplies no anchor keeps the previous
+  behavior exactly.
+
 - Adaptive settling (`src/runner_settle.zig`): after an action, poll the
   hierarchy and continue as soon as two consecutive reads are identical,
   instead of sleeping a fixed `settle_ms`. A fixed sleep is wrong in both

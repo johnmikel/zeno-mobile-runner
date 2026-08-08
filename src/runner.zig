@@ -1,4 +1,5 @@
 const std = @import("std");
+const runner_anchor = @import("runner_anchor.zig");
 const runner_settle = @import("runner_settle.zig");
 const stdio = @import("stdio.zig");
 const runner_actions = @import("runner_actions.zig");
@@ -18,8 +19,15 @@ pub fn runScenario(
     device: anytype,
     script: scenario.Scenario,
     writer: ?*trace.TraceWriter,
-    options: RunOptions,
+    options_in: RunOptions,
 ) !void {
+    // A scenario is exactly the scope over which "when did the UI last have a
+    // reason to change" is meaningful, so the anchor is created here and lives
+    // for the run. A caller that supplies its own is left alone.
+    var scenario_anchor = runner_anchor.Anchor.init();
+    var options = options_in;
+    if (options.anchor == null) options.anchor = &scenario_anchor;
+
     if (writer) |tw| {
         try tw.startManifest(script.name, script.app_id);
         const payload = try runner_events.eventString(tw.allocator, script.name);
@@ -510,6 +518,9 @@ fn setClipboard(device: anytype, text: []const u8) !void {
 }
 
 fn settleDevice(device: anytype, options: RunOptions) !void {
+    // Settling is what mutating actions do and non-mutating ones do not, so it
+    // is the honest place to stamp "the device just had a reason to change".
+    if (options.anchor) |anchor| anchor.touch();
     if (!options.adaptive_settle) {
         return try device.settle(options.settle_ms);
     }

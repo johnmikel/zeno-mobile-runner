@@ -264,17 +264,12 @@ grep -q '"status":"ok"' "$TMPDIR/shared-derived-data-response.json"
 grep -q 'refusing to delete non-ZMR derived data path: ios/build' "$TMPDIR/shared-derived-data-stderr.txt"
 test -e "$TMPDIR/shared-derived-data-app/ios/build/stale.txt"
 
-"$ROOT/scripts/install-ios-shim.sh" \
-  --app-root "$TMPDIR/physical-app" \
-  --scheme SampleUITests \
-  --project ios/Sample.xcodeproj \
-  --bundle-id com.example.mobiletest \
-  --device fake-physical-ios-1 \
-  --device-type physical
-
-bash -n "$TMPDIR/physical-app/.zmr/ios-shim"
-grep -q 'platform_name="iOS"' "$TMPDIR/physical-app/.zmr/ios-shim"
-grep -q 'local destination_id="fake-physical-ios-1"' "$TMPDIR/physical-app/.zmr/ios-shim"
+# The generator still carries the physical-device destination branch, ready for
+# when a real host-device transport exists, but installing in that mode is
+# refused today (asserted at the end of this file), so there is no installed
+# artifact to inspect here.
+grep -q 'platform_name="iOS Simulator"' "$ROOT/scripts/install-ios-shim.sh"
+grep -q 'platform_name="iOS"' "$ROOT/scripts/install-ios-shim.sh"
 
 # A server that is alive but not yet identifiable by `ps` must not be reported
 # as exited. start_server records $! immediately after nohup, so on a loaded
@@ -328,3 +323,27 @@ if ! printf '{"cmd":"appState"}\n' | PATH="$TMPDIR/slow-bin:$PATH" "$TMPDIR/app/
   exit 1
 fi
 grep -q '"status":"ok"' "$TMPDIR/slow-start-response.json"
+
+# --device-type physical was accepted and could never work. The shim server
+# polls ZMR_SHIM_SERVER_DIR, which the installer bakes to a path on the Mac
+# ($APP_ROOT/.zmr/ios-shim-state/server). On a simulator the test process shares
+# the Mac filesystem so that is fine; on a phone the test process runs on the
+# device, the path does not exist, and creating it fails inside the app sandbox.
+# Advertising a flag that silently fails after a multi-minute build is worse
+# than not having it, so it must be refused until a real transport exists.
+set +e
+physical_out="$("$ROOT/scripts/install-ios-shim.sh" \
+  --app-root "$TMPDIR/physical-reject" \
+  --scheme SampleUITests \
+  --project ios/Sample.xcodeproj \
+  --bundle-id com.example.mobiletest \
+  --device fake-physical-ios-1 \
+  --device-type physical 2>&1)"
+physical_status=$?
+set -e
+if [[ "$physical_status" -eq 0 ]]; then
+  echo "expected --device-type physical to be refused while the transport is Mac-filesystem only" >&2
+  exit 1
+fi
+grep -qi 'physical' <<< "$physical_out"
+grep -qi 'not supported\|unsupported' <<< "$physical_out"

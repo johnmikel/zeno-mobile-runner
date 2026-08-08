@@ -4,6 +4,24 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Fixed
+
+- Selectors now resolve to the **deepest** matching node rather than the first
+  in document order. React Native and Expo render one control as a stack of
+  nested views that all carry the same accessible text — a `Text` inside a
+  `Pressable` inside a scroll container — and a flattened hierarchy lists the
+  outermost first. Taps therefore landed on the container: sometimes harmless,
+  because it covers the same pixels, and sometimes hundreds of points away when
+  the outermost match is the scroll view. Since those are exactly the
+  frameworks ZMR targets, this was mistargeting real taps in real apps. Matches
+  at equal depth still resolve to the first in document order, so the same
+  hierarchy always picks the same node.
+- `FakeDevice` snapshots dropped `parent_stable_id`, `checked` and `focused`
+  when cloning, so every hierarchy it handed back was flattened. Any test
+  touching parent/child relationships or those states was quietly asserting
+  against a tree that had no structure — which is why the mistargeted tap above
+  had no failing test until now.
+
 ### Added
 
 - Wait budgets are measured from when the device last had a reason to change,

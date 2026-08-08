@@ -7,6 +7,10 @@ pub const FakeDevice = struct {
     snapshots: []types.ObservationSnapshot,
     snapshot_index: usize = 0,
     taps: usize = 0,
+    /// Where the last tap landed. Without this, nothing can assert that a tap
+    /// hit the control rather than a wrapper that happens to share its text.
+    last_tap_x: i32 = -1,
+    last_tap_y: i32 = -1,
     swipes: usize = 0,
     erases: usize = 0,
     hides_keyboard: usize = 0,
@@ -126,9 +130,9 @@ pub const FakeDevice = struct {
     }
 
     pub fn tap(self: *FakeDevice, x: i32, y: i32) !void {
-        _ = x;
-        _ = y;
         self.taps += 1;
+        self.last_tap_x = x;
+        self.last_tap_y = y;
     }
 
     pub fn typeText(self: *FakeDevice, text: []const u8) !void {
@@ -207,7 +211,12 @@ pub fn cloneSnapshot(allocator: std.mem.Allocator, source: types.ObservationSnap
             .bounds = node.bounds,
             .enabled = node.enabled,
             .visible = node.visible,
+            .checked = node.checked,
+            .focused = node.focused,
             .selected = node.selected,
+            // Dropping this flattened every hierarchy the fake handed back, so
+            // parent/child and depth behavior was untestable here.
+            .parent_stable_id = try types.dupeOptional(allocator, node.parent_stable_id),
         };
         initialized += 1;
     }

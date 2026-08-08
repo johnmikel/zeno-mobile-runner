@@ -397,3 +397,41 @@ test "trace writer applies app-specific redaction rules to snapshots and events"
     try std.testing.expect(std.mem.indexOf(u8, event_bytes, "Public token label") != null);
     try std.testing.expect(std.mem.indexOf(u8, event_bytes, "[REDACTED:custom]") != null);
 }
+
+test "snapshot ids keep advancing so artifacts never overwrite each other" {
+    // Only one call to nextSnapshotId was ever tested, so an id generator that
+    // returned snapshot-1 forever passed. Every artifact in a run is named
+    // from this id -- <id>.png, <id>.xml, <id>.json -- so a stuck counter
+    // silently collapses a whole run onto one screenshot and one UI tree, and
+    // the trace still looks complete.
+    const allocator = std.testing.allocator;
+    const dir = "zig-cache/test-snapshot-id-sequence";
+    test_io.cwd().deleteTree(dir) catch {};
+    defer test_io.cwd().deleteTree(dir) catch {};
+
+    var writer = try TraceWriter.init(allocator, dir);
+    defer writer.deinit();
+
+    var seen: [4][]const u8 = undefined;
+    var count: usize = 0;
+    defer for (seen[0..count]) |id| allocator.free(id);
+
+    while (count < seen.len) : (count += 1) {
+        seen[count] = try writer.nextSnapshotId();
+    }
+
+    try std.testing.expectEqualStrings("snapshot-1", seen[0]);
+    try std.testing.expectEqualStrings("snapshot-4", seen[3]);
+    for (seen[0..], 0..) |id, i| {
+        for (seen[i + 1 ..]) |other| {
+            if (std.mem.eql(u8, id, other)) {
+                std.debug.print("\nduplicate snapshot id: {s}\n", .{id});
+                return error.DuplicateSnapshotId;
+            }
+        }
+    }
+
+    // The count published in the manifest has to agree with what was handed
+    // out, since tooling locates the newest artifact by that number.
+    try std.testing.expectEqual(@as(usize, 4), writer.snapshot_count);
+}

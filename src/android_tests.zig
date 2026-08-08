@@ -266,3 +266,50 @@ test "android native shim supplies hierarchy and handles actions" {
     try device.swipe(1, 2, 3, 4, 5);
     try device.pressBack();
 }
+
+// The Android device sends every action as adb argv, and until now nothing
+// asserted what it sent. tests/fake-adb.sh accepted `input`, `am`, `pm` and
+// `monkey` with an empty case body, so a tap could carry swapped coordinates,
+// typing could target the wrong subcommand, or a keyevent could name the wrong
+// key, and the suite stayed green. The argv builders were unit-tested in
+// isolation, but nothing checked that AndroidDevice calls the right builder
+// with the right values.
+test "android device sends the expected adb command for each action" {
+    const allocator = std.testing.allocator;
+    const log_path = "zig-cache/fake-adb.log";
+    test_io.cwd().deleteFile(log_path) catch {};
+    defer test_io.cwd().deleteFile(log_path) catch {};
+
+    var device = try AndroidDevice.init(allocator, "./tests/fake-adb.sh", "fake-android-1", "com.example.mobiletest");
+    defer device.deinit();
+
+    try device.tap(10, 20);
+    try device.typeText("hello world");
+    try device.pressBack();
+    try device.swipe(1, 2, 3, 4, 5);
+    try device.openLink("exampleapp://probe");
+    try device.stop();
+    try device.clearState();
+
+    const log = try test_io.cwd().readFileAlloc(allocator, log_path, 64 * 1024);
+    defer allocator.free(log);
+
+    // Coordinates in the right order: a transposed tap is the classic silent
+    // failure, and it would have passed before this test existed.
+    try expectLogged(log, "shell input tap 10 20");
+    // `adb shell input text` treats %s as a space, so that escaping is correct
+    // and worth pinning: a change to plain spaces would split the argument and
+    // type only "hello".
+    try expectLogged(log, "shell input text hello%sworld");
+    try expectLogged(log, "shell input keyevent BACK");
+    try expectLogged(log, "shell input swipe 1 2 3 4 5");
+    try expectLogged(log, "shell am start -a android.intent.action.VIEW -d 'exampleapp://probe' com.example.mobiletest");
+    try expectLogged(log, "shell am force-stop com.example.mobiletest");
+    try expectLogged(log, "shell pm clear com.example.mobiletest");
+}
+
+fn expectLogged(log: []const u8, wanted: []const u8) !void {
+    if (std.mem.indexOf(u8, log, wanted) != null) return;
+    std.debug.print("\nadb never received: {s}\nactual log:\n{s}\n", .{ wanted, log });
+    return error.ExpectedAdbCommand;
+}

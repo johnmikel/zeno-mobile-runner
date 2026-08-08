@@ -6,6 +6,18 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Fixed
 
+- The Android device's adb commands are now verified. `tests/fake-adb.sh`
+  accepted `input`, `am`, `pm` and `monkey` with an empty case body and its
+  argv log was opt-in and used by nothing, so `AndroidDevice` could have sent
+  transposed tap coordinates, the wrong subcommand, or the wrong keyevent with
+  a fully green suite — the argv builders were unit-tested in isolation, but
+  nothing checked that the device called the right builder with the right
+  values. The fake now records every invocation, and a test pins the command
+  for tap, text entry, back, swipe, deep link, force-stop and clear. Confirmed
+  by mutation: transposing the tap coordinates in the builder now fails the
+  suite, where before it passed.
+
+
 - The Android hierarchy parser now records parent links, which is what makes
   deepest-match targeting actually work on a device. `uiautomator` reports a
   nested tree and the parser flattened it, so **every real node arrived at

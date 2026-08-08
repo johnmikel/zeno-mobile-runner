@@ -5,9 +5,13 @@ if [[ "${1:-}" == "-s" ]]; then
   shift 2
 fi
 
-if [[ -n "${ZMR_FAKE_ADB_LOG:-}" ]]; then
-  printf '%s\n' "$*" >> "$ZMR_FAKE_ADB_LOG"
-fi
+# Record every invocation so tests can assert what the runner actually sent.
+# The env-var form is kept for callers that want an isolated log; the default
+# path exists because nothing can assert argv that is never written down, and
+# for a long time nothing did.
+_zmr_adb_log="${ZMR_FAKE_ADB_LOG:-zig-cache/fake-adb.log}"
+mkdir -p "$(dirname "$_zmr_adb_log")" 2>/dev/null || true
+printf '%s\n' "$*" >> "$_zmr_adb_log" 2>/dev/null || true
 
 case "${1:-}" in
   version)

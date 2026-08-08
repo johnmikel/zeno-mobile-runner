@@ -39,6 +39,8 @@ struct ZMRShimNode: Encodable {
     let enabled: Bool
     let visible: Bool
     let selected: Bool
+    let focused: Bool
+    let checked: Bool
 }
 
 enum ZMRShim {
@@ -137,8 +139,26 @@ enum ZMRShim {
             // A successful capture already means the element existed at capture
             // time, so the old element.exists check is folded in here.
             visible: !frame.isEmpty,
-            selected: snapshot.isSelected
+            selected: snapshot.isSelected,
+            // Public XCUIElementAttributes. `checked` has no public iOS
+            // equivalent, so selectors using it stay Android-only rather than
+            // silently reporting false here.
+            focused: snapshot.hasFocus,
+            checked: isChecked(type: type, snapshot: snapshot)
         )
+    }
+
+    /// UIKit has no general "checked" attribute, and none is exposed publicly.
+    /// For the controls where the idea is meaningful -- switches and toggles --
+    /// the accessibility value is "1" when on, so report that and leave
+    /// everything else false rather than inventing a state.
+    private static func isChecked(type: XCUIElement.ElementType, snapshot: XCUIElementSnapshot) -> Bool {
+        switch type {
+        case .switch, .toggle:
+            return elementValue(snapshot) == "1"
+        default:
+            return false
+        }
     }
 
     private static func elementValue(_ snapshot: XCUIElementSnapshot) -> String {

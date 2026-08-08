@@ -67,3 +67,40 @@ if grep -vE '^[[:space:]]*//' "$SHIM" | grep -qE 'element\.(label|value|frame|id
   echo "ZMRShim must read attributes from an atomic element snapshot, not a live XCUIElement; live reads re-resolve the query and crash XCTest when the screen mutates" >&2
   exit 1
 fi
+
+# The Swift shim and the Zig parser are two halves of one wire format, in two
+# languages, with nothing but discipline holding them together. They drifted:
+# the parser read value, checked and focused; the serializer emitted none of
+# them. `value` was worse than missing — the struct populated it and the docs
+# specified it, so everything looked right except the bytes on the wire, and
+# every test fixture supplied the field the product never sent.
+#
+# This asserts the contract directly: every node field the parser reads must be
+# emitted by the serializer.
+python3 - "$ROOT/src/ios_shim.zig" "$UITEST" <<'PY'
+import re
+import sys
+
+parser_src = open(sys.argv[1], encoding="utf-8").read()
+swift_src = open(sys.argv[2], encoding="utf-8").read()
+
+# Fields the Zig parser reads off a node object.
+body = parser_src[parser_src.index("for (nodes_value.array.items)"):]
+body = body[: body.index("return .{")]
+read = set(re.findall(r'(?:nonEmptyF|f)ieldString\(object, "([a-zA-Z]+)"\)', body))
+read |= set(re.findall(r'boolField\(object, "([a-zA-Z]+)"', body))
+read |= set(re.findall(r'object\.get\("([a-zA-Z]+)"\)', body))
+
+# Keys the Swift serializer actually puts on the wire.
+block = swift_src[swift_src.index("private extension ZMRShimNode"):]
+block = block[: block.index("\n}", block.index("var json"))]
+emitted = set(re.findall(r'"([a-zA-Z]+)"\s*:', block))
+
+missing = sorted(read - emitted)
+if missing:
+    print(f"parser reads node fields the shim never sends: {', '.join(missing)}", file=sys.stderr)
+    print(f"  parser reads:   {', '.join(sorted(read))}", file=sys.stderr)
+    print(f"  shim emits:     {', '.join(sorted(emitted))}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"ios shim wire contract: {len(read)} node fields, all emitted")
+PY

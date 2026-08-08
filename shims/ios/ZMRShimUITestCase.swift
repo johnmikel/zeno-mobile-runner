@@ -833,11 +833,14 @@ private extension ZMRShimNode {
             "id": id,
             "type": type,
             "label": label,
+            "value": value,
             "identifier": identifier,
             "bounds": bounds.json,
             "enabled": enabled,
             "visible": visible,
-            "selected": selected
+            "selected": selected,
+            "focused": focused,
+            "checked": checked
         ]
     }
 }

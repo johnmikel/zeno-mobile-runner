@@ -162,6 +162,14 @@ fi
 if [[ "$DEVICE_TYPE" == "physical" && "$DEVICE" == "booted" ]]; then
   die "--device-type physical requires --device <physical-device-id>"
 fi
+if [[ "$DEVICE_TYPE" == "physical" ]]; then
+  # The shim server polls ZMR_SHIM_SERVER_DIR, which is a path on this Mac. A
+  # simulator shares the Mac filesystem so that works; on a phone the test
+  # process runs on the device, the path does not exist, and creating it fails
+  # inside the app sandbox. Installing anyway would burn a multi-minute build
+  # and then fail at the first command, so refuse now and say why.
+  die "--device-type physical is not supported: the shim talks over a directory on this Mac, which a physical device cannot reach. Use --device-type simulator. Physical-device support needs a real host-device transport (tracked separately)."
+fi
 
 mkdir -p "$APP_ROOT"
 APP_ROOT="$(cd "$APP_ROOT" && pwd)"

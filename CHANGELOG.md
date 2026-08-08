@@ -6,6 +6,30 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ### Fixed
 
+- The iOS shim now sends every node field the runner reads. Its serializer
+  omitted `value`, `checked` and `focused` while the Zig parser read all three,
+  so on a real device typed text-field contents never arrived, and selectors
+  using `checked` or `focused` could never match. `value` was the worst of the
+  three: the Swift struct populated it, `shims/ios/protocol.md` specified it,
+  the parser read it, the CHANGELOG claimed it shipped — everything looked
+  right except the bytes on the wire, and every test fixture supplied the field
+  the product never sent. `focused` now comes from the public `hasFocus`
+  attribute; `checked` is derived from the accessibility value for switches and
+  toggles, where the idea is meaningful, and stays false elsewhere rather than
+  inventing a state. A cross-language contract test now asserts that every node
+  field the parser reads is emitted by the shim, so the two halves cannot drift
+  apart again.
+- `install-ios-shim.sh --device-type physical` is refused instead of installing
+  something that cannot work. The shim server polls a directory on the host
+  Mac; a simulator shares that filesystem, but on a phone the test process runs
+  on the device, the path does not exist, and creating it fails inside the app
+  sandbox. The flag was accepted, burned a multi-minute build, and then failed
+  at the first command. `docs/support-matrix.md` now says physical iPhone and
+  iPad support lifecycle steps only — `devicectl` handles install, launch,
+  stop, deep links and screenshots — and that selector-grade actions need a
+  real host-device transport that does not exist yet.
+
+
 - Snapshot id sequencing is now verified. Every artifact in a run is named from
   the id `TraceWriter.nextSnapshotId` hands out, but only a single call was
   ever tested, so a generator returning `snapshot-1` forever passed — silently

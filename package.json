@@ -117,7 +117,7 @@
     "build:zmr": "node npm/build-zmr.mjs",
     "pack:npm": "bash scripts/build-npm-package.sh",
     "zmr:demo": "node npm/zmr.mjs validate examples/demo-fake.json",
-    "test:evidence": "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs tests/evidence-playwright-reporter.test.mjs",
+    "test:evidence": "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs tests/evidence-playwright-reporter.test.mjs tests/evidence-cross-platform-example.test.mjs",
     "test": "npm run build:zmr && npm run test:evidence && node --test tests/viewer-parser.test.mjs tests/npm-scaffold-helpers.test.mjs tests/npm-cli.test.mjs tests/npm-package.test.mjs tests/typescript-client.test.mjs && python3 -W error -m unittest tests/python_client_test.py && bash tests/go-client-test.sh && bash tests/rust-client-test.sh"
   },
   "keywords": [

@@ -92,6 +92,10 @@ require_file docs/agent-discovery.md
 require_file docs/evidence-contract.md
 require_file examples/react-native-expo-workflow.json
 require_file scripts/create-react-native-expo-demo-app.sh
+require_file examples/cross-platform-evidence/README.md
+require_file examples/cross-platform-evidence/run-demo.sh
+require_file examples/cross-platform-evidence/zeno-reporter-options.mjs
+require_grep 'examples/cross-platform-evidence/run-demo.sh' docs/evidence-contract.md
 require_file docs/adr/README.md
 require_file schemas/README.md
 require_file clients/python/pyproject.toml

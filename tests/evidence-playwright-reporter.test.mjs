@@ -1119,6 +1119,114 @@ test("the known Playwright configDir transport option remains compatible", async
   );
 });
 
+// A Playwright config with no `projects` array — the shape `npm init playwright`
+// produces and the majority of real suites keep — reports every test under the
+// unnamed default project, whose name is the empty string. Every fixture here
+// names its project "chromium", which is why that path was never exercised.
+test("the unnamed default Playwright project produces evidence", async (t) => {
+  const rootDir = await workspace(t);
+  await mkdir(path.join(rootDir, "tests"), { recursive: true });
+  await writeFile(path.join(rootDir, "tests", "auth.spec.ts"), "export const login = true;\n");
+  const outputDir = path.join(rootDir, "evidence");
+  const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir));
+  const testCase = apiTest(rootDir);
+  const unnamed = {
+    name: "",
+    metadata: { zenoEvidence: { browserName: "chromium", browserVersion: "126.0" } },
+  };
+  testCase.parent = { ...testCase.parent, project: () => unnamed };
+
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [testCase] });
+  reporter.onTestEnd(testCase, apiResult());
+  assert.equal(await reporter.onEnd(apiFullResult()), undefined);
+  assert.equal(
+    (await validateEvidencePackage(path.join(outputDir, "evidence.json"))).ok,
+    true,
+  );
+});
+
+// A reporter that fails with "evidence generation failed" and nothing else costs
+// the adopter a debugging session to learn they misspelled an option. Our own
+// typed validation errors are authored here and name a config field, so they are
+// safe to surface; anything else stays generic rather than leaking internals.
+test("a misconfigured reporter names the option at fault instead of failing opaquely", async (t) => {
+  const rootDir = await workspace(t);
+  const outputDir = path.join(rootDir, "evidence");
+  const options = reporterOptions(outputDir);
+  delete options.deploymentId;
+  const reporter = new ZenoPlaywrightReporter(options);
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [] });
+
+  const written = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = (chunk) => {
+    written.push(String(chunk));
+    return true;
+  };
+  try {
+    assert.deepEqual(await reporter.onEnd(apiFullResult()), { status: "failed" });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  const diagnostics = written.join("");
+  assert.match(diagnostics, /deploymentId/);
+  assert.match(diagnostics, /invalid_identity/);
+
+  const marker = JSON.parse(
+    await readFile(path.join(outputDir, "evidence-error.json"), "utf8"),
+  );
+  assert.equal(marker.code, "invalid_identity");
+  assert.equal(marker.field, "deploymentId");
+  assert.match(marker.error, /deploymentId/);
+});
+
+// Playwright injects its own private options alongside the ones the config
+// author wrote. It added `_mode` and `_commandHash` after `configDir`, and it
+// will add more. Rejecting an unknown underscore key means a Playwright upgrade
+// silently breaks evidence generation for every consumer, so they are dropped
+// rather than refused — while a misspelled *public* option is still an error,
+// because that one is the author's mistake and worth reporting.
+test("Playwright's injected private options are ignored rather than rejected", async (t) => {
+  const rootDir = await workspace(t);
+  await mkdir(path.join(rootDir, "tests"), { recursive: true });
+  await writeFile(path.join(rootDir, "tests", "auth.spec.ts"), "export const login = true;\n");
+  const outputDir = path.join(rootDir, "evidence");
+  const reporter = new ZenoPlaywrightReporter(reporterOptions(outputDir, {
+    configDir: rootDir,
+    _mode: "default",
+    _commandHash: "b".repeat(40),
+    _somethingPlaywrightHasNotShippedYet: { nested: true },
+  }));
+  const testCase = apiTest(rootDir);
+  reporter.onBegin(apiConfig(rootDir), { allTests: () => [testCase] });
+  reporter.onTestEnd(testCase, apiResult());
+  assert.equal(await reporter.onEnd(apiFullResult()), undefined);
+  assert.equal(
+    (await validateEvidencePackage(path.join(outputDir, "evidence.json"))).ok,
+    true,
+  );
+
+  const manifest = JSON.parse(await readFile(path.join(outputDir, "evidence.json"), "utf8"));
+  for (const key of Object.keys(manifest)) {
+    assert.equal(key.startsWith("_"), false, "injected keys must not reach the manifest");
+  }
+
+  // A misspelled public option is still the author's bug and must still fail.
+  const misspelled = new ZenoPlaywrightReporter(reporterOptions(path.join(rootDir, "typo"), {
+    projectld: "web-project-42",
+  }));
+  misspelled.onBegin(apiConfig(rootDir), { allTests: () => [testCase] });
+  misspelled.onTestEnd(testCase, apiResult());
+  const originalWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    assert.deepEqual(await misspelled.onEnd(apiFullResult()), { status: "failed" });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+});
+
 test("constructor rejects accessors, unknown keys, non-plain options, and unsafe journey maps without invoking getters", async (t) => {
   const rootDir = await workspace(t);
   let optionGetterCalls = 0;

@@ -48,6 +48,7 @@ const REPORTER_OPTION_KEYS = new Set([
   "submitterType",
 ]);
 const UNSAFE_PROPERTY_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const DEFAULT_PROJECT_NAME = "playwright:default";
 
 function reporterError(code, message, field) {
   return new EvidenceValidationError(message, {
@@ -74,11 +75,23 @@ function assertPlainRecord(value, field) {
   }
 }
 
-function snapshotOwnDataProperties(value, field, allowedKeys) {
+function snapshotOwnDataProperties(value, field, allowedKeys, dropHostPrivateKeys = false) {
   assertPlainRecord(value, field);
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const snapshot = Object.create(null);
   for (const key of Reflect.ownKeys(descriptors)) {
+    // Playwright injects its own private options ("_mode", "_commandHash", and
+    // whatever it adds next) into every configured reporter. Dropping them keeps
+    // a Playwright upgrade from breaking evidence generation; a misspelled public
+    // option still fails below, because that one is the config author's mistake.
+    if (
+      dropHostPrivateKeys
+      && typeof key === "string"
+      && key.startsWith("_")
+      && !UNSAFE_PROPERTY_KEYS.has(key)
+    ) {
+      continue;
+    }
     if (
       typeof key !== "string"
       || (allowedKeys !== null && !allowedKeys.has(key))
@@ -104,7 +117,7 @@ function snapshotOwnDataProperties(value, field, allowedKeys) {
 }
 
 function snapshotReporterOptions(options) {
-  const snapshot = snapshotOwnDataProperties(options, "Reporter options", REPORTER_OPTION_KEYS);
+  const snapshot = snapshotOwnDataProperties(options, "Reporter options", REPORTER_OPTION_KEYS, true);
   if (Object.hasOwn(snapshot, "journeyMap") && snapshot.journeyMap !== undefined) {
     snapshot.journeyMap = Object.freeze(
       snapshotOwnDataProperties(snapshot.journeyMap, "journeyMap", null),
@@ -362,7 +375,11 @@ function snapshotTestRecord(testCase, result, rootDir) {
   })));
   const evidenceMetadata = rawProject.metadata?.zenoEvidence;
   const project = Object.freeze({
-    name: rawProject.name,
+    // Playwright names the implicit project — the one every config without a
+    // `projects` array uses — the empty string. Evidence identities must be
+    // non-empty, so it gets a reserved stand-in. A real project cannot collide
+    // with it: Playwright rejects a configured project named "".
+    name: rawProject.name === "" ? DEFAULT_PROJECT_NAME : rawProject.name,
     browserName: evidenceMetadata?.browserName,
     browserVersion: evidenceMetadata?.browserVersion,
   });
@@ -563,7 +580,24 @@ async function assertUnlinkedDirectoryPath(outputDir, createMissing) {
   return absoluteOutputDir;
 }
 
-async function writeFailureFile(outputDir) {
+// Our own validation errors are authored in this file: their messages name a
+// reporter option and carry no caller data, so reporting them verbatim tells the
+// adopter exactly what to fix. Anything else could carry a path or app content,
+// so it stays generic and the failed status remains the signal.
+function diagnosticFor(error) {
+  if (
+    error instanceof EvidenceValidationError
+    && typeof error.message === "string"
+    && typeof error.code === "string"
+  ) {
+    const detail = { error: error.message, code: error.code };
+    if (typeof error.field === "string") detail.field = error.field;
+    return detail;
+  }
+  return { error: "Evidence generation failed" };
+}
+
+async function writeFailureFile(outputDir, detail) {
   if (typeof outputDir !== "string" || outputDir.length === 0) return;
   let handle;
   try {
@@ -601,7 +635,7 @@ async function writeFailureFile(outputDir) {
     ) {
       throw reporterError("unsafe_failure_output", "Failure marker escaped its output directory");
     }
-    await handle.writeFile(`${JSON.stringify({ error: "Evidence generation failed" }, null, 2)}\n`);
+    await handle.writeFile(`${JSON.stringify(detail, null, 2)}\n`);
     await handle.sync();
   } catch {
     // Best effort only: the failed status remains the authoritative signal.
@@ -864,9 +898,13 @@ export default class ZenoPlaywrightReporter {
       return undefined;
     } catch (error) {
       this.fatalError ??= error;
-      await writeFailureFile(this.outputDir);
+      const detail = diagnosticFor(this.fatalError);
+      await writeFailureFile(this.outputDir, detail);
       try {
-        process.stderr.write("zeno-mobile-runner: evidence generation failed\n");
+        process.stderr.write(
+          `zeno-mobile-runner: evidence generation failed [${detail.code ?? "internal_error"}]`
+          + `${detail.field === undefined ? "" : ` (${detail.field})`}: ${detail.error}\n`,
+        );
       } catch {
         // The status override must survive a closed diagnostic stream.
       }

@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Zeno demo checkout</title>
+<style>
+  body { font: 16px/1.5 system-ui; margin: 3rem auto; max-width: 28rem; }
+  input, button { font: inherit; padding: .5rem; width: 100%; margin: .35rem 0; }
+  #receipt { display: none; padding: 1rem; background: #eefaf0; border-radius: .5rem; }
+</style>
+<h1>Checkout</h1>
+<label>Email <input id="email" type="email" placeholder="you@example.com"></label>
+<button id="pay">Pay now</button>
+<div id="receipt">Thanks, <span id="who"></span> — order confirmed.</div>
+<script>
+  document.getElementById("pay").addEventListener("click", () => {
+    const email = document.getElementById("email").value.trim();
+    if (!email) return;
+    document.getElementById("who").textContent = email;
+    document.getElementById("receipt").style.display = "block";
+  });
+</script>

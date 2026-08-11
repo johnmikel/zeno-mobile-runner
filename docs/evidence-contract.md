@@ -230,6 +230,17 @@ attachments as private artifacts, and computes `web-v1`.
 Unmapped Playwright tests cannot qualify a journey; they remain useful run
 context with `journeyId: null`.
 
+## A worked example across both surfaces
+
+[examples/cross-platform-evidence](../examples/cross-platform-evidence/README.md)
+runs a real Playwright suite and a real ZMR scenario, packages both, validates
+both with one command, and then changes a single byte to show the validation is
+load-bearing. Run it with:
+
+```bash
+bash examples/cross-platform-evidence/run-demo.sh
+```
+
 ## Validate before retaining or sending
 
 Run `zmr-evidence validate` against the manifest, not just the directory:

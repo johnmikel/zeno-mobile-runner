@@ -4,7 +4,42 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Added
+
+- A worked cross-platform evidence example under
+  `examples/cross-platform-evidence`. It runs a real Playwright suite and a real
+  ZMR scenario, packages both under Evidence Contract v1, validates both with
+  one `zmr-evidence validate` invocation, and then appends a single byte to one
+  artifact to show that validation is load-bearing rather than decorative. Its
+  reporter options live in an importable module so CI constructs the real
+  reporter with the example's real values, and a test asserts the example passes
+  every flag the evidence CLI requires — both failures a reader would otherwise
+  discover on our behalf.
+
 ### Fixed
+
+- The Playwright reporter now works on current Playwright. Playwright injects
+  its own private options into every configured reporter, and it added `_mode`
+  and `_commandHash` alongside the already-tolerated `configDir`; the reporter's
+  option allowlist rejected them, so evidence generation failed for every
+  project on a recent version. Unknown underscore-prefixed keys are now dropped
+  as host internals, while a misspelled public option still fails, because that
+  one is the config author's mistake and worth reporting.
+- A Playwright config with no `projects` array — the shape `npm init playwright`
+  produces — now produces evidence. Playwright names that implicit project the
+  empty string, which failed the reporter's non-empty identity requirement, so
+  the default configuration was the one that did not work. Every test fixture
+  named its project `chromium`, which is why the default path was never
+  exercised.
+- A failing reporter now names the option at fault. It previously wrote
+  `evidence generation failed` and `{"error": "Evidence generation failed"}` and
+  nothing else, so a missing option cost a debugging session to identify. Our
+  own typed validation errors name a config field and carry no caller data, so
+  they are now reported verbatim on stderr and in `evidence-error.json`;
+  anything else stays generic.
+- `npm run test:evidence` is checked against the files on disk instead of being
+  pinned as a literal string. The old assertion only proved the command had not
+  changed, so a new `tests/evidence-*.test.mjs` could be added and run nowhere.
 
 - The iOS shim now sends every node field the runner reads. Its serializer
   omitted `value`, `checked` and `focused` while the Zig parser read all three,

@@ -91,10 +91,22 @@ test("package test script builds zmr before client examples need the binary", ()
   assert.match(pkg.scripts.test, /^npm run build:zmr && /);
   assert.equal(pkg.dependencies, undefined);
   assert.equal(fs.existsSync(path.join(root, "package-lock.json")), false);
-  assert.equal(
-    pkg.scripts["test:evidence"],
-    "node --test tests/evidence-contract.test.mjs tests/evidence-package.test.mjs tests/evidence-conformance.test.mjs tests/evidence-json-schema-conformance.test.mjs tests/evidence-zmr-adapter.test.mjs tests/evidence-cli.test.mjs tests/evidence-playwright-reporter.test.mjs",
-  );
+  // Pinning the literal command only proves it did not change. What matters is
+  // that no evidence test file is missing from it — a new file added to
+  // tests/ and forgotten here would run nowhere, which is the failure this
+  // assertion exists to catch.
+  const evidenceScript = pkg.scripts["test:evidence"];
+  assert.match(evidenceScript, /^node --test /);
+  const onDisk = fs.readdirSync(path.join(root, "tests"))
+    .filter((name) => name.startsWith("evidence-") && name.endsWith(".test.mjs"))
+    .sort();
+  assert.ok(onDisk.length > 0, "expected evidence test files to exist");
+  for (const name of onDisk) {
+    assert.ok(
+      evidenceScript.includes(`tests/${name}`),
+      `test:evidence must run tests/${name}`,
+    );
+  }
   assert.match(pkg.scripts.test, /^npm run build:zmr && npm run test:evidence && node --test /);
 });
 

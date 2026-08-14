@@ -92,6 +92,54 @@ test "ios shim selector strings map public selectors to XCTest fields" {
     try std.testing.expect(compound_selector == null);
 }
 
+// The shim query string can express exactly one identity attribute. Everything
+// else a selector can carry — an index, a state requirement, a bounded regex, a
+// relational anchor — has no place in that string, and the shim has no way to
+// report that it ignored one. A selector narrowed by any of them must therefore
+// be declined here so the caller falls back to the snapshot path, which
+// evaluates the whole selector. Answering with a partial match instead makes the
+// runner act on the wrong element and report success.
+test "ios shim declines selectors it can only partially express" {
+    const allocator = std.testing.allocator;
+
+    var anchor = selector.Selector{ .text = "Basket" };
+
+    const narrowed = [_]selector.Selector{
+        .{ .text = "Save", .index = 3 },
+        .{ .id = "submit", .enabled = true },
+        .{ .id = "submit", .checked = true },
+        .{ .id = "submit", .focused = true },
+        .{ .id = "submit", .selected = true },
+        .{ .text = "Save", .stable_id = "node-42" },
+        .{ .class_name = "XCUIElementTypeButton", .text_regex = "^Save$" },
+        .{ .class_name = "XCUIElementTypeButton", .content_desc_regex = "^Save$" },
+        .{ .text = "Save", .point = .{ .x = 10, .y = 20 } },
+        .{ .text = "Save", .above = &anchor },
+        .{ .text = "Save", .below = &anchor },
+        .{ .text = "Save", .left = &anchor },
+        .{ .text = "Save", .right = &anchor },
+        .{ .text = "Save", .child = &anchor },
+        .{ .text = "Save", .descendant = &anchor },
+    };
+
+    for (narrowed, 0..) |wanted, index| {
+        const produced = try ios_shim.selectorString(allocator, wanted);
+        if (produced) |value| {
+            defer allocator.free(value);
+            std.debug.print(
+                "selector {d} was narrowed but the shim answered '{s}', dropping the constraint\n",
+                .{ index, value },
+            );
+            return error.PartiallyExpressedSelectorAccepted;
+        }
+    }
+
+    // A lone identity attribute is still expressible, so the fast path survives.
+    const plain = try ios_shim.selectorString(allocator, .{ .text = "Save" });
+    defer if (plain) |value| allocator.free(value);
+    try std.testing.expectEqualStrings("text=Save", plain.?);
+}
+
 test "ios shim snapshot response maps xctest elements into ui nodes" {
     const content =
         \\{

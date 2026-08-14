@@ -291,7 +291,54 @@ pub fn selectorString(allocator: std.mem.Allocator, wanted: selectors.Selector) 
     }
 
     if (count != 1) return null;
+    if (!carriesOnlyExpressibleIdentity(wanted)) return null;
     return try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, value });
+}
+
+/// The identity attributes the shim query string can carry. Anything outside this
+/// set has to be evaluated against a full snapshot instead.
+const expressible_identity_fields = [_][]const u8{
+    "id",
+    "text",
+    "text_contains",
+    "content_desc",
+    "content_desc_contains",
+    "class_name",
+};
+
+comptime {
+    // These are strings, so a typo would otherwise compile and quietly drop that
+    // field out of the fast path — no test failure, just a silent slowdown that
+    // nobody would trace back to here. Make it a build error instead.
+    for (expressible_identity_fields) |name| {
+        if (!@hasField(selectors.Selector, name)) {
+            @compileError("ios shim identity field '" ++ name ++ "' is not a field of Selector");
+        }
+    }
+}
+
+/// True when the selector constrains nothing beyond the single identity attribute
+/// the shim query string carries.
+///
+/// The shim answers a query with a match or nothing; it has no way to say "I found
+/// one but ignored your index". So a selector narrowed by index, state, a bounded
+/// regex, or a relational anchor cannot be handed to the shim at all — the caller
+/// must fall back to the snapshot path, which evaluates every field. Accepting it
+/// here would act on the wrong element and report success.
+///
+/// This walks the struct rather than listing the excluded fields, so a field added
+/// to `Selector` later is treated as inexpressible until someone deliberately maps
+/// it. The default has to be "fall back", because the failure in the other
+/// direction is silent.
+fn carriesOnlyExpressibleIdentity(wanted: selectors.Selector) bool {
+    inline for (@typeInfo(selectors.Selector).@"struct".fields) |field| {
+        comptime var expressible = false;
+        inline for (expressible_identity_fields) |candidate| {
+            if (comptime std.mem.eql(u8, candidate, field.name)) expressible = true;
+        }
+        if (!expressible and @field(wanted, field.name) != null) return false;
+    }
+    return true;
 }
 
 fn commandName(kind: CommandKind) []const u8 {

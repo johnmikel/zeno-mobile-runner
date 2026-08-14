@@ -4,6 +4,24 @@ All notable changes to Zeno Mobile Runner are tracked here.
 
 ## Unreleased
 
+### Fixed
+
+- On iOS, a selector narrowed beyond a single identity attribute no longer acts
+  on the wrong element and reports success. The shim query string can carry
+  exactly one identity attribute, and `selectorString` returned one whenever
+  exactly one of the six it maps was set — silently discarding `index`,
+  `enabled`, `checked`, `focused`, `selected`, `stableId`, both regex fields,
+  `point`, and every relational anchor. The shim has no way to report that it
+  ignored a constraint, and callers acted on its answer without re-checking, so
+  `{ "text": "Save", "index": 3 }` tapped the first Save and passed, and
+  `{ "id": "submit", "enabled": true }` tapped a disabled button and passed. Such
+  selectors are now declined so the run falls back to the snapshot path, which
+  evaluates the whole selector — the same path a two-identity-field selector has
+  always taken. The guard walks the selector struct rather than listing the
+  excluded fields, so a field added later is declined until it is deliberately
+  mapped; the default has to be "fall back", because the failure in the other
+  direction is silent.
+
 ### Added
 
 - A worked cross-platform evidence example under
